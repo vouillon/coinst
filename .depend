@@ -1,0 +1,32 @@
+./util.cmi: 
+./util.cmo: ./util.cmi 
+./util.cmx: ./util.cmi 
+./repository.cmi: api.cmi 
+./api.cmo: ./api.cmi 
+./api.cmx: ./api.cmi 
+./common.cmo: util.cmi ./common.cmi 
+./common.cmx: util.cmx ./common.cmi 
+./api.cmi: 
+./rpm_lib.cmi: api.cmi 
+./deb_lib.cmi: api.cmi 
+./dgraph.cmi: 
+./solver.cmi: 
+./cudf_lib.cmi: api.cmi 
+./common.cmi: 
+./deb_lib.cmo: util.cmi solver.cmi common.cmi ./deb_lib.cmi 
+./deb_lib.cmx: util.cmx solver.cmx common.cmx ./deb_lib.cmi 
+./main.cmo: rpm_lib.cmi repository.cmi deb_lib.cmi cudf_lib.cmi api.cmi 
+./main.cmx: rpm_lib.cmx repository.cmx deb_lib.cmx cudf_lib.cmx api.cmx 
+./rpm_lib.cmo: util.cmi solver.cmi common.cmi ./rpm_lib.cmi 
+./rpm_lib.cmx: util.cmx solver.cmx common.cmx ./rpm_lib.cmi 
+./graph.cmi: repository.cmi 
+./cudf_lib.cmo: solver.cmi common.cmi ./cudf_lib.cmi 
+./cudf_lib.cmx: solver.cmx common.cmx ./cudf_lib.cmi 
+./solver.cmo: ./solver.cmi 
+./solver.cmx: ./solver.cmi 
+./repository.cmo: api.cmi ./repository.cmi 
+./repository.cmx: api.cmx ./repository.cmi 
+./dgraph.cmo: ./dgraph.cmi 
+./dgraph.cmx: ./dgraph.cmi 
+./graph.cmo: repository.cmi ./graph.cmi 
+./graph.cmx: repository.cmx ./graph.cmi 
