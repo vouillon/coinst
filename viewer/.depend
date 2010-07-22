@@ -1,0 +1,27 @@
+./svg.cmo: 
+./svg.cmx: 
+./dot.cmo: 
+./dot.cmx: 
+./dot_lexer.cmi: dot_parser.cmi 
+./scene.cmo: ./scene.cmi 
+./scene.cmx: ./scene.cmi 
+./viewer.cmi: scene.cmi 
+./viewer.cmo: scene.cmi ./viewer.cmi 
+./viewer.cmx: scene.cmx ./viewer.cmi 
+./dot_render.cmo: scene.cmi dot_graph.cmi ./dot_render.cmi 
+./dot_render.cmx: scene.cmx dot_graph.cmx ./dot_render.cmi 
+./dot_graph.cmo: dot_parser.cmi dot_lexer.cmi dot_file.cmi ./dot_graph.cmi 
+./dot_graph.cmx: dot_parser.cmx dot_lexer.cmx dot_file.cmx ./dot_graph.cmi 
+./dot_parser.cmi: dot_file.cmi 
+./main.cmo: viewer.cmi dot_render.cmi dot_graph.cmi 
+./main.cmx: viewer.cmx dot_render.cmx dot_graph.cmx 
+./scene.cmi: 
+./dot_file.cmi: 
+./dot_graph.cmi: dot_file.cmi 
+./dot_lexer.cmo: dot_parser.cmi ./dot_lexer.cmi 
+./dot_lexer.cmx: dot_parser.cmx ./dot_lexer.cmi 
+./dot_parser.cmo: dot_file.cmi ./dot_parser.cmi 
+./dot_parser.cmx: dot_file.cmx ./dot_parser.cmi 
+./dot_file.cmo: ./dot_file.cmi 
+./dot_file.cmx: ./dot_file.cmi 
+./dot_render.cmi: scene.cmi dot_graph.cmi 
