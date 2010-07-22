@@ -1,7 +1,10 @@
 
 module F (R : Repository.S) : sig
+  open R
+
   val output :
-    string -> R.pool -> bool -> R.Conflict.t ->
-    (R.Package.t, R.Package.t list * R.Formula.t * R.PSet.t list) Hashtbl.t ->
-    unit
+    string -> bool ->
+    ?package_weight:(Package.t -> float) ->
+    ?edge_color:(Package.t -> Formula.t -> Disj.t -> string) ->
+    Quotient.F(R).t -> dependencies -> Conflict.t -> unit
 end

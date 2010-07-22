@@ -8,3 +8,5 @@ val reset_warning_location : unit -> unit
 val print_warning : string -> unit
 
 val fail : string -> 'a
+
+val title : string -> unit

@@ -1,3 +1,7 @@
 \.cm[ix]$
 \.o$
 ~$
+^viewer/viewer$
+^viewer/dot_parser\.mli?$
+^viewer/dot_lexer\.ml$
+^check_coinstall$

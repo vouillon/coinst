@@ -1,12 +1,34 @@
 (*
-XXX Perform checks: stable under composition, ...
-XXX Simplifies p -> q \/ d  when p ## q (during flattening)
+./check_coinstall -ignore daemontools-run /var/lib/apt/lists/ftp.fr.debian.org_debian_dists_testing_main_binary-amd64_Packages -ignore liboss-salsa-asound2 -ignore libgd2-noxpm -ignore libqt4-phonon -ignore libjack-jackd2-0 -ignore libjpeg8-dev -ignore libhdf4-dev -ignore libgl1-mesa-swx11
+
+
+
+
+* Push conflicts downwards?
+  --> if a package depends on packages that all conflicts with a same
+      package, add a conflict link, at possibly remove the dependency
+* "Undo" transitive closure
+* Better clique finding algorithm (for conflicts)
 *)
+
+let mark_all = ref false
+let explain = ref false
+
+let insert tbl x v =
+  let l =
+    try Hashtbl.find tbl x with Not_found ->
+    let l = ref [] in Hashtbl.add tbl x l; l
+  in
+  l := v :: !l
+
+let get tbl x = try !(Hashtbl.find tbl x) with Not_found -> []
 
 module F (M : Api.S) = struct
 
   module Repository = Repository.F(M)
   open Repository
+
+(****)
 
 let simplify_formula confl f =
   Formula.filter
@@ -49,8 +71,8 @@ Format.eprintf "< %a@." (Formula.print dist) l;
 (*???
         let l = filter_conflicts conflicts i l in
 *)
-Format.eprintf "%a > %a@." (Package.print dist) i (Formula.print dist) l;
 (*
+Format.eprintf "%a > %a@." (Package.print dist) i (Formula.print dist) l;
 *)
         let r = PSet.remove i r in
         if Conflict.has conflicts i then
@@ -67,88 +89,35 @@ Format.printf "%a: %a (%d)@."
     if PSet.is_empty (snd res) then Hashtbl.add tbl i (fst res);
     res
 
+(****)
 
-  let quotient dist confl deps =
-    let classes_by_dep = Hashtbl.create 17 in
-    let class_count = ref 0 in
-    PTbl.iteri
-      (fun p f ->
-         let f = Formula.normalize f in
-         let l =
-           try
-             let (l, _, _) = Hashtbl.find classes_by_dep f in l
-           with Not_found ->
-             incr class_count;
-             let l = ref PSet.empty in
-             Hashtbl.add classes_by_dep f (l, f, confl);
-             l
-         in
-         l := PSet.add p !l)
-      deps;
+module Quotient = Quotient.F (Repository)
+module Graph = Graph.F (Repository)
 
+let f ignored_packages ic =
+  let dist = M.new_pool () in
+  M.parse_packages dist ignored_packages ic;
+  let confl = Conflict.create dist in
+  let c = M.compute_conflicts dist in
+  Array.iteri
+    (fun p1 l ->
+       List.iter
+         (fun p2 ->
+            Conflict.add confl
+              (Package.of_index p1) (Package.of_index p2))
+         l)
+    c;
 
-  (* Compute good representatives *)
-  let repr = PTbl.create dist (Package.of_index (-1)) in
-  Hashtbl.iter
-    (fun _ (l, deps, confl) ->
-       let ps =
-         Formula.fold (fun d s -> PSet.union (Disj.to_lits d) s)
-           deps PSet.empty
-       in
-       let l' = PSet.inter ps !l in
-       let i = try PSet.choose l' with Not_found -> PSet.choose !l in
-       PSet.iter (fun j -> PTbl.set repr j i) !l)
-    classes_by_dep;
-
-  (* Normalize dependencies and conflicts *)
-  let classes = Hashtbl.create 101 in
-  let normalize l =
-    Formula.fold
-      (fun d f ->
-         Formula.conj
-           (Formula.of_disj
-              (Disj.fold (fun p d -> Disj.disj (Disj.lit (PTbl.get repr p)) d)
-                 d Disj._false))
-           f)
-      l Formula._true
+  let deps =
+    let d = M.compute_deps dist in
+    PTbl.init dist
+      (fun p ->
+         Formula.conjl
+           (List.map (fun l' -> Formula.lit_disj (Package.of_index_list l'))
+           d.(Package.index p)))
   in
-  Hashtbl.iter
-    (fun _ (l, deps, confl) ->
-       let i = PTbl.get repr (PSet.choose !l) in
-       let deps = normalize deps in
-       let confl = normalize confl in
 
-       Hashtbl.add classes i (!l, deps, confl))
-    classes_by_dep;
-  ()
-
-  let class_size classes i =
-    let (l, _, _) = Hashtbl.find classes i in List.length l
-
-  let f ignored_packages ic =
-    let dist = M.new_pool () in
-    M.parse_packages dist ignored_packages ic;
-    let confl = Conflict.create dist in
-    let c = M.compute_conflicts dist in
-    Array.iteri
-      (fun p1 l ->
-         List.iter
-           (fun p2 ->
-              Conflict.add confl
-                (Package.of_index p1) (Package.of_index p2))
-           l)
-      c;
-
-    let deps =
-      let d = M.compute_deps dist in
-      PTbl.init dist
-        (fun p ->
-           Formula.conjl
-             (List.map (fun l' -> Formula.lit_disj (Package.of_index_list l'))
-             d.(Package.index p)))
-    in
-
-    (****)
+  (****)
 (*
   for i = 0 to M.pool_size dist - 1 do
     let p = Package.of_index i in
@@ -157,16 +126,11 @@ Format.printf "%a: %a (%d)@."
   done;
 *)
 
- let t1 = Unix.gettimeofday () in
   let tbl = Hashtbl.create 17 in
 
   let flatten_deps =
     PTbl.init dist (fun p -> fst (flatten_dep tbl dist deps confl [] p))
   in
-Format.eprintf "==============================@.";
-
-    let t2 = Unix.gettimeofday () in
-Format.eprintf "%f@." (t2 -. t1);
 
   let conj_deps p =
     let f = PTbl.get flatten_deps p in
@@ -179,104 +143,250 @@ Format.eprintf "%f@." (t2 -. t1);
        let d1 = conj_deps p1 in
        let d2 = conj_deps p2 in
        if PSet.exists (fun q1 -> PSet.exists (fun q2 -> (p1 <> q1 || q2 <> p2) && Conflict.check confl q1 q2) d2) d1 then begin
+(*
          Format.eprintf "%a ## %a@."
            (Package.print dist) p1 (Package.print dist) p2;
+*)
          Conflict.remove confl p1 p2
        end);
-Format.eprintf "==============================@.";
 
   let fd2 = PTbl.map (simplify_formula confl) flatten_deps in
-Format.eprintf "==============================@.";
 
-(*
-  for i = 0 to M.pool_size dist - 1 do
-    let p = Package.of_index i in
-    let f = PTbl.get fd2 p in
-    Format.eprintf "%a => %a@." (Package.print dist) p (Formula.print dist) f
-  done;
-*)
-(*
-  for i = 0 to M.pool_size dist - 1 do
-    let p = Package.of_index i in
-    let f1 = PTbl.get flatten_deps p in
-    let f2 = PTbl.get fd2 p in
-    if not (Formula.equiv f1 f2) then begin
-      Format.eprintf "%a =>@." (Package.print dist) p;
-      Format.eprintf "  %a@." (Formula.print dist) f1;
-      Format.eprintf "  %a@." (Formula.print dist) f2
-    end
-  done;
-*)
-
-  let maybe_remove p f d =
+  let maybe_remove fd2 p f d =
     Disj.exists (fun q ->
       Conflict.for_all confl (fun r ->
         Formula.exists (fun d' -> Disj.implies d' d && not (Disj.implies1 q d')) (PTbl.get fd2 r)) q
-
+(*
 && (
 Format.eprintf "%a =>(%a) %a@." (Package.print dist) p (Package.print dist) q (Disj.print dist) d;
 true)
-
+*)
 ) d
   in
-  let is_composition p f d =
+  let is_composition fd2 p f d =
   Formula.exists (fun d' ->
     not (Disj.equiv d d') && not (Disj.equiv (Disj.lit p) d') &&
     Disj.exists (fun q ->
       Formula.exists (fun d'' ->
-        Disj.implies d (Disj.cut d' q d'') && (
+        Disj.implies d (Disj.cut d' q d'')
+(*
+&& (
 Format.eprintf "XXX %a / %a -> %a@." (Disj.print dist) d' (Package.print dist) q (Disj.print dist) d''; true
-)) (PTbl.get fd2 q)) d') f
+)
+*)
+) (PTbl.get fd2 q)) d') f
 in
 
+(*
 PTbl.iteri (fun p f ->
 Formula.iter f (fun d -> if Conflict.exists confl (fun q -> Disj.implies1 q d) p then Format.eprintf "YYY %a ==> %a@." (Package.print dist) p (Disj.print dist) d
 )) fd2;
+*)
 
 
   let fd2 =
   PTbl.mapi
     (fun p f ->
 Formula.filter (fun d ->
-  not (maybe_remove p f d) || is_composition p f d) f) fd2 
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
   in
-Format.eprintf "==============================@.";
+(*Format.eprintf "==============================@.";*)
   let fd2 =
   PTbl.mapi
     (fun p f ->
 Formula.filter (fun d ->
-  not (maybe_remove p f d) || is_composition p f d) f) fd2 
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
   in
-Format.eprintf "==============================@.";
+(*Format.eprintf "==============================@.";*)
   let fd2 =
   PTbl.mapi
     (fun p f ->
 Formula.filter (fun d ->
-  not (maybe_remove p f d) || is_composition p f d) f) fd2 
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
   in
-Format.eprintf "==============================@.";
+(*Format.eprintf "==============================@.";*)
   let fd2 =
   PTbl.mapi
     (fun p f ->
 Formula.filter (fun d ->
-  not (maybe_remove p f d) || is_composition p f d) f) fd2 
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
   in
-Format.eprintf "==============================@.";
+(*Format.eprintf "==============================@.";*)
   let fd2 =
   PTbl.mapi
     (fun p f ->
 Formula.filter (fun d ->
-  not (maybe_remove p f d) || is_composition p f d) f) fd2 
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
   in
-Format.eprintf "==============================@.";
+(*Format.eprintf "==============================@.";*)
   let fd2 =
   PTbl.mapi
     (fun p f ->
 Formula.filter (fun d ->
-  not (maybe_remove p f d) || is_composition p f d) f) fd2 
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
   in
-Format.eprintf "==============================@.";
-ignore fd2;
+(*Format.eprintf "==============================@.";*)
+  let fd2 =
+  PTbl.mapi
+    (fun p f ->
+Formula.filter (fun d ->
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
+  in
+(*Format.eprintf "==============================@.";*)
+  let fd2 =
+  PTbl.mapi
+    (fun p f ->
+Formula.filter (fun d ->
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
+  in
+(*Format.eprintf "==============================@.";*)
+  let fd2 =
+  PTbl.mapi
+    (fun p f ->
+Formula.filter (fun d ->
+  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
+  in
+(*Format.eprintf "==============================@.";*)
+
+  (* Build package equivalence classes *)
+  let quotient = Quotient.perform dist fd2 in
+  let deps = Quotient.dependencies quotient fd2 in
+  let confl = Quotient.conflicts quotient confl in
+  Quotient.print quotient deps;
+
+  (* Generate SAT problem *)
+  let st = M.generate_rules dist in
+
+  Util.title "NON-INSTALLABLE PACKAGES";
+  let non_inst = ref PSet.empty in
+  let is_installable i = not (PSet.mem i !non_inst) in
+  Quotient.iter
+    (fun p ->
+       let i = Package.index p in
+       if not (M.Solver.solve st i) then begin
+         Format.printf "%a@." (Quotient.print_class quotient) p;
+         if !explain then
+           M.show_reasons dist (M.Solver.collect_reasons st i);
+         non_inst := PSet.add p !non_inst
+       end;
+       M.Solver.reset st)
+    quotient;
+  Format.printf "@.";
+
+  Util.title "NON-COINSTALLABLE PAIRS";
+  let dep_tbl = Hashtbl.create 101 in
+  let confl_tbl = Hashtbl.create 101 in
+  Quotient.iter
+    (fun p ->
+       if is_installable p then begin
+         let f = PTbl.get deps p in
+         Formula.iter f
+           (fun d ->
+              Disj.iter d
+                (fun q ->
+                   if is_installable q then begin
+                     insert dep_tbl q p;
+                     PSet.iter
+                       (fun r ->
+                          if is_installable r then insert confl_tbl r p)
+                       (Conflict.of_package confl q)
+                   end))
+       end)
+    quotient;
+
+  let pairs = Hashtbl.create 101 in
+  let c = ref 0 in
+  let c' = ref 0 in
+  let c'' = ref 0 in
+  let conflicts = Hashtbl.create 101 in
+(*
+
+  let coinstallable_pairs = ref PSetSet.empty in
+  let non_coinstallable_pairs = ref PSetSet.empty in
+*)
+  Hashtbl.iter
+    (fun p l ->
+       let l' = get dep_tbl p in
+       List.iter
+         (fun p ->
+            let i = Package.index p in
+            List.iter
+              (fun q ->
+                 let j = Package.index q in
+                 let pair = (min i j, max i j) in
+                 if i <> j && not (Hashtbl.mem pairs pair) then begin
+                   Hashtbl.add pairs pair ();
+
+                   if M.Solver.solve_lst st [i; j] then begin
+((*
+                     coinstallable_pairs :=
+                       PSetSet.add (PSet.add i (PSet.singleton j))
+                         !coinstallable_pairs
+ *))
+                   end else begin
+                     incr c'';
+                     let r = M.Solver.collect_reasons_lst st [i; j] in
+                     insert conflicts p (q, r);
+                     insert conflicts q (p, r);
+((*
+                     non_coinstallable_pairs :=
+                       PSetSet.add (PSet.add i (PSet.singleton j))
+                         !non_coinstallable_pairs
+ *))
+                   end;
+                   M.Solver.reset st;
+                   incr c'
+                 end)
+              l')
+         !l;
+       c := !c + List.length !l * List.length l')
+    confl_tbl;
+(*
+  if !debug then Format.eprintf "Pairs: %d - %d - %d@." !c !c' !c'';
+*)
+
+  let cl = ref [] in
+  Hashtbl.iter
+    (fun i l ->
+       let c = ref 0 in
+       List.iter (fun (j, _) -> c := !c + Quotient.class_size quotient j) !l;
+       cl := (!c, (i, !l)) :: !cl)
+    conflicts;
+  let sort l = List.sort (fun (c, _) (c', _) -> - compare c c') l in
+  List.iter
+    (fun (c, (i, l)) ->
+       Format.printf "%d %a:" c (Quotient.print_class quotient) i;
+       let l =
+         sort (List.map
+                 (fun (j, r) -> (Quotient.class_size quotient j, (j, r))) l)
+       in
+       let nf = ref false in
+       List.iter
+         (fun (c, (j, _)) ->
+            if !nf then Format.printf ","; nf := true;
+            Format.printf " %a" (Quotient.print_class quotient) j) l;
+       Format.printf "@.";
+       if !explain then begin
+         List.iter (fun (_, (_, r)) -> M.show_reasons dist r) l;
+         Format.printf "@."
+       end)
+    (sort !cl);
+  let pw =
+     List.fold_left
+       (fun m (c, (p, _)) -> PMap.add p (max 1. (float c /. 4.)) m)
+       PMap.empty !cl
+  in
+  let package_weight p = try PMap.find p pw with Not_found -> 1. in
+  let edge_color p f d =
+    if (*maybe_remove fd2 p f d &&*) is_composition fd2 p f d then
+      "violet"
+    else
+      "blue"
+  in
+  Graph.output "/tmp/foo.dot" (!mark_all) ~package_weight ~edge_color
+    quotient deps confl;
+
+  exit 1;
 
 (*then
     begin
@@ -405,12 +515,14 @@ Arg.parse
    "-graph",
    Arg.String (fun f -> graph_file := Some f),
    "FILE   Output coinstallability graph to file FILE";
+*)
    "-all",
    Arg.Unit (fun () -> mark_all := true),
    "  Include all packages in the coinstallability graph";
    "-explain",
    Arg.Unit (fun () -> explain := true),
    " Explain the results";
+(*
    "-debug",
    Arg.Unit (fun () -> debug := true),
    "  Output debugging informations";

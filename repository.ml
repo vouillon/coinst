@@ -70,14 +70,20 @@ module type S = sig
     val normalize : t -> t
   end
 
+  type dependencies = Formula.t PTbl.t
+
   module Conflict : sig
     type t
     val create : pool -> t
-    val has : t -> Package.t -> bool
+
     val check : t -> Package.t -> Package.t -> bool
     val add : t -> Package.t -> Package.t -> unit
     val remove : t -> Package.t -> Package.t -> unit
     val iter : t -> (Package.t -> Package.t -> unit) -> unit
+
+    val has : t -> Package.t -> bool
+    val of_package : t -> Package.t -> PSet.t
+
     val iter_on_packages : t -> (Package.t -> PSet.t -> unit) -> unit
     val exists : t -> (Package.t -> bool) -> Package.t -> bool
     val for_all : t -> (Package.t -> bool) -> Package.t -> bool
@@ -87,15 +93,7 @@ end
 module F (M : Api.S) = struct
   type pool = M.pool
 
-  module Package : sig
-    type t
-    val compare : t -> t -> int
-    val print : M.pool -> Format.formatter -> t -> unit
-    val print_name : pool -> Format.formatter -> t -> unit
-    val index : t -> int
-    val of_index : int -> t
-    val of_index_list : int list -> t list
-  end = struct
+  module Package = struct
     type t = int
     let compare (x : int) y = compare x y
     let print = M.print_pack
@@ -110,16 +108,7 @@ module F (M : Api.S) = struct
   let pset_of_lst l = List.fold_left (fun s x -> PSet.add x s) PSet.empty l
   let pset_map f s = pset_of_lst (List.map f (PSet.elements s))
 
-  module PTbl : sig
-    type 'a t
-    val create : M.pool -> 'a -> 'a t
-    val init : M.pool -> (Package.t -> 'a) -> 'a t
-    val get : 'a t -> Package.t -> 'a
-    val set : 'a t -> Package.t -> 'a -> unit
-    val iteri : (Package.t -> 'a -> unit) -> 'a t -> unit
-    val map : ('a -> 'b) -> 'a t -> 'b t
-    val mapi : (Package.t -> 'a -> 'b) -> 'a t -> 'b t
-  end = struct
+  module PTbl = struct
     type 'a t = 'a array
     let create pool v = Array.make (M.pool_size pool) v
     let init pool f =
@@ -210,18 +199,9 @@ module F (M : Api.S) = struct
       f
   end
 
-  module Conflict : sig
-    type t
-    val create : M.pool -> t
-    val has : t -> Package.t -> bool
-    val check : t -> Package.t -> Package.t -> bool
-    val add : t -> Package.t -> Package.t -> unit
-    val remove : t -> Package.t -> Package.t -> unit
-    val iter : t -> (Package.t -> Package.t -> unit) -> unit
-    val iter_on_packages : t -> (Package.t -> PSet.t -> unit) -> unit
-    val exists : t -> (Package.t -> bool) -> Package.t -> bool
-    val for_all : t -> (Package.t -> bool) -> Package.t -> bool
-  end = struct
+  type dependencies = Formula.t PTbl.t
+
+  module Conflict  = struct
     type t = PSet.t PTbl.t
     let create pool = PTbl.create pool PSet.empty
     let has c p1 = not (PSet.is_empty (PTbl.get c p1))
@@ -235,6 +215,7 @@ module F (M : Api.S) = struct
     let iter c f =
       PTbl.iteri (fun i s -> PSet.iter (fun j -> if i < j then f i j) s) c
     let iter_on_packages c f = PTbl.iteri f c
+    let of_package = PTbl.get
 
     let exists c f p = PSet.exists f (PTbl.get c p)
     let for_all c f p = PSet.for_all f (PTbl.get c p)

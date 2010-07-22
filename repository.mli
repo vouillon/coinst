@@ -66,14 +66,20 @@ module type S = sig
     val normalize : t -> t
   end
 
+  type dependencies = Formula.t PTbl.t
+
   module Conflict : sig
     type t
     val create : pool -> t
-    val has : t -> Package.t -> bool
+
     val check : t -> Package.t -> Package.t -> bool
     val add : t -> Package.t -> Package.t -> unit
     val remove : t -> Package.t -> Package.t -> unit
     val iter : t -> (Package.t -> Package.t -> unit) -> unit
+
+    val has : t -> Package.t -> bool
+    val of_package : t -> Package.t -> PSet.t
+
     val iter_on_packages : t -> (Package.t -> PSet.t -> unit) -> unit
     val exists : t -> (Package.t -> bool) -> Package.t -> bool
     val for_all : t -> (Package.t -> bool) -> Package.t -> bool

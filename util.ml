@@ -39,3 +39,7 @@ let fail s =
   hide_msg ();
   Format.eprintf "Failure: %s@." s;
   exit 1
+
+(****)
+
+let title s = Format.printf "%s@.%s@." s (String.make (String.length s) '=')

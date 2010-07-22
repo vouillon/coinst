@@ -1,0 +1,5 @@
+- improve algorithm for finding cliques of conflicts
+- generate directly a dot file with position informations
+
+- remove some edges that can be obtained by transitivity
+- investigate the edges that was not removed

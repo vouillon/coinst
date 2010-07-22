@@ -10,23 +10,30 @@
 ./rpm_lib.cmi: api.cmi 
 ./deb_lib.cmi: api.cmi 
 ./dgraph.cmi: 
+./viewer/main.cmo: 
+./viewer/main.cmx: 
 ./solver.cmi: 
 ./cudf_lib.cmi: api.cmi 
 ./common.cmi: 
 ./deb_lib.cmo: util.cmi solver.cmi common.cmi ./deb_lib.cmi 
 ./deb_lib.cmx: util.cmx solver.cmx common.cmx ./deb_lib.cmi 
-./main.cmo: rpm_lib.cmi repository.cmi deb_lib.cmi cudf_lib.cmi api.cmi 
-./main.cmx: rpm_lib.cmx repository.cmx deb_lib.cmx cudf_lib.cmx api.cmx 
+./main.cmo: rpm_lib.cmi repository.cmi quotient.cmi graph.cmi deb_lib.cmi \
+    cudf_lib.cmi api.cmi 
+./main.cmx: rpm_lib.cmx repository.cmx quotient.cmx graph.cmx deb_lib.cmx \
+    cudf_lib.cmx api.cmx 
 ./rpm_lib.cmo: util.cmi solver.cmi common.cmi ./rpm_lib.cmi 
 ./rpm_lib.cmx: util.cmx solver.cmx common.cmx ./rpm_lib.cmi 
-./graph.cmi: repository.cmi 
+./graph.cmi: repository.cmi quotient.cmi 
 ./cudf_lib.cmo: solver.cmi common.cmi ./cudf_lib.cmi 
 ./cudf_lib.cmx: solver.cmx common.cmx ./cudf_lib.cmi 
+./quotient.cmi: repository.cmi 
 ./solver.cmo: ./solver.cmi 
 ./solver.cmx: ./solver.cmi 
 ./repository.cmo: api.cmi ./repository.cmi 
 ./repository.cmx: api.cmx ./repository.cmi 
+./quotient.cmo: util.cmi repository.cmi ./quotient.cmi 
+./quotient.cmx: util.cmx repository.cmx ./quotient.cmi 
 ./dgraph.cmo: ./dgraph.cmi 
 ./dgraph.cmx: ./dgraph.cmi 
-./graph.cmo: repository.cmi ./graph.cmi 
-./graph.cmx: repository.cmx ./graph.cmi 
+./graph.cmo: repository.cmi quotient.cmi ./graph.cmi 
+./graph.cmx: repository.cmx quotient.cmx ./graph.cmi 
