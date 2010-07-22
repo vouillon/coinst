@@ -1,7 +1,9 @@
-\.cm[ix]$
+\.cm[iox]$
 \.o$
 ~$
 ^viewer/viewer$
 ^viewer/dot_parser\.mli?$
 ^viewer/dot_lexer\.ml$
 ^check_coinstall$
+^viewer/jsviewer\.js$
+^viewer/jsviewer\.byte$

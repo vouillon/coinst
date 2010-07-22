@@ -14,18 +14,6 @@ let set_visible w vis =
 
 (****)
 
-type rectangle = Gtk.rectangle = {x : int; y : int; width : int; height: int}
-let empty_rectangle = {x = 0; y = 0; width = 0; height = 0}
-let rectangle_is_empty r = r.width = 0 || r.height = 0
-
-type st =
-  { mutable bboxes : (float * float * float * float) array;
-    scene : Scene.element array;
-    mutable zoom_factor : float;
-    st_x : float; st_y : float; st_width : float; st_height : float }
-
-(****)
-
 let path_extent ctx fill stroke =
   if stroke <> None then Cairo.stroke_extents ctx
   else Cairo.fill_extents ctx
@@ -66,6 +54,61 @@ let compute_extent ctx e =
        y +. ext.Cairo.y_bearing -. 5.,
        x +. ext.Cairo.text_width /. 2. +. 5.,
        y +. ext.Cairo.y_bearing +. ext.Cairo.text_height +. 5.)
+
+(****)
+
+module Common = Viewer_common.F (struct
+  type ctx = Cairo.t
+  type color = float * float * float
+
+  let save = Cairo.save
+  let restore = Cairo.restore
+
+  let scale = Cairo.scale
+  let translate = Cairo.translate
+
+  let begin_path = Cairo.new_path
+  let close_path = Cairo.close_path
+  let move_to = Cairo.move_to
+  let line_to = Cairo.line_to
+  let curve_to = Cairo.curve_to
+  let arc = Cairo.arc
+  let rectangle = Cairo.rectangle
+
+  let fill ctx (r, g, b) =
+    Cairo.set_source_rgb ctx r g b; Cairo.fill_preserve ctx
+  let stroke ctx (r, g, b) =
+    Cairo.set_source_rgb ctx r g b; Cairo.stroke_preserve ctx
+  let clip = Cairo.clip
+
+  type window = < misc : GDraw.misc_ops >
+  type drawable = GDraw.drawable
+  type pixmap = GDraw.pixmap
+  let get_drawable w = new GDraw.drawable (w#misc#window)
+  let make_pixmap window width height =
+    GDraw.pixmap ~width ~height ~window ()
+  let drawable_of_pixmap p = (p : GDraw.pixmap :> GDraw.drawable)
+  let get_context p = Cairo_lablgtk.create p#pixmap
+  let put_pixmap ~(dst : GDraw.drawable) ~x ~y ~xsrc ~ysrc ~width ~height p =
+    dst#put_pixmap ~x ~y ~xsrc ~ysrc ~width ~height p#pixmap;
+
+  (****)
+
+  type rectangle = Gtk.rectangle = {x : int; y : int; width : int; height: int}
+  let compute_extent = compute_extent
+end)
+
+type rectangle = Gtk.rectangle = {x : int; y : int; width : int; height: int}
+let empty_rectangle = {x = 0; y = 0; width = 0; height = 0}
+let rectangle_is_empty r = r.width = 0 || r.height = 0
+
+type st =
+  { mutable bboxes : (float * float * float * float) array;
+    scene : Scene.color Scene.element array;
+    mutable zoom_factor : float;
+    st_x : float; st_y : float; st_width : float; st_height : float }
+
+(****)
 
 let perform_draw ctx fill stroke =
   begin match fill with
@@ -246,8 +289,6 @@ r
   ignore (display#event#connect#configure
     (fun ev ->
 prerr_endline "CONFIGURE";
-       grow_pixmap pm display
-         (GdkEvent.Configure.width ev) (GdkEvent.Configure.height ev);
        update_scrollbars (); false));
   ignore (display#event#connect#map
     (fun ev ->
@@ -256,15 +297,14 @@ Format.eprintf "alloc: %d %d@." a.width a.height;
        let zoom_factor =
          max (st.st_width /. float a.width) (st.st_height /. float a.height) in
        set_zoom_factor zoom_factor;
-       grow_pixmap pm display a.width a.height;
        update_scrollbars (); false));
   display#event#add [`STRUCTURE];
 
   ignore (display#event#connect#expose
     (fun ev ->
-       (*XXX Center *)
        let scale = get_scale () in
        let a = display#misc#allocation in
+       grow_pixmap pm display a.width a.height;
        let round x = truncate (x *. scale +. 0.5) in
        let x0 = round (hadj#value) in
        let x0' = round ((float a.width /. scale -. hadj#upper) /. 2.) in
