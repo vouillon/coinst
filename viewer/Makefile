@@ -1,28 +1,35 @@
 
 OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
-OCAMLDEP=ocamldep
+OCAMLDEP=ocamlfind ocamldep
 OCAMLYACC=ocamlyacc
 OCAMLLEX=ocamllex
 
 COMPFLAGS=-package str,cairo.lablgtk2,js_of_ocaml -syntax camlp4o
+DEPFLAGS=$(COMPFLAGS)
 
 GENERATED=dot_parser.ml dot_lexer.ml
-OBJS=scene.cmx viewer_common.cmx viewer.cmx \
+OBJS=scene.cmx scene_extents.cmx viewer_common.cmx viewer.cmx \
      dot_file.cmx dot_parser.cmx dot_lexer.cmx dot_graph.cmx dot_render.cmx \
      main.cmx
+CONVERTER=scene.cmx scene_extents.cmx scene_json.cmx \
+     dot_file.cmx dot_parser.cmx dot_lexer.cmx dot_graph.cmx dot_render.cmx \
+     converter.cmx
 OPTLINKFLAGS=-package str,cairo.lablgtk2 -linkpkg
 
 JSOBJS=scene.cmo viewer_common.cmo viewer_js.cmo
 LINKFLAGS=-package js_of_ocaml -linkpkg
 
-all: viewer jsviewer.js
+all: viewer jsviewer.js converter
 
 viewer: $(OBJS)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^
 
+converter: $(CONVERTER)
+	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^
+
 jsviewer.js: jsviewer.byte
-	js_of_ocaml $^
+	js_of_ocaml $^ -pretty
 
 jsviewer.byte: $(JSOBJS)
 	$(OCAMLC) -o $@ $(LINKFLAGS) $^

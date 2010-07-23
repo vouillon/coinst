@@ -508,10 +508,10 @@ let f g =
          (*XXX Parse...*)
          try StringMap.find "label" n.G.node_attr with Not_found -> n.G.name
        in
-       let font_family = "Times Roman,serif" in
+       let font_family = "serif" in
        Scene.add scene
          (Scene.Text (x, y +. height *. 0.1, label,
-                      font_family, font_size, font_color, None));
+                      (font_family, font_size), font_color, None));
     ()
     )
     g.G.nodes.G.seq;

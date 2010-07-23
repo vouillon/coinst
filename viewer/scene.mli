@@ -5,26 +5,24 @@ type command =
 
 type color = float * float * float
 
-type 'c element =
-    Path of command array * 'c option * 'c option
-  | Polygon of (float * float) array * 'c option * 'c option
-  | Ellipse of float * float * float * float * 'c option * 'c option
+type ('color, 'font, 'text) element =
+    Path of command array * 'color option * 'color option
+  | Polygon of (float * float) array * 'color option * 'color option
+  | Ellipse of float * float * float * float * 'color option * 'color option
   | Text of
-      float * float * string * string * float * 'c option * 'c option
+      float * float * 'text * 'font * 'color option * 'color option
 
 (****)
 
 val rectangle :
-  float * float * float * float -> 'c option -> 'c option -> 'c element
+  float * float * float * float -> 'color option -> 'color option ->
+  ('color, 'font, 'text) element
 
 (****)
 
-type t
+type ('color, 'font, 'text) t
+type cairo_t = (float * float * float, string * float, string) t
 
-val make : unit -> t
-val add : t -> color element -> unit
-val get : t -> color element array
-
-(***)
-
-val to_json : Format.formatter -> t -> unit
+val make : unit -> ('color, 'font, 'text) t
+val add : ('color, 'font, 'text) t -> ('color, 'font, 'text) element -> unit
+val get : ('color, 'font, 'text) t -> ('color, 'font, 'text) element array

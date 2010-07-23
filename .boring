@@ -7,3 +7,4 @@
 ^check_coinstall$
 ^viewer/jsviewer\.js$
 ^viewer/jsviewer\.byte$
+^viewer/converter$

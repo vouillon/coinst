@@ -1,4 +1,9 @@
 (*
+XXXXX FIX: deadcode elimination of pure functions seems overly aggressive!!!
+  (functions applied to too many arguments)
+*)
+
+(*
 XXX Text API
 XXX Clear background
 XXX code for redrawing up to 4 rectangles
@@ -15,8 +20,12 @@ let pi = 4. *. atan 1.
 (****)
 
 module F (M : sig
-  type ctx
+  type font
   type color
+  type text
+  val white : color
+
+  type ctx
 
   val save : ctx -> unit
   val restore : ctx -> unit
@@ -43,6 +52,10 @@ module F (M : sig
   val stroke : ctx -> color -> unit
   val clip : ctx -> unit
 
+  val draw_text :
+    ctx -> float -> float -> text ->
+    font -> color option -> color option -> unit
+
   type window
   type drawable
   type pixmap
@@ -59,8 +72,10 @@ module F (M : sig
 
   type rectangle = {x : int; y : int; width : int; height: int}
 
-  val compute_extent :
-    ctx -> color Scene.element -> float * float * float * float
+  val compute_extents :
+    ctx ->
+    (color, font, text) Scene.element array ->
+    (float * float * float * float) array
 end) = struct
 
 open M
@@ -78,6 +93,8 @@ type pixmap =
 let make_pixmap () =
   { pixmap = None; p_width = 0; p_height = 0;
     valid_rect = empty_rectangle }
+
+let invalidate_pixmap p = p.valid_rect <- empty_rectangle
 
 let grow_pixmap pm window width height =
   let width = max width pm.p_width in
@@ -104,7 +121,7 @@ let get_pixmap pm = match pm.pixmap with Some p -> p | None -> assert false
 
 type st =
   { mutable bboxes : (float * float * float * float) array;
-    scene : color Scene.element array;
+    scene : (color, font, text) Scene.element array;
     mutable zoom_factor : float;
     st_x : float; st_y : float; st_width : float; st_height : float;
     st_pixmap : pixmap }
@@ -148,17 +165,8 @@ let draw_element ctx e =
         points;
       close_path ctx;
       perform_draw ctx fill stroke
-  | Text (x, y, txt, font, font_size, fill, stroke) ->
-((*XXXXXXXX
-      Cairo.select_font_face ctx font
-        Cairo.FONT_SLANT_NORMAL Cairo.FONT_WEIGHT_NORMAL;
-      Cairo.set_font_size ctx font_size;
-      let ext = Cairo.text_extents ctx txt in
-      Cairo.move_to ctx
-        (x -. ext.Cairo.x_bearing -. ext.Cairo.text_width /. 2.) y;
-      Cairo.show_text ctx txt;
-      perform_draw ctx fill stroke
- *))
+  | Text (x, y, txt, font, fill, stroke) ->
+      draw_text ctx x y txt font fill stroke
 
 let intersects (x1, y1, x2, y2) (x3, y3, x4, y4) =
   x1 <= x4 && y1 <= y4 && x3 <= x2 && y3 <= y2
@@ -167,18 +175,17 @@ let compute_scale st range =
   st.zoom_factor ** range#adjustment#value /. st.zoom_factor
 
 let redraw st scale x y x' y' w h =
+(*
 Format.eprintf "REDRAW %d %d %d %d@." x' y' w h;
+*)
   let ctx = get_context (get_pixmap st.st_pixmap) in
   save ctx;
   if Array.length st.bboxes = 0 && Array.length st.scene > 0 then
-    st.bboxes <- Array.map (fun e -> compute_extent ctx e) st.scene;
+    st.bboxes <- compute_extents ctx st.scene;
   begin_path ctx;
   rectangle ctx (float x') (float y') (float w) (float h);
+  M.fill ctx M.white;
   clip ctx;
-(*XXXXXXXXXXXXX
-  Cairo.set_source_rgb ctx 1. 1. 1.;
-  Cairo.paint ctx;
-*)
   let x = float x /. scale in
   let y = float y /. scale in
   M.scale ctx scale scale;
@@ -207,7 +214,6 @@ let redraw st scale x0 y0 window a x y width height =
   let y0 = round y0 in
   let y0' = round ((float a.height /. scale -. st.st_height) /. 2.) in
   let y0 = if y0' > 0 then - y0' else y0 in
-
   let dx = pm.valid_rect.x - x0  in
   let dy = pm.valid_rect.y - y0  in
   if

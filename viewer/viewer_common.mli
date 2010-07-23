@@ -1,8 +1,12 @@
 
 
 module F (M : sig
-  type ctx
   type color
+  type font
+  type text
+  val white : color
+
+  type ctx
 
   val save : ctx -> unit
   val restore : ctx -> unit
@@ -29,6 +33,10 @@ module F (M : sig
   val stroke : ctx -> color -> unit
   val clip : ctx -> unit
 
+  val draw_text :
+    ctx -> float -> float -> text ->
+    font -> color option -> color option -> unit
+
   type window
   type drawable
   type pixmap
@@ -45,17 +53,20 @@ module F (M : sig
 
   type rectangle = {x : int; y : int; width : int; height: int}
 
-  val compute_extent :
-    ctx -> color Scene.element -> float * float * float * float
+  val compute_extents :
+    ctx ->
+    (color, font, text) Scene.element array ->
+    (float * float * float * float) array
 end) : sig
 
   type pixmap
 
   val make_pixmap : unit -> pixmap
+  val invalidate_pixmap : pixmap -> unit
 
   type st =
     { mutable bboxes : (float * float * float * float) array;
-      scene : M.color Scene.element array;
+      scene : (M.color, M.font, M.text) Scene.element array;
       mutable zoom_factor : float;
       st_x : float; st_y : float; st_width : float; st_height : float;
       st_pixmap : pixmap }
