@@ -1,6 +1,3 @@
-(*
-- Zoom : widget + mouse wheel
-*)
 
 type rect = {x : int; y : int; width : int; height: int}
 
@@ -76,7 +73,6 @@ open Common
 let redraw st s h v (canvas : Html.canvasElement Js.t) =
   let width = canvas##width in
   let height = canvas##height in
-Firebug.console##log_2 (h, v);
   redraw st s h v canvas
     {x = 0; y = 0; width = width; height = height} 0 0 width height
 
@@ -90,14 +86,6 @@ let http_get url =
 
 let json : < parse : Js.js_string Js.t -> 'a> Js.t = Js.Unsafe.variable "JSON"
 
-(*
-  ?value:float ->
-  ?lower:float ->
-  ?upper:float ->
-  ?step_incr:float ->
-  ?page_incr:float -> ?page_size:float -> unit -> adjustment
-*)
-
 class adjustment
     ?(value=0.) ?(lower=0.) ?(upper=100.)
     ?(step_incr=1.) ?(page_incr = 10.) ?(page_size = 10.) () =
@@ -110,12 +98,45 @@ class adjustment
     val mutable _page_size = page_size method page_size = _page_size
     method set_value v = _value <- v
     method set_bounds ?lower ?upper ?step_incr ?page_incr ?page_size () =
+Firebug.console##log(Js.string "bounds!");
       begin match lower with Some v -> _lower <- v | None -> () end;
       begin match upper with Some v -> _upper <- v | None -> () end;
       begin match step_incr with Some v -> _step_incr <- v | None -> () end;
       begin match page_incr with Some v -> _page_incr <- v | None -> () end;
       begin match page_size with Some v -> _page_size <- v | None -> () end
   end
+
+
+let handle_drag element f =
+  let mx = ref 0 in
+  let my = ref 0 in
+  element##onmousedown <- Html.handler
+    (fun ev ->
+       mx := ev##clientX; my := ev##clientY;
+       let old_cursor = element##style##cursor in
+       element##style##cursor <- Js.string "move";
+       let c1 =
+         Html.addEventListener Html.document Html.Event.mousemove
+           (Html.handler
+              (fun ev ->
+                 let x = ev##clientX and y = ev##clientY in
+                 let x' = !mx and y' = !my in
+                 mx := x; my := y;
+                 f (x -  x') (y - y');
+                 Js._true))
+           Js._true
+       in
+       let c2 = ref Js.null in
+       c2 := Js.some
+         (Html.addEventListener Html.document Html.Event.mouseup
+            (Html.handler
+               (fun _ ->
+                  Html.removeEventListener c1;
+                  Js.Opt.iter !c2 Html.removeEventListener;
+                  element##style##cursor <- old_cursor;
+                  Js._true))
+            Js._true);
+       Js._false)
 
 let start _ =
   Html.document##documentElement##style##overflow <- Js.string "hidden";
@@ -126,11 +147,12 @@ let start _ =
       ((Js.Unsafe.coerce Html.window)##innerWidth)
       ((Js.Unsafe.coerce Html.window)##innerHeight) in
   Dom.appendChild Html.document##body canvas;
+
   http_get "scene.json" >>= fun s ->
   let ((x1, y1, x2, y2), bboxes, scene) = json##parse (Js.string s) in
   let st =
-    { bboxes = bboxes(*[|(0., 0., 600., 600.)|]*);
-      scene = scene (*[|Scene.Ellipse (300., 300., 250., 250., Some (Js.string "red"), Some (Js.string "blue"))|]*);
+    { bboxes = bboxes;
+      scene = scene;
       zoom_factor = 1. /. 20.;
       st_x = x1; st_y = y1; st_width = x2 -. x1; st_height = y2 -. y1;
       st_pixmap = Common.make_pixmap () }
@@ -138,7 +160,17 @@ let start _ =
   let hadj = new adjustment () in
   let vadj = new adjustment () in
 
-  let get_scale () = 0.5 in
+  let sadj =
+    new adjustment ~upper:20. ~step_incr:1. ~page_incr:0. ~page_size:0. () in
+  let zoom_steps = 8. in (* Number of steps to get a factor of 2 *)
+  let set_zoom_factor f =
+    let count = ceil (log f /. log 2. *. zoom_steps) in
+    let f = 2. ** (count /. zoom_steps) in
+    sadj#set_bounds ~upper:count ();
+    st.zoom_factor <- f
+  in
+  let get_scale () = 2. ** (sadj#value /. zoom_steps) /. st.zoom_factor in
+
   let allocation () =
     {x = 0; y = 0; width = canvas##width; height = canvas##height} in
 
@@ -158,10 +190,58 @@ Firebug.console##log("update");
     let mv = st.st_height -. vadj#page_size in
     if vadj#value < 0. then vadj#set_value 0.;
     if vadj#value > mv then vadj#set_value mv;
-Firebug.console##log_3(get_scale (), hadj#value, vadj#value);
+Firebug.console##log_4(Js.string "v", hadj#value, hadj#page_size, hadj#upper);
+Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
     redraw st (get_scale ()) hadj#value vadj#value canvas;
   in
-  update_view ();
+
+  let a = allocation () in
+  let zoom_factor =
+    max (st.st_width /. float a.width)
+        (st.st_height /. float a.height)
+  in
+  set_zoom_factor zoom_factor;
+
+  let height = 200 - 10 in
+  let pos = ref height in
+  let thumb = Html.createDiv Html.document in
+  let style = thumb##style in
+  let points d = Js.string (Printf.sprintf "%dpx" d) in
+  style##position <- Js.string "absolute";
+  style##width <- Js.string "10px";
+  style##height <- Js.string "10px";
+  style##top <- points !pos;
+  style##left <- Js.string "0px";
+  style##margin <- Js.string "1px";
+  style##backgroundColor <- Js.string "black";
+  let slider = Html.createDiv Html.document in
+  let style = slider##style in
+  style##position <- Js.string "absolute";
+  style##width <- Js.string "10px";
+  style##height <- Js.string "200px";
+  style##border <- Js.string "2px solid black";
+  style##padding <- Js.string "1px";
+  style##top <- Js.string "5px";
+  style##left <- Js.string "5px";
+  Dom.appendChild slider thumb;
+  Dom.appendChild Html.document##body slider;
+  let prev_scale = ref (get_scale ()) in
+  let zoom_center = ref (0.5, 0.5) in
+  handle_drag thumb
+    (fun dx dy ->
+       let pos' = min height (max 0 (!pos + dy)) in
+       if pos' <> !pos then begin
+         thumb##style##top <- points pos';
+         pos := pos';
+         sadj#set_value (float (height - pos') *. sadj#upper /. float height);
+         let scale = get_scale () in
+         let r = (1. -. !prev_scale /. scale) in
+         hadj#set_value (hadj#value +. hadj#page_size *. r *. fst !zoom_center);
+         vadj#set_value (vadj#value +. vadj#page_size *. r *. snd !zoom_center);
+         prev_scale := scale;
+         invalidate_pixmap st.st_pixmap;
+         update_view ()
+       end);
 
   Html.window##onresize <- Html.handler
     (fun _ ->
@@ -170,6 +250,16 @@ Firebug.console##log_3(get_scale (), hadj#value, vadj#value);
        update_view ();
        Js._false);
 
+  handle_drag canvas
+    (fun dx dy ->
+       let scale = get_scale () in
+       let offset a d =
+         a#set_value
+           (min (a#value -. float d /. scale) (a#upper -. a#page_size)) in
+       offset hadj dx;
+       offset vadj dy;
+       update_view ());
+(*
   let mx = ref 0 in
   let my = ref 0 in
   canvas##onmousedown <- Html.handler
@@ -203,75 +293,10 @@ Firebug.console##log_3(get_scale (), hadj#value, vadj#value);
                   Js._true))
             Js._true);
        Js._false);
-
+*)
+  update_view ();
 
   Lwt.return ()
 
 let _ =
 Html.window##onload <- Html.handler (fun _ -> ignore (start ()); Js._false)
-
-(**********************)
-
-(*
-I believe I have found an elegant solution to this:
-
-JavaScript
-
-/* important! for alignment, you should make things
- * relative to the canvas' current width/height.
- */
-function draw() {
-  var ctx = (a canvas context);
-  ctx.canvas.width  = window.innerWidth;
-  ctx.canvas.height = window.innerHeight;
-  //...drawing code...
-}
-
-CSS
-
-html, body {
-  width:  100%;
-  height: 100%;
-  margin: 0px;
-}
-
-Hasn't had any large negative performance impact for me, so far.
-*)
-
-(*
-<script>
-window.onload = window.onresize = function() {
-    var C = 0.8;        // canvas width to viewport width ratio
-    var W_TO_H = 2/1;   // canvas width to canvas height ratio
-    var el = document.getElementById("a");
-
-    // For IE compatibility http://www.google.com/search?q=get+viewport+size+js
-    var viewportWidth = window.innerWidth;
-    var viewportHeight = window.innerHeight;
-
-    var canvasWidth = viewportWidth * C;
-    var canvasHeight = canvasWidth / W_TO_H;
-    el.style.position = "fixed";
-    el.setAttribute("width", canvasWidth);
-    el.setAttribute("height", canvasHeight);
-    el.style.top = (viewportHeight - canvasHeight) / 2;
-    el.style.left = (viewportWidth - canvasWidth) / 2;
-
-    window.ctx = el.getContext("2d");
-    ctx.clearRect(0,0,canvasWidth,canvasHeight);
-    ctx.fillStyle = 'yellow';
-    ctx.moveTo(0, canvasHeight/2);
-    ctx.lineTo(canvasWidth/2, 0);
-    ctx.lineTo(canvasWidth, canvasHeight/2);
-    ctx.lineTo(canvasWidth/2, canvasHeight);
-    ctx.lineTo(0, canvasHeight/2);
-    ctx.fill()
-}
-</script>
-
-<body>
-<canvas id="a" style="background: black">
-</canvas>
-</body>
-*)
-
