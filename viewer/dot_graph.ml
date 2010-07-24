@@ -1,11 +1,3 @@
-(****)
-
-(*
-A graph contains sequences of:
-- subgraph
-- node
-- edge
-*)
 
 module IntSet =
   Set.Make (struct type t = int let compare (x : int) y = compare x y end)

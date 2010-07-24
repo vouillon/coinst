@@ -9,8 +9,7 @@ type ('color, 'font, 'text) element =
     Path of command array * 'color option * 'color option
   | Polygon of (float * float) array * 'color option * 'color option
   | Ellipse of float * float * float * float * 'color option * 'color option
-  | Text of
-      float * float * 'text * 'font * 'color option * 'color option
+  | Text of float * float * 'text * 'font * 'color option * 'color option
 
 (****)
 

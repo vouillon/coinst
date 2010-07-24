@@ -3,3 +3,7 @@
 
 - remove some edges that can be obtained by transitivity
 - investigate the edges that was not removed
+
+====
+- what can we say about updates: desemphasize edges that are unchanged
+

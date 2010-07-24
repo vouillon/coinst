@@ -1,10 +1,10 @@
 ./svg.cmo: 
 ./svg.cmx: 
-./viewer_js.cmo: viewer_common.cmi scene.cmi 
-./viewer_js.cmx: viewer_common.cmx scene.cmx 
+./viewer_js.cmo: viewer_common.cmi 
+./viewer_js.cmx: viewer_common.cmx 
 ./viewer_common.cmo: scene.cmi ./viewer_common.cmi 
 ./viewer_common.cmx: scene.cmx ./viewer_common.cmi 
-./scene_extents.cmi: 
+./scene_extents.cmi: scene.cmi 
 ./dot_lexer.cmi: dot_parser.cmi 
 ./scene.cmo: ./scene.cmi 
 ./scene.cmx: ./scene.cmi 
@@ -34,5 +34,7 @@
 ./scene_json.cmo: scene.cmi ./scene_json.cmi 
 ./scene_json.cmx: scene.cmx ./scene_json.cmi 
 ./dot_render.cmi: scene.cmi dot_graph.cmi 
-./converter.cmo: scene_json.cmi dot_render.cmi dot_graph.cmi 
-./converter.cmx: scene_json.cmx dot_render.cmx dot_graph.cmx 
+./converter.cmo: scene_json.cmi scene_extents.cmi scene.cmi dot_render.cmi \
+    dot_graph.cmi 
+./converter.cmx: scene_json.cmx scene_extents.cmx scene.cmx dot_render.cmx \
+    dot_graph.cmx 

@@ -39,11 +39,11 @@ module Common = Viewer_common.F (struct
      ctx##font <- font;
      ctx##textAlign <- Js.string "center";
      begin match fill_color with
-       Some c -> ctx##fillStyle <- c; ctx##fillText (txt, x, y, Js.null)
+       Some c -> ctx##fillStyle <- c; ctx##fillText (txt, x, y)
      | None   -> ()
      end;
      begin match stroke_color with
-       Some c -> ctx##strokeStyle <- c; ctx##strokeText (txt, x, y, Js.null)
+       Some c -> ctx##strokeStyle <- c; ctx##strokeText (txt, x, y)
      | None   -> ()
      end
 
@@ -93,12 +93,11 @@ class adjustment
     val mutable _value = value method value = _value
     val mutable _lower = lower method lower = _lower
     val mutable _upper = upper method upper = _upper
-    val mutable _step_incr = step_incr method step_incr = _step_incr
-    val mutable _page_incr = page_incr method page_incr = _page_incr
+    val mutable _step_incr = step_incr method step_increment = _step_incr
+    val mutable _page_incr = page_incr method page_increment = _page_incr
     val mutable _page_size = page_size method page_size = _page_size
     method set_value v = _value <- v
     method set_bounds ?lower ?upper ?step_incr ?page_incr ?page_size () =
-Firebug.console##log(Js.string "bounds!");
       begin match lower with Some v -> _lower <- v | None -> () end;
       begin match upper with Some v -> _upper <- v | None -> () end;
       begin match step_incr with Some v -> _step_incr <- v | None -> () end;
@@ -138,18 +137,35 @@ let handle_drag element f =
             Js._true);
        Js._false)
 
-let start _ =
-  Html.document##documentElement##style##overflow <- Js.string "hidden";
-  Html.document##body##style##overflow <- Js.string "hidden";
-  Html.document##body##style##margin <- Js.string "0px";
-  let canvas =
-    create_canvas  (*XXX FIX inner#Width,Height*)
-      ((Js.Unsafe.coerce Html.window)##innerWidth)
-      ((Js.Unsafe.coerce Html.window)##innerHeight) in
-  Dom.appendChild Html.document##body canvas;
+let hasMousewheelEvents () =
+  let d = Dom_html.createDiv Dom_html.document in
+  d##setAttribute(Js.string "onmousewheel", Js.string "return;");
+  Js.typeof (Js.Unsafe.get d (Js.string "onmousewheel")) ==
+  Js.string "function"
+
+let start () =
+  let doc = Html.document in
+  let page = doc##documentElement in
+  page##style##overflow <- Js.string "hidden";
+  doc##body##style##overflow <- Js.string "hidden";
+  doc##body##style##margin <- Js.string "0px";
+
+  let started = ref false in
+  let p = Html.createP doc in
+  p##innerHTML <- Js.string "Loading graph...";
+  p##style##display <- Js.string "none";
+  Dom.appendChild doc##body p;
+  ignore
+    (Lwt_js.sleep 0.5 >>= fun () ->
+     if not !started then p##style##display <- Js.string "inline";
+     Lwt.return ());
 
   http_get "scene.json" >>= fun s ->
   let ((x1, y1, x2, y2), bboxes, scene) = json##parse (Js.string s) in
+
+  started := true;
+  Dom.removeChild doc##body p;
+
   let st =
     { bboxes = bboxes;
       scene = scene;
@@ -157,9 +173,14 @@ let start _ =
       st_x = x1; st_y = y1; st_width = x2 -. x1; st_height = y2 -. y1;
       st_pixmap = Common.make_pixmap () }
   in
+
+  let canvas = create_canvas (page##clientWidth) (page##clientHeight) in
+  Dom.appendChild doc##body canvas;
+  let allocation () =
+    {x = 0; y = 0; width = canvas##width; height = canvas##height} in
+
   let hadj = new adjustment () in
   let vadj = new adjustment () in
-
   let sadj =
     new adjustment ~upper:20. ~step_incr:1. ~page_incr:0. ~page_size:0. () in
   let zoom_steps = 8. in (* Number of steps to get a factor of 2 *)
@@ -171,10 +192,8 @@ let start _ =
   in
   let get_scale () = 2. ** (sadj#value /. zoom_steps) /. st.zoom_factor in
 
-  let allocation () =
-    {x = 0; y = 0; width = canvas##width; height = canvas##height} in
-
-  let update_view () =
+  let redraw_queued = ref false in
+  let update_view force =
 Firebug.console##log("update");
     let a = allocation () in
     let scale = get_scale () in
@@ -190,9 +209,14 @@ Firebug.console##log("update");
     let mv = st.st_height -. vadj#page_size in
     if vadj#value < 0. then vadj#set_value 0.;
     if vadj#value > mv then vadj#set_value mv;
-Firebug.console##log_4(Js.string "v", hadj#value, hadj#page_size, hadj#upper);
-Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
-    redraw st (get_scale ()) hadj#value vadj#value canvas;
+
+    if force then redraw st (get_scale ()) hadj#value vadj#value canvas else
+    if not !redraw_queued then
+      ignore (redraw_queued := true;
+              Lwt_js.yield () >>= fun () ->
+              redraw_queued := false;
+              redraw st (get_scale ()) hadj#value vadj#value canvas;
+              Lwt.return ())
   in
 
   let a = allocation () in
@@ -202,9 +226,20 @@ Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
   in
   set_zoom_factor zoom_factor;
 
+  let prev_scale = ref (get_scale ()) in
+  let rescale x y =
+    let scale = get_scale () in
+    let r = (1. -. !prev_scale /. scale) in
+    hadj#set_value (hadj#value +. hadj#page_size *. r *. x);
+    vadj#set_value (vadj#value +. vadj#page_size *. r *. y);
+    prev_scale := scale;
+    invalidate_pixmap st.st_pixmap;
+    update_view false
+  in
+
   let height = 200 - 10 in
   let pos = ref height in
-  let thumb = Html.createDiv Html.document in
+  let thumb = Html.createDiv doc in
   let style = thumb##style in
   let points d = Js.string (Printf.sprintf "%dpx" d) in
   style##position <- Js.string "absolute";
@@ -214,7 +249,7 @@ Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
   style##left <- Js.string "0px";
   style##margin <- Js.string "1px";
   style##backgroundColor <- Js.string "black";
-  let slider = Html.createDiv Html.document in
+  let slider = Html.createDiv doc in
   let style = slider##style in
   style##position <- Js.string "absolute";
   style##width <- Js.string "10px";
@@ -224,9 +259,7 @@ Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
   style##top <- Js.string "5px";
   style##left <- Js.string "5px";
   Dom.appendChild slider thumb;
-  Dom.appendChild Html.document##body slider;
-  let prev_scale = ref (get_scale ()) in
-  let zoom_center = ref (0.5, 0.5) in
+  Dom.appendChild doc##body slider;
   handle_drag thumb
     (fun dx dy ->
        let pos' = min height (max 0 (!pos + dy)) in
@@ -234,22 +267,24 @@ Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
          thumb##style##top <- points pos';
          pos := pos';
          sadj#set_value (float (height - pos') *. sadj#upper /. float height);
-         let scale = get_scale () in
-         let r = (1. -. !prev_scale /. scale) in
-         hadj#set_value (hadj#value +. hadj#page_size *. r *. fst !zoom_center);
-         vadj#set_value (vadj#value +. vadj#page_size *. r *. snd !zoom_center);
-         prev_scale := scale;
-         invalidate_pixmap st.st_pixmap;
-         update_view ()
+         rescale 0.5 0.5
        end);
+  let adjust_slider () =
+    let pos' =
+      height - truncate (sadj#value *. float height /. sadj#upper +. 0.5) in
+    thumb##style##top <- points pos';
+    pos := pos'
+  in
 
   Html.window##onresize <- Html.handler
     (fun _ ->
-       canvas##width <- (Js.Unsafe.coerce Html.window)##innerWidth;
-       canvas##height <- (Js.Unsafe.coerce Html.window)##innerHeight;
-       update_view ();
-       Js._false);
+       let page = doc##documentElement in
+       canvas##width <- page##clientWidth;
+       canvas##height <- page##clientHeight;
+       update_view true;
+       Js._true);
 
+  (* Drag the graph using the mouse *)
   handle_drag canvas
     (fun dx dy ->
        let scale = get_scale () in
@@ -258,43 +293,41 @@ Firebug.console##log_4(Js.string "v", vadj#value, vadj#page_size, vadj#upper);
            (min (a#value -. float d /. scale) (a#upper -. a#page_size)) in
        offset hadj dx;
        offset vadj dy;
-       update_view ());
-(*
-  let mx = ref 0 in
-  let my = ref 0 in
-  canvas##onmousedown <- Html.handler
-    (fun ev ->
-       mx := ev##clientX; my := ev##clientY;
-       let old_cursor = canvas##style##cursor in
-       canvas##style##cursor <- Js.string "move";
-       let c1 =
-         Html.addEventListener Html.document Html.Event.mousemove
-           (Html.handler
-              (fun ev ->
-                 let x = ev##clientX and y = ev##clientY in
-                 let offset a d =
-                   a#set_value (min (a#value +. d) (a#upper -. a#page_size)) in
-                 let scale = get_scale () in
-                 offset (hadj) (float (!mx - x) /. scale);
-                 offset (vadj) (float (!my - y) /. scale);
-                 mx := x; my := y;
-                 update_view ();
-                 Js._true))
-           Js._true
-       in
-       let c2 = ref Js.null in
-       c2 := Js.some
-         (Html.addEventListener Html.document Html.Event.mouseup
-            (Html.handler
-               (fun _ ->
-                  Html.removeEventListener c1;
-                  Js.Opt.iter !c2 Html.removeEventListener;
-                  canvas##style##cursor <- old_cursor;
-                  Js._true))
-            Js._true);
-       Js._false);
-*)
-  update_view ();
+       update_view false);
+
+  let bump_scale x y v =
+    let a = allocation () in
+    let x = x /. float a.width in
+    let y = y /. float a.height in
+    let prev = sadj#value in
+    let vl =
+      min (sadj#upper) (max (sadj#lower) (prev +. v *. sadj#step_increment)) in
+    if vl <> prev then begin
+      sadj#set_value vl;
+      adjust_slider ();
+      if x >= 0. && x <= 1. && y >= 0. && y <= 1. then
+        rescale x y
+      else
+        rescale 0.5 0.5
+    end;
+    Js._false
+  in
+
+  (* Zoom using the mouse wheel *)
+  ignore (Html.addMousewheelEventListener canvas
+    (fun ev ~dx ~dy ->
+       let (ex, ey) = Dom_html.elementClientPosition canvas in
+       let x = float (ev##clientX - ex) in
+       let y = float (ev##clientY - ey) in
+       if dy < 0 then
+         bump_scale x y 1.
+       else if dy > 0 then
+         bump_scale x y (-1.)
+       else
+         Js._false)
+     Js._true);
+
+  update_view true;
 
   Lwt.return ()
 

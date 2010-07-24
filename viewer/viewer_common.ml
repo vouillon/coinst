@@ -1,17 +1,3 @@
-(*
-XXXXX FIX: deadcode elimination of pure functions seems overly aggressive!!!
-  (functions applied to too many arguments)
-*)
-
-(*
-XXX Text API
-XXX Clear background
-XXX code for redrawing up to 4 rectangles
-
-
-==> switch to this code...
-==> implement primitives in JS
-*)
 
 open Scene
 
@@ -168,7 +154,8 @@ let draw_element ctx e =
   | Text (x, y, txt, font, fill, stroke) ->
       draw_text ctx x y txt font fill stroke
 
-let intersects (x1, y1, x2, y2) (x3, y3, x4, y4) =
+let intersects
+      ((x1, y1, x2, y2) : float * float * float * float) (x3, y3, x4, y4) =
   x1 <= x4 && y1 <= y4 && x3 <= x2 && y3 <= y2
 
 let compute_scale st range =

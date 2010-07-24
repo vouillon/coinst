@@ -143,7 +143,7 @@ let scroll_view ?width ?height ?packing st =
   display#misc#set_double_buffered false;
 
   let sadj =
-    GData.adjustment ~upper:20. ~step_incr:1. ~page_incr:0. ~page_size:0. () in
+    GData.adjustment ~upper:20. ~step_incr:1. ~page_incr:1. ~page_size:0. () in
   let zoom_steps = 8. in (* Number of steps to get a factor of 2 *)
   let set_zoom_factor f =
     let count = ceil (log f /. log 2. *. zoom_steps) in
@@ -341,7 +341,6 @@ Format.eprintf "ZOOM: %f %f %f@." zf v sadj#upper;
          let (x, y) = display#misc#pointer in
          bump_scale (float x) (float y) (-1.)
        end else
-      (*XXXX key bindings for zooming, ... *)
          false));
   display#event#add [`KEY_PRESS];
 
