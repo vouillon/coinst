@@ -72,7 +72,7 @@ module type S = sig
     type t
     val create : pool -> t
 
-    val check : t -> Package.t -> Package.t -> bool
+    val check : t -> Package.t -> Package.t -> bool (*XXX rename in [mem]*)
     val add : t -> Package.t -> Package.t -> unit
     val remove : t -> Package.t -> Package.t -> unit
     val iter : t -> (Package.t -> Package.t -> unit) -> unit

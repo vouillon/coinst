@@ -3,7 +3,7 @@ OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
 OCAMLDEP=ocamldep
 
-OBJS = util.cmx common.cmx dgraph.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx cudf_lib.cmx repository.cmx quotient.cmx graph.cmx main.cmx
+OBJS = util.cmx common.cmx dgraph.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx cudf_lib.cmx repository.cmx quotient.cmx conflicts.cmx graph.cmx main.cmx
 COMPFLAGS=-package unix,str,cudf
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 
@@ -11,6 +11,9 @@ all: check_coinstall
 
 check_coinstall: $(OBJS)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
+
+check_coinstall.byte: $(OBJS:.cmx=.cmo)
+	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::
 	rm -f check_coinstall
@@ -47,8 +50,6 @@ clean::
 	$(OCAMLC) -ccopt "-o $@" $(COMPFLAGS) -ccopt "$(CFLAGS)" -c $<
 
 depend:
-	find . -regex ".*\\.mli?" | xargs \
-	$(OCAMLDEP) $(DEPFLAGS) $$i \
-	> .depend
+	$(OCAMLDEP) $(DEPFLAGS) *.ml *.mli > .depend
 
 include .depend

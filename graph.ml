@@ -5,10 +5,12 @@ open R
 
 module Quotient = Quotient.F(R)
 
+module Conflicts = Conflicts.F (R)
+
 let output
-      file mark_all
       ?package_weight
       ?(edge_color = fun _ _ _ -> "blue")
+      file ?(mark_all = false) ?(roots = [])
       quotient deps confl =
   let package_weight =
     match package_weight with
@@ -19,24 +21,40 @@ let output
   (* Mark the packages to be included in the graph *)
   let marks = Hashtbl.create 101 in
   let marked i = Hashtbl.mem marks i in
-  let rec mark i =
-    if not (marked i) then begin
-      Hashtbl.add marks i ();
-      PSet.iter mark (Conflict.of_package confl i)
+  let has_dependencies p =
+    let dep = PTbl.get deps p in
+    not (Formula.implies Formula._true dep ||
+         Formula.implies (Formula.lit p) dep)
+  in
+  let rec mark p =
+    if not (marked p) then begin
+      Hashtbl.add marks p ();
+      PSet.iter mark (Conflict.of_package confl p)
     end
   in
-  Quotient.iter
-    (fun i ->
-       let dep = PTbl.get deps i in
-       if mark_all then
-         mark i
-       else if
-         not (Formula.implies Formula._true dep ||
-              Formula.implies (Formula.lit i) dep)
-       then begin
-         mark i; Formula.iter dep (fun d -> Disj.iter d mark)
-       end)
-    quotient;
+  if mark_all then
+    Quotient.iter (fun p -> Hashtbl.add marks p ()) quotient
+  else if roots = [] then
+    Quotient.iter
+      (fun p ->
+         if has_dependencies p then begin
+           mark p;
+           Formula.iter (PTbl.get deps p) (fun d -> Disj.iter d mark)
+         end)
+      quotient
+  else (*XXX Find the right algorithm...
+         Work on transitive closure of dependencies
+         Mark all conflicts; marks all packages at the other side of
+         these conflicts and all the alternative in the dependency.
+         Proceed recursively...
+
+         Backward mode:
+         mark source package and all edges but the one considered
+
+         A package is not relevant if installing it or not has no
+         impact on the considered package
+       *)
+    List.iter mark roots;
 
   let ch = open_out file in
   let f = Format.formatter_of_out_channel ch in
@@ -44,6 +62,7 @@ let output
   Format.fprintf f "rankdir=LR;@.";
   Format.fprintf f "ratio=1.4;@.margin=5;@.";
 
+(*
   let confl_n = ref 0 in
   let cpairs = Hashtbl.create 101 in
   let visited i j = Hashtbl.mem cpairs (min i j, max i j) in
@@ -90,6 +109,35 @@ let output
          done
       end)
     quotient;
+*)
+  let confl_n = ref 0 in
+  Conflict.iter confl
+    (fun p q ->
+       if not (marked p) then begin
+         assert (not (marked q));
+         Conflict.remove confl p q
+       end);
+  let l = Conflicts.f quotient confl in
+  List.iter
+    (fun cset ->
+           match PSet.elements cset with
+             [i; j] ->
+                Format.fprintf f "%d -> %d [dir=none,color=red];@."
+                  (Package.index i) (Package.index j)
+           | l ->
+                incr confl_n;
+                let n = !confl_n in
+                Format.fprintf f
+                  "confl%d [label=\"#\",shape=box,color=red,fontcolor=red];@."
+                  n;
+                List.iter
+                  (fun i ->
+                     Format.fprintf f
+                       "%d -> confl%d [dir=none,color=red];@."
+                       (Package.index i) n)
+                  l)
+    l;
+
 
   let dep_tbl = Hashtbl.create 101 in
   let dep_n = ref 0 in

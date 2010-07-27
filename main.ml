@@ -13,6 +13,7 @@
 
 let mark_all = ref false
 let explain = ref false
+let roots = ref []
 
 let insert tbl x v =
   let l =
@@ -383,7 +384,7 @@ Formula.filter (fun d ->
     else
       "blue"
   in
-  Graph.output "/tmp/foo.dot" (!mark_all) ~package_weight ~edge_color
+  Graph.output "/tmp/foo.dot" ~mark_all:(!mark_all) ~package_weight ~edge_color
     quotient deps confl;
 
   exit 1;
@@ -519,6 +520,9 @@ Arg.parse
    "-all",
    Arg.Unit (fun () -> mark_all := true),
    "  Include all packages in the coinstallability graph";
+   "-root",
+   Arg.String (fun p -> roots := p :: !roots),
+   "  Draw only the relevant portion of the graph around this package";
    "-explain",
    Arg.Unit (fun () -> explain := true),
    " Explain the results";

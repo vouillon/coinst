@@ -1,4 +1,29 @@
+- Reponse Sylvain
+- Annonce Js_of_ocaml
+- Viwever: key bindings + redraw optimizations + tooltips
+- Graph creation: focus on a package
+
+- Fix bug in eliom client (unwrapping elements)
+- Fix performance issue in Ocaml
+- Fix bug in debcheck solver
+
+=============================
+
+- draw the graph around a given package
+  follow depencies forward, then backwards on conflicts
+  ===> quotient again!
+
 - improve algorithm for finding cliques of conflicts
+  ==> Data Reduction and Exact Algorithms for Clique Cover
+         http://theinf1.informatik.uni-jena.de/ecc/
+      A note on the problem of reporting maximal cliques
+  ==> clique partitioning
+  ==> Exact Coloring of Real-Life Graphs is Easy
+      New Graph Coloring Algorithms
+      RESEARCH ON GREEDY CLIQUE PARTITION-GCP ALGORITHM (?)
+
+  ====> we want to cluster clique
+
 - generate directly a dot file with position informations
 
 - remove some edges that can be obtained by transitivity
@@ -6,4 +31,8 @@
 
 ====
 - what can we say about updates: desemphasize edges that are unchanged
+
+================
+
+http://www.graphdrawing.org/gd2010/accepted.html
 
