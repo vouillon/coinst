@@ -310,6 +310,18 @@ Format.eprintf "reset@.";
          update_scrollbars ();
          true
        end else if
+         keyval = GdkKeysyms._Page_Up
+       then begin
+         vadj#set_value (vadj#value -. vadj#page_increment);
+         update_scrollbars ();
+         true
+       end else if
+         keyval = GdkKeysyms._Page_Down
+       then begin
+         vadj#set_value (vadj#value +. vadj#page_increment);
+         update_scrollbars ();
+         true
+       end else if
          keyval = GdkKeysyms._0 || keyval = GdkKeysyms._agrave
        then begin
          let a = table#misc#allocation in

@@ -203,6 +203,10 @@ let redraw st scale x0 y0 window a x y width height =
   let y0 = if y0' > 0 then - y0' else y0 in
   let dx = pm.valid_rect.x - x0  in
   let dy = pm.valid_rect.y - y0  in
+(*
+Firebug.console##log_6 (dx, pm.valid_rect.width, a.width,
+               dy, pm.valid_rect.height, a.height);
+*)
   if
     (dx > 0 && pm.valid_rect.width + dx < a.width) ||
     (dy > 0 && pm.valid_rect.height + dy < a.height)
@@ -210,9 +214,12 @@ let redraw st scale x0 y0 window a x y width height =
     pm.valid_rect <- empty_rectangle
   end else if not (rectangle_is_empty pm.valid_rect) then begin
 (*XXX FIX: should redraw up to four rectangles here *)
+(*XXX FIX: does not change pm.valid_rect when it is large enough already and valid *)
     let p = get_pixmap pm in
     let r = pm.valid_rect in
+(*
 Format.eprintf "Translation: %d %d@." dx dy;
+*)
     if (dx <> 0 || dy <> 0) then
       put_pixmap ~dst:(drawable_of_pixmap p) ~x:dx ~y:dy
         ~xsrc:0 ~ysrc:0 ~width:r.width ~height:r.height p;
