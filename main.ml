@@ -380,9 +380,9 @@ Formula.filter (fun d ->
   let package_weight p = try PMap.find p pw with Not_found -> 1. in
   let edge_color p f d =
     if (*maybe_remove fd2 p f d &&*) is_composition fd2 p f d then
-      "violet"
+      None (*"violet"*)
     else
-      "blue"
+      Some "blue"
   in
   Graph.output "/tmp/foo.dot" ~mark_all:(!mark_all) ~package_weight ~edge_color
     quotient deps confl;

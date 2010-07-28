@@ -1,3 +1,7 @@
+(*
+Data Reduction and Exact Algorithms for Clique Cover
+Jens Gramm, Jiong Guo, Falk Huffner, and Rolf Niedermeier
+*)
 
 module F (R : Repository.S) = struct
 

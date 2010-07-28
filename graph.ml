@@ -9,7 +9,7 @@ module Conflicts = Conflicts.F (R)
 
 let output
       ?package_weight
-      ?(edge_color = fun _ _ _ -> "blue")
+      ?(edge_color = fun _ _ _ -> Some "blue")
       file ?(mark_all = false) ?(roots = [])
       quotient deps confl =
   let package_weight =
@@ -143,38 +143,43 @@ let output
   let dep_n = ref 0 in
   let add_dep i dep d =
     let s = Disj.to_lits d in
-    let col = edge_color i dep d in
-    match PSet.cardinal s with
-      0 ->
-        incr dep_n;
-        let n = !dep_n in
-        Format.fprintf f
-          "dep%d [label=\"MISSING DEP\",shape=box,fontcolor=red,color=%s];@."
-          n col;
-        Format.fprintf f "%d -> dep%d [color=%s];@."
-          (Package.index i) n col
-    | 1 ->
-        if PSet.choose s <> i then
-          Format.fprintf f "%d -> %d [color=%s];@."
-            (Package.index i) (Package.index (PSet.choose s)) col
-    | _ ->
-        let n =
-          try
-            Hashtbl.find dep_tbl s
-          with Not_found ->
+    match edge_color i dep d with
+      None ->
+        ()
+    | Some col ->
+        match PSet.cardinal s with
+          0 ->
             incr dep_n;
             let n = !dep_n in
-            Hashtbl.add dep_tbl s n;
-            Format.fprintf f "dep%d [label=\"DEP\",shape=box,color=%s];@."
+            Format.fprintf f
+              "dep%d \
+               [label=\"MISSING DEP\",shape=box,fontcolor=red,color=%s];@."
               n col;
-            PSet.iter
-              (fun j ->
-                 Format.fprintf f "dep%d -> %d [color=%s];@."
-                   n (Package.index j) col)
-              s;
-            n
-        in
-        Format.fprintf f "%d -> dep%d [color=%s];@." (Package.index i) n col
+            Format.fprintf f "%d -> dep%d [color=%s];@."
+              (Package.index i) n col
+        | 1 ->
+            if PSet.choose s <> i then
+              Format.fprintf f "%d -> %d [minlen=2, weight=2, color=%s];@."
+                (Package.index i) (Package.index (PSet.choose s)) col
+        | _ ->
+            let n =
+              try
+                Hashtbl.find dep_tbl s
+              with Not_found ->
+                incr dep_n;
+                let n = !dep_n in
+                Hashtbl.add dep_tbl s n;
+                Format.fprintf f "dep%d [label=\"DEP\",shape=box,color=%s];@."
+                  n col;
+                PSet.iter
+                  (fun j ->
+                     Format.fprintf f "dep%d -> %d [color=%s];@."
+                       n (Package.index j) col)
+                  s;
+                n
+            in
+            Format.fprintf f "%d -> dep%d [color=%s];@."
+              (Package.index i) n col
   in
   Quotient.iter
     (fun i ->
