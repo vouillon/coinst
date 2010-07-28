@@ -237,6 +237,33 @@ end)
 
 (****)
 
+let package_re = Str.regexp "^\\([^ (]+\\) *( *\\([<=>]+\\) *\\([0-9]+\\) *)$"
+
+let parse_package_dependency pool s =
+  if not (Str.string_match package_re s 0) then
+    failwith (Format.sprintf "Bad package name '%s'" s);
+  let name = Str.matched_group 1 s in
+  let ver =
+    try
+      let rel =
+        match Str.matched_group 2 s with
+          "<<"       -> `Lt
+        | "<=" | "<" -> `Leq
+        | "="        -> `Eq
+        | ">=" | ">" -> `Geq
+        | ">>"       -> `Gt
+        | s          -> failwith (Format.sprintf "Bad relation '%s'" s)
+      in
+      Some (rel, int_of_string (Str.matched_group 3 s))
+    with Not_found ->
+      None
+  in
+  resolve_package_dep pool (name, ver)
+
+let parse_package_name pool s = get_package_list pool.packages_by_name s
+
+(****)
+
 let rec print_package_disj ch l =
   match l with
     []     -> ()

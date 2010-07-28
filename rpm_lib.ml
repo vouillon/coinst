@@ -66,6 +66,22 @@ let sint16_array = sarray 2 sint16
 
 (****)
 
+let get_package_list' h n =
+  try
+    Hashtbl.find h n
+  with Not_found ->
+    let r = ref [] in
+    Hashtbl.add h n r;
+    r
+
+let add_to_package_list h n p =
+  let l = get_package_list' h n in
+  l := p :: !l
+
+let get_package_list h n = try !(Hashtbl.find h n) with Not_found -> []
+
+(****)
+
 let pr_typ ch t =
   Format.fprintf ch "%s"
     (match t with
@@ -390,14 +406,17 @@ type pool =
                 (rel * (int option * string * string option) option *
                  p) list ref) Hashtbl.t;
     mutable packages : p list;
-    packages_by_num : (int, p) Hashtbl.t }
+    packages_by_num : (int, p) Hashtbl.t;
+    packages_by_name : (string, p list ref) Hashtbl.t;
+    }
 
 let new_pool () =
   { size = 0;
     files = Hashtbl.create 300000;
     provides = Hashtbl.create 10000;
     packages = [];
-    packages_by_num = Hashtbl.create 1000 }
+    packages_by_num = Hashtbl.create 1000;
+    packages_by_name = Hashtbl.create 1000 }
 
 let add_file p f v =
   let l =
@@ -597,7 +616,7 @@ let resolve_pack_ref p ((nm, rel, ver) as rf) =
       List.filter
         (fun (rel, vers, p) ->
            (* The order here is important: the comparison is not symmetric! *)
-           compare_pack_refs (nm, rel, vers) rf) l
+          compare_pack_refs (nm, rel, vers) rf) l
     with Not_found ->
       []
   in
@@ -710,6 +729,7 @@ let parse_header pool ignored_packages ch =
     in
     pool.packages <- p :: pool.packages;
     Hashtbl.add pool.packages_by_num pool.size p;
+    add_to_package_list pool.packages_by_name p.name p;
     List.iter (fun pr -> add_provide pool p pr) p.provide;
     pool.size <- pool.size + 1;
     if file_info then
@@ -736,6 +756,35 @@ let parse_packages pool ignored_packages ch =
     Common.parsing_tick st
   done with End_of_file -> () end;
   Common.stop_parsing st
+
+(****)
+
+let package_re = Str.regexp "^\\([^ (]+\\) *( *\\([<=>]+\\) *\\([^ )]+\\) *)$"
+
+let parse_package_dependency pool s =
+  if not (Str.string_match package_re s 0) then
+    failwith (Format.sprintf "Bad package name '%s'" s);
+  let name = Str.matched_group 1 s in
+  let (rel, ver) =
+    try
+      let rel =
+        match Str.matched_group 2 s with
+          "<<"       -> SE
+        | "<=" | "<" -> E
+        | "="        -> EQ
+        | ">=" | ">" -> L
+        | ">>"       -> SL
+        | s          -> failwith (Format.sprintf "Bad relation '%s'" s)
+      in
+      (rel, parse_version (Str.matched_group 3 s))
+    with Not_found ->
+      (ALL, None)
+  in
+  let l = resolve_pack_ref pool (name, rel, ver) in
+  List.map (fun p -> p.num) l
+
+let parse_package_name pool s =
+  List.map (fun p -> p.num) (get_package_list pool.packages_by_name s)
 
 (****)
 
@@ -868,20 +917,6 @@ let show_reasons pool l =
 let conflicts_in_reasons rl = List.fold_left (fun cl -> function R_conflict (i,j,r) -> (min i.num j.num, max i.num j.num)::cl | _ -> cl) [] rl
 
 (****)
-
-let get_package_list' h n =
-  try
-    Hashtbl.find h n
-  with Not_found ->
-    let r = ref [] in
-    Hashtbl.add h n r;
-    r
-
-let add_to_package_list h n p =
-  let l = get_package_list' h n in
-  l := p :: !l
-
-let get_package_list h n = try !(Hashtbl.find h n) with Not_found -> []
 
 let compute_conflicts pool =
   let conflict_pairs = Hashtbl.create 1000 in

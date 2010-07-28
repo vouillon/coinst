@@ -569,6 +569,18 @@ let generate_rules pool =
 
 (****)
 
+let parse_package_dependency pool s =
+  let s = start_token_stream s in
+  let d = parse_package_dep "" true s in
+  if not (eof s) then
+    failwith (Format.sprintf "Bad token '%s'" (cur s));
+  resolve_package_dep pool d
+
+let parse_package_name pool s =
+  List.map (fun p -> p.num) (get_package_list pool.packages_by_name s)
+
+(****)
+
 let print_rel ch rel =
   Format.fprintf ch "%s"
     (match rel with

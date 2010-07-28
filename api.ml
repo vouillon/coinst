@@ -26,6 +26,9 @@ module type S = sig
 
   val parse_packages : pool -> string list -> in_channel -> unit
 
+  val parse_package_dependency : pool -> string -> int list
+  val parse_package_name : pool -> string -> int list
+
   val print_pack : pool -> Format.formatter -> int -> unit
   val print_pack_name : pool -> Format.formatter -> int -> unit
 
