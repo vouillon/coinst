@@ -171,6 +171,11 @@ Format.eprintf "Factor: %f@." f;
     set_visible vbar (ah < st.st_height)
   in
 
+  let refresh () =
+    invalidate_pixmap st.st_pixmap;
+    GtkBase.Widget.queue_draw display#as_widget
+  in
+
   ignore (display#event#connect#configure
     (fun ev ->
 prerr_endline "CONFIGURE";
@@ -184,6 +189,7 @@ Format.eprintf "alloc: %d %d@." a.Gtk.width a.Gtk.height;
              (st.st_height /. float a.Gtk.height)
        in
        set_zoom_factor zoom_factor;
+       refresh ();
        update_scrollbars (); false));
   display#event#add [`STRUCTURE];
 
@@ -198,10 +204,6 @@ Format.eprintf "alloc: %d %d@." a.Gtk.width a.Gtk.height;
          display display#misc#allocation x y width height;
        true));
 
-  let refresh () =
-    invalidate_pixmap st.st_pixmap;
-    GtkBase.Widget.queue_draw display#as_widget
-  in
   ignore (hadj#connect#value_changed
     (fun () -> GtkBase.Widget.queue_draw display#as_widget));
   ignore (vadj#connect#value_changed
