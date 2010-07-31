@@ -24,6 +24,9 @@ type clause =
 
 type value = True | False | Unknown
 
+module LitMap =
+  Map.Make (struct type t = int let compare (x : int) y = compare x y end)
+
 type state =
   { (* Indexed by var *)
     st_assign : value array;
@@ -33,7 +36,7 @@ type state =
     st_refs : int array;
     st_pinned : bool array;
     (* Indexed by lit *)
-    st_simpl_prop : (lit * clause) list array;
+    st_simpl_prop : clause LitMap.t array;
     st_watched : clause list array;
     st_associated_vars : var list array;
     (* Queues *)
@@ -200,7 +203,7 @@ let propagate st =
     while not (Queue.is_empty st.st_prop_queue) do
       charge st 1;
       let p = Queue.take st.st_prop_queue in
-      List.iter (fun (p, r) -> enqueue st p (Some r)) st.st_simpl_prop.(p);
+      LitMap.iter (fun p r -> enqueue st p (Some r)) st.st_simpl_prop.(p);
       let l = ref (st.st_watched.(p)) in
       st.st_watched.(p) <- [];
       begin try
@@ -429,7 +432,7 @@ let initialize_problem ?(print_var = (fun fmt -> Format.fprintf fmt "%d")) n =
     st_seen_var = Array.make n (-1);
     st_refs = Array.make n 0;
     st_pinned = Array.make n false;
-    st_simpl_prop = Array.make (2 * n) [];
+    st_simpl_prop = Array.make (2 * n) LitMap.empty;
     st_watched = Array.make (2 * n) [];
     st_associated_vars = Array.make (2 * n) [];
     st_trail = [];
@@ -446,8 +449,8 @@ let initialize_problem ?(print_var = (fun fmt -> Format.fprintf fmt "%d")) n =
 
 let insert_simpl_prop st r p p' =
   let p = lit_neg p in
-  if not (List.mem_assoc p' st.st_simpl_prop.(p)) then
-    st.st_simpl_prop.(p) <- (p', r) :: st.st_simpl_prop.(p)
+  if not (LitMap.mem p' st.st_simpl_prop.(p)) then
+    st.st_simpl_prop.(p) <- LitMap.add p' r st.st_simpl_prop.(p)
 
 let add_bin_rule st p p' reasons =
   let r = { lits = [|p; p'|]; reasons = reasons } in

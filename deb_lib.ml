@@ -49,10 +49,23 @@ let parse_paragraph i =
     let fields = ref [] in
     while
       let l = cur i in
+      let p =
+        try
+          String.index l ':'
+        with Not_found ->
+          parse_error i
+      in
+      let name = String.sub l 0 p in
+      let n = String.length l in
+      let p = ref (p + 1) in
+      while !p < n && let c = l.[!p] in c = ' ' || c = '\t' do incr p done;
+      let data1 = remove_ws (String.sub l !p (n - !p)) in
+(*
       if not (Str.string_match field_re l 0) then
         parse_error i;
       let name = Str.matched_group 1 l in
       let data1 = remove_ws (Str.matched_group 2 l) in
+*)
       let data = ref [data1] in
 (*
   Format.eprintf "%s@." name;
