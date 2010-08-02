@@ -811,7 +811,7 @@ let print_rules = ref false
 let add_conflict st p1 p2 reason =
   let p = Solver.lit_of_var p1.num false in
   let p' = Solver.lit_of_var p2.num false in
-  Solver.add_bin_rule st p p' [R_conflict (p1, p2, reason)]
+  Solver.add_rule st [|p; p'|] [R_conflict (p1, p2, reason)]
 
 let add_depend st n l r =
   let l = List.map (fun p -> p.num) l in

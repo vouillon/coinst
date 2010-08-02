@@ -493,7 +493,7 @@ let add_conflict st l =
       for j = i + 1 to len - 1 do
         let p = Solver.lit_of_var a.(i) false in
         let p' = Solver.lit_of_var a.(j) false in
-        Solver.add_bin_rule st p p' [R_conflict (a.(i), a.(j))]
+        Solver.add_rule st [|p; p'|] [R_conflict (a.(i), a.(j))]
       done
     done
   end

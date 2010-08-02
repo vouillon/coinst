@@ -22,8 +22,6 @@ module M (X : S) : sig
   type value = True | False | Unknown
   val assignment : state -> value array
 
-  val add_un_rule : state -> lit -> reason list -> unit
-  val add_bin_rule : state -> lit -> lit -> reason list -> unit
   val add_rule : state -> lit array -> reason list -> unit
   val associate_vars : state -> lit -> var list -> unit
 

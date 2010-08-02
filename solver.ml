@@ -20,6 +20,7 @@ type reason = X.reason
 (* A clause is an array of literals *)
 type clause =
   { lits : lit array;
+    all_lits : lit array;
     reasons : reason list }
 
 type value = True | False | Unknown
@@ -376,7 +377,7 @@ let rec solve_rec st =
       let level = max st.st_min_level level in
       while st.st_cur_level > level do cancel st done;
       assert (val_of_lit st learnt.(0) = Unknown);
-      let rule = { lits = learnt; reasons = reasons } in
+      let rule = { lits = learnt; all_lits = learnt; reasons = reasons } in
       if !debug then Format.eprintf "Learning %a@." (print_rule st) rule;
       if Array.length learnt > 1 then begin
         let i = find_highest_level st learnt in
@@ -452,16 +453,17 @@ let insert_simpl_prop st r p p' =
   if not (LitMap.mem p' st.st_simpl_prop.(p)) then
     st.st_simpl_prop.(p) <- LitMap.add p' r st.st_simpl_prop.(p)
 
-let add_bin_rule st p p' reasons =
-  let r = { lits = [|p; p'|]; reasons = reasons } in
+let add_bin_rule st lits p p' reasons =
+  let r = { lits = [|p; p'|]; all_lits = lits; reasons = reasons } in
   insert_simpl_prop st r p p';
   insert_simpl_prop st r p' p
 
-let add_un_rule st p reasons =
-  let r = { lits = [|p|]; reasons = reasons } in
+let add_un_rule st lits p reasons =
+  let r = { lits = [|p|]; all_lits = lits; reasons = reasons } in
   enqueue st p (Some r)
 
 let add_rule st lits reasons =
+  let all_lits = Array.copy lits in
   let is_true = ref false in
   let j = ref 0 in
   for i = 0 to Array.length lits - 1 do
@@ -474,9 +476,9 @@ let add_rule st lits reasons =
   if not !is_true then
   match Array.length lits with
     0 -> assert false
-  | 1 -> add_un_rule st lits.(0) reasons
-  | 2 -> add_bin_rule st lits.(0) lits.(1) reasons
-  | _ -> let rule = { lits = lits; reasons = reasons } in
+  | 1 -> add_un_rule st all_lits lits.(0) reasons
+  | 2 -> add_bin_rule st all_lits lits.(0) lits.(1) reasons
+  | _ -> let rule = { lits = lits; all_lits = all_lits; reasons = reasons } in
          let p = lit_neg rule.lits.(0) in let p' = lit_neg rule.lits.(1) in
          assert (val_of_lit st p <> False);
          assert (val_of_lit st p' <> False);
@@ -494,7 +496,8 @@ let rec collect_rec st x l =
         l
     | Some r ->
         r.reasons @
-        Array.fold_left (fun l p -> collect_rec st (var_of_lit p) l) l r.lits
+        Array.fold_left
+          (fun l p -> collect_rec st (var_of_lit p) l) l r.all_lits
   end
 
 let collect_reasons st x =
