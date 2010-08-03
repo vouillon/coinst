@@ -89,6 +89,9 @@ let conflicts quotient confl =
     (fun p1 p2 -> Conflict.add c (repr quotient p1) (repr quotient p2));
   c
 
+let package_set quotient s =
+  PSet.fold (fun p s -> PSet.add (repr quotient p) s) s PSet.empty
+
 let class_size quotient p = PSet.cardinal (PMap.find p quotient.repr_map)
 
 let iter f quotient = PMap.iter (fun p _ -> f p) quotient.repr_map

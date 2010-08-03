@@ -804,7 +804,7 @@ let print_pack_name p ch n =
   let p = Hashtbl.find p.packages_by_num n in
   Format.fprintf ch "%s" p.name
 
-module Solver = Solver.M (struct type t = reason type reason = t end)
+module Solver = Solver.F (struct type t = reason type reason = t end)
 
 let print_rules = ref false
 

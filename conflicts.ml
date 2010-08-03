@@ -1,6 +1,10 @@
 (*
 Data Reduction and Exact Algorithms for Clique Cover
 Jens Gramm, Jiong Guo, Falk Huffner, and Rolf Niedermeier
+
+XXX This implementation should be made more robust: at the moment, if we fail
+to decompose the conflicts into obvious maximal cliques, we do not try to find
+any other clique...
 *)
 
 module F (R : Repository.S) = struct
@@ -44,16 +48,22 @@ let f quotient confl =
   let changed = ref false in
   while
     changed := false;
+(*
 prerr_endline "AAAAA";
+*)
     PPairMap.iter
       (fun (p, q) (c, i, n) ->
          let m = (i * (i - 1)) / 2 in
          if m = n && not (Conflict.check covered p q) then begin
+(*
            Format.eprintf "Rule 2: %a # %a : %d -- %d / %d %b@."
              (Quotient.print_class quotient) p (Quotient.print_class quotient) q
              i m n (m = n);
+*)
            let c = PSet.add p (PSet.add q c) in
+(*
            print_clique quotient c;
+*)
            l := c :: !l;
            changed := true;
            PSet.iter
@@ -77,15 +87,21 @@ prerr_endline "AAAAA";
                   Conflict.iter confl
                     (fun p' q' ->
                        if PSet.mem p' neigh && PSet.mem q' neigh then begin
+(*
   Format.eprintf "%a => %a %a@."
     (Quotient.print_class quotient) p  (Quotient.print_class quotient) p' (Quotient.print_class quotient) q';
+*)
                          try
                          let (d, i, n) = PPairMap.find (p', q') !common in
+(*
   Format.eprintf "-@.";
+*)
   assert (PSet.mem p d);
                          let d = PSet.remove p d in
                          let n = n - PSet.cardinal (PSet.inter neigh d) in
+(*
   Format.eprintf "%d@." i;
+*)
                          assert (n >= 0);
                          if i = 0 then
                            common := PPairMap.remove (p', q') !common

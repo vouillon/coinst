@@ -1,26 +1,10 @@
 
-module type SOLVER = sig
-
-  type state
-  type var = int
-
-  val reset : state -> unit
-
-  val solve : state -> var -> bool
-  val solve_lst : state -> var list -> bool
-
-  type reason
-  val collect_reasons : state -> var -> reason list
-  val collect_reasons_lst : state -> var list -> reason list
-
-end
-
 module type S = sig
 
   type pool
   type reason
 
-  module Solver : SOLVER with type reason = reason
+  module Solver : Solver.SOLVER with type reason = reason
 
   val new_pool : unit -> pool
 

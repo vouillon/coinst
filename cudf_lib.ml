@@ -92,7 +92,7 @@ let normalize_set (l : int list) =
 
 let print_rules = ref false
 
-module Solver = Solver.M (struct type reason = cudf_reason end)
+module Solver = Solver.F (struct type reason = cudf_reason end)
 type reason = cudf_reason
 
 let lookup_packages ?(filter=None) dist pkgname =

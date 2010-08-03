@@ -1,19 +1,12 @@
 (*
 ./check_coinstall -ignore daemontools-run /var/lib/apt/lists/ftp.fr.debian.org_debian_dists_testing_main_binary-amd64_Packages -ignore liboss-salsa-asound2 -ignore libgd2-noxpm -ignore libqt4-phonon -ignore libjack-jackd2-0 -ignore libjpeg8-dev -ignore libhdf4-dev -ignore libgl1-mesa-swx11
-
-
-
-
-* Push conflicts downwards?
-  --> if a package depends on packages that all conflicts with a same
-      package, add a conflict link, at possibly remove the dependency
-* "Undo" transitive closure
-* Better clique finding algorithm (for conflicts)
 *)
 
 let mark_all = ref false
 let explain = ref false
 let roots = ref []
+
+(****)
 
 let insert tbl x v =
   let l =
@@ -24,10 +17,14 @@ let insert tbl x v =
 
 let get tbl x = try !(Hashtbl.find tbl x) with Not_found -> []
 
+(****)
+
 module F (M : Api.S) = struct
 
   module Repository = Repository.F(M)
   open Repository
+  module Quotient = Quotient.F (Repository)
+  module Graph = Graph.F (Repository)
 
 (****)
 
@@ -64,16 +61,11 @@ and flatten_dep tbl dist deps conflicts visited i =
         (Formula._true, PSet.singleton i)
       else begin
         let (l, r) =
-          flatten_deps tbl dist deps conflicts (i :: visited) (PTbl.get deps i) in
-(*
-Format.eprintf "< %a@." (Formula.print dist) l;
-*)
+          flatten_deps tbl dist deps conflicts (i :: visited) (PTbl.get deps i)
+        in
         let l = simplify_formula conflicts l in
 (*???
         let l = filter_conflicts conflicts i l in
-*)
-(*
-Format.eprintf "%a > %a@." (Package.print dist) i (Formula.print dist) l;
 *)
         let r = PSet.remove i r in
         if Conflict.has conflicts i then
@@ -82,20 +74,177 @@ Format.eprintf "%a > %a@." (Package.print dist) i (Formula.print dist) l;
           (l, r)
       end
     in
-(*
-Format.printf "%a: %a (%d)@."
-(print_pack dist) i (pr_depends dist) (fst res) (PSet.cardinal (snd res));
-*)
     (* Only cache the result if it is unconditionally true *)
     if PSet.is_empty (snd res) then Hashtbl.add tbl i (fst res);
     res
 
+let flatten_dependencies dist confl deps =
+  let tbl = Hashtbl.create 17 in
+  PTbl.init dist (fun p -> fst (flatten_dep tbl dist deps confl [] p))
+
 (****)
 
-module Quotient = Quotient.F (Repository)
-module Graph = Graph.F (Repository)
+let focus pool deps confl =
+(*
+- Map: i |-> (p, d)
+- 
+*)
+let large = false in
+  if !roots <> [] then begin
+    let i = ref (-1) in
+    let pieces = Hashtbl.create 101 in
+    let piece_conflicts = PTbl.create pool [] in
+    let package_pieces = PTbl.create pool [] in
+    let tbl_add tbl p v = PTbl.set tbl p (v :: PTbl.get tbl p) in
+    PTbl.iteri
+      (fun p f ->
+         Formula.iter f
+           (fun d ->
+              incr i;
+              Disj.iter d
+                (fun q -> tbl_add piece_conflicts q !i);
+              tbl_add package_pieces p !i;
+              Hashtbl.add pieces !i (p, d)))
+      deps;
+    let roots =
+      List.fold_left
+        (fun s nm ->
+           List.fold_left (fun s p -> PSet.add (Package.of_index p) s)
+             s (M.parse_package_name pool nm))
+        PSet.empty !roots
+    in
+Format.eprintf "ROOTS: %d@." (PSet.cardinal roots);
+let dp = deps in
 
-let f ignored_packages ic =
+    let new_deps = PTbl.create pool Formula._true in
+    let new_confl = Conflict.create pool in
+    let visited = ref PSet.empty in
+    let packages = ref PSet.empty in
+    let rec add_conflict p =
+Format.eprintf "ADD confl: %a@." (Package.print pool) p;
+      if not (PSet.mem p !visited) then begin
+        visited := PSet.add p !visited;
+        packages := PSet.add p !packages;
+        PTbl.set new_deps p
+          (Formula.conj (PTbl.get new_deps p) (Formula.lit p));
+        PSet.iter
+          (fun q ->
+Format.eprintf "ADD confl: %a %a@." (Package.print pool) p (Package.print pool) q;
+             Conflict.add new_confl p q;
+             let l = PTbl.get piece_conflicts q in
+             packages := PSet.add q !packages;
+             List.iter (fun i -> add_piece (Some q) i) l)
+          (Conflict.of_package confl p)
+      end
+    and add_piece q i =
+      if large then begin
+        let (p, d) = Hashtbl.find pieces i in
+        let l = PTbl.get package_pieces p in
+        List.iter (fun i -> add_piece_2 q i) l
+      end else
+        add_piece_2 q i
+
+    and add_piece_2 q i =
+      let (p, d) = Hashtbl.find pieces i in
+
+Format.eprintf "ADD piece: %a => %a@." (Package.print pool) p (Disj.print pool) d;
+      if
+(*
+true
+*)
+        PSet.mem p roots ||
+(*FIX: or any equivalent package... *)
+        not (Disj.exists (fun r -> PSet.mem r roots) d
+                ||
+(*FIX: or any equivalent package... *)
+             (Some p <> q &&
+              PSet.exists (fun r -> Conflict.check confl r p) roots)
+)
+      then begin
+        packages := PSet.add p !packages;
+        PTbl.set new_deps p
+          (Formula.conj (PTbl.get new_deps p) (Formula.of_disj d));
+        Disj.iter d (fun r -> if Some r <> q then add_conflict r)
+      end
+    and add_dep p =
+      packages := PSet.add p !packages;
+      let l = PTbl.get package_pieces p in
+      List.iter
+        (fun i -> add_piece None i)
+        l
+    in
+    PSet.iter
+      (fun p ->
+Format.eprintf "ADD root: %a ==> %a@." (Package.print pool) p (Formula.print pool) (PTbl.get dp p);
+         add_dep p;
+(*
+         PSet.iter add_dep (Conflict.of_package confl p)
+*)
+)
+      roots;
+    Conflict.iter confl
+      (fun p q ->
+         if
+           PSet.mem p !packages &&
+           Formula.implies (PTbl.get new_deps p) (Formula.lit p) &&
+           PSet.mem q !packages &&
+           Formula.implies (PTbl.get new_deps q) (Formula.lit q)
+         then begin
+           Conflict.add new_confl p q;
+         end);
+(*
+*)
+    (Some !packages, new_deps, new_confl)
+  end else
+    (None, deps, confl)
+
+let print_problem quotient deps confl =
+  let dist = Quotient.pool quotient in
+  Quotient.iter
+    (fun p ->
+       let f = PTbl.get deps p in
+       Format.eprintf "%a => %a@."
+         (Package.print dist) p (Formula.print dist) f)
+    quotient;
+  Conflict.iter confl
+    (fun p1 p2 ->
+       Format.eprintf "%a ## %a@."
+         (Package.print dist) p1 (Package.print dist) p2)
+
+let generate_rules quotient deps confl =
+  let dist = Quotient.pool quotient in
+  let st =
+    M.Solver.initialize_problem
+      ~print_var:(M.print_pack dist) (M.pool_size dist) in
+  Conflict.iter confl
+    (fun p1 p2 ->
+       let p1 = M.Solver.lit_of_var (Package.index p1) false in
+       let p2 = M.Solver.lit_of_var (Package.index p2) false in
+       M.Solver.add_rule st [|p1; p2|] []);
+  Quotient.iter
+    (fun p ->
+       let f = PTbl.get deps p in
+       Formula.iter f
+         (fun d ->
+            let l = Disj.to_lits d in
+            if not (PSet.mem p l) then begin
+              let l = List.map (fun p -> Package.index p) (PSet.elements l) in
+              M.Solver.add_rule st
+                (Array.of_list
+                   (M.Solver.lit_of_var (Package.index p) false ::
+                    List.map (fun p -> M.Solver.lit_of_var p true) l))
+                [];
+              match l with
+                [] | [_] ->
+                  ()
+              | _ ->
+                  M.Solver.associate_vars st
+                    (M.Solver.lit_of_var (Package.index p) true) l
+            end))
+    quotient;
+  st
+
+let read_data ignored_packages ic =
   let dist = M.new_pool () in
   M.parse_packages dist ignored_packages ic;
   let confl = Conflict.create dist in
@@ -117,21 +266,12 @@ let f ignored_packages ic =
            (List.map (fun l' -> Formula.lit_disj (Package.of_index_list l'))
            d.(Package.index p)))
   in
+  (dist, confl, deps)
 
-  (****)
-(*
-  for i = 0 to M.pool_size dist - 1 do
-    let p = Package.of_index i in
-    let f = PTbl.get deps p in
-    Format.eprintf "%a => %a@." (Package.print dist) p (Formula.print dist) f
-  done;
-*)
+let f ignored_packages ic =
+  let (dist, confl, deps) = read_data ignored_packages ic in
 
-  let tbl = Hashtbl.create 17 in
-
-  let flatten_deps =
-    PTbl.init dist (fun p -> fst (flatten_dep tbl dist deps confl [] p))
-  in
+  let flatten_deps = flatten_dependencies dist confl deps in
 
   let conj_deps p =
     let f = PTbl.get flatten_deps p in
@@ -249,6 +389,8 @@ Formula.filter (fun d ->
   in
 (*Format.eprintf "==============================@.";*)
 
+  let (domain, fd2, confl) = focus dist fd2 confl in
+
   (* Build package equivalence classes *)
   let quotient = Quotient.perform dist fd2 in
   let deps = Quotient.dependencies quotient fd2 in
@@ -256,7 +398,14 @@ Formula.filter (fun d ->
   Quotient.print quotient deps;
 
   (* Generate SAT problem *)
+(*
   let st = M.generate_rules dist in
+*)
+(*XXX FIX: should consider *all* packages, not just the ones we focus on*)
+  let st = generate_rules quotient fd2 confl in
+(*
+print_problem quotient fd2 confl;
+*)
 
   Util.title "NON-INSTALLABLE PACKAGES";
   let non_inst = ref PSet.empty in
@@ -317,7 +466,6 @@ Formula.filter (fun d ->
                  let pair = (min i j, max i j) in
                  if i <> j && not (Hashtbl.mem pairs pair) then begin
                    Hashtbl.add pairs pair ();
-
                    if M.Solver.solve_lst st [i; j] then begin
 ((*
                      coinstallable_pairs :=

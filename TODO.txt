@@ -1,17 +1,33 @@
+- Focus
+  ==> Work on the quotiented graph
+  ==> Highlight the roots
+  ==> Show exactly the selected subgraph
+  ==> Generate all focus graphs (and show to which nodes they correspond)
+
 - Reponse Sylvain
 - Annonce Js_of_ocaml
 - Viwever: key bindings + redraw optimizations + tooltips
 - Graph creation: focus on a package
+- Bug in Lwt_pool
 
 - Fix bug in eliom client (unwrapping elements)
 - Fix performance issue in Ocaml
-- Fix bug in debcheck solver
 
 =============================
 
-- draw the graph around a given package
-  follow depencies forward, then backwards on conflicts
-  ===> quotient again!
+- remove dep edges that can be rebuilt by transitive closure
+
+- smarter way to remove conflicts at the initial stage
+    exist d, forall p, p in d -> exist q, q ## p /\ f ==> q
+
+- try to associate a set of package and virtual packages to each
+  disjunctive depends and conflict cliques
+
+- find a way to automatically remove uninteresting nodes
+  ===> not part of a non-trivial conflict clique
+       (or only conflicts with nodes with no other conflicts?)
+       + no package depends on it
+       (and does not depend on any package?)
 
 - improve algorithm for finding cliques of conflicts
   ==> Data Reduction and Exact Algorithms for Clique Cover
@@ -23,6 +39,11 @@
       RESEARCH ON GREEDY CLIQUE PARTITION-GCP ALGORITHM (?)
 
   ====> we want to cluster clique
+      => biclique covering
+      Fast Exact and Heuristic Methods for Role Minimization Problems
+      Confluent Layered Drawings
+      Biclique Edge Cover Graphs and Confluent Drawings (?)
+      Confluent Drawings: Visualizing Non-planar Diagrams in a Planar Way
 
 - generate directly a dot file with position informations
 
@@ -34,5 +55,10 @@
 
 ================
 
-http://www.graphdrawing.org/gd2010/accepted.html
+Nice design:
+    JavaScript InfoVis Toolkit   http://thejit.org/
 
+Conferences
+===========
+http://www.graphdrawing.org/gd2010/accepted.html
+Infovis

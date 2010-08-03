@@ -9,6 +9,7 @@ module F (R : Repository.S) : sig
   val formula : t -> Formula.t -> Formula.t
   val dependencies : t -> dependencies -> dependencies
   val conflicts : t -> Conflict.t -> Conflict.t
+  val package_set : t -> PSet.t -> PSet.t
 
   val iter : (Package.t -> unit) -> t -> unit
 

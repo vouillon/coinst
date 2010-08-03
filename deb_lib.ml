@@ -475,7 +475,7 @@ type reason =
 
 (****)
 
-module Solver = Solver.M (struct type t = reason type reason = t end)
+module Solver = Solver.F (struct type t = reason type reason = t end)
 
 let print_rules = ref false
 

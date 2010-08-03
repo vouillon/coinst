@@ -3,10 +3,10 @@ module type S = sig
   type reason
 end
 
-module M (X : S) : sig
+module type SOLVER = sig
   type state
 
-  type reason = X.reason
+  type reason
 
   type var = int
   type lit
@@ -31,3 +31,5 @@ module M (X : S) : sig
   val collect_reasons : state -> var -> reason list
   val collect_reasons_lst : state -> var list -> reason list
 end
+
+module F (X : S) : SOLVER with type reason = X.reason

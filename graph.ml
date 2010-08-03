@@ -60,7 +60,7 @@ let output
   let f = Format.formatter_of_out_channel ch in
   Format.fprintf f "digraph G {@.";
   Format.fprintf f "rankdir=LR;@.";
-  Format.fprintf f "ratio=1.4;@.margin=5;@.";
+  Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";
 
 (*
   let confl_n = ref 0 in
