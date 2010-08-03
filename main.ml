@@ -40,6 +40,18 @@ let filter_conflicts confl p f =
   Formula.map
     (fun d -> Disj.filter (fun q -> not (Conflict.check confl p q)) d) f
 
+let filter_conflicts confl p f =
+  Formula.fold
+    (fun d nf ->
+       Formula.conj nf
+         (Formula.of_disj
+            (Disj.filter
+               (fun q ->
+                  not (PSet.exists (fun r -> Formula.implies1 f (Disj.lit r))
+                         (Conflict.of_package confl q)))
+               d)))
+    f Formula._true
+
 let rec flatten_deps tbl dist deps conflicts visited l =
   Formula.fold
     (fun d (l, r) ->
@@ -78,7 +90,7 @@ and flatten_dep tbl dist deps conflicts visited i =
     if PSet.is_empty (snd res) then Hashtbl.add tbl i (fst res);
     res
 
-let flatten_dependencies dist confl deps =
+let flatten_dependencies dist deps confl =
   let tbl = Hashtbl.create 17 in
   PTbl.init dist (fun p -> fst (flatten_dep tbl dist deps confl [] p))
 
@@ -198,6 +210,32 @@ Format.eprintf "ADD root: %a ==> %a@." (Package.print pool) p (Formula.print poo
   end else
     (None, deps, confl)
 
+(****)
+
+let read_data ignored_packages ic =
+  let dist = M.new_pool () in
+  M.parse_packages dist ignored_packages ic;
+  let confl = Conflict.create dist in
+  let c = M.compute_conflicts dist in
+  Array.iteri
+    (fun p1 l ->
+       List.iter
+         (fun p2 ->
+            Conflict.add confl
+              (Package.of_index p1) (Package.of_index p2))
+         l)
+    c;
+
+  let deps =
+    let d = M.compute_deps dist in
+    PTbl.init dist
+      (fun p ->
+         Formula.conjl
+           (List.map (fun l' -> Formula.lit_disj (Package.of_index_list l'))
+           d.(Package.index p)))
+  in
+  (dist, deps, confl)
+
 let print_problem quotient deps confl =
   let dist = Quotient.pool quotient in
   Quotient.iter
@@ -244,37 +282,11 @@ let generate_rules quotient deps confl =
     quotient;
   st
 
-let read_data ignored_packages ic =
-  let dist = M.new_pool () in
-  M.parse_packages dist ignored_packages ic;
-  let confl = Conflict.create dist in
-  let c = M.compute_conflicts dist in
-  Array.iteri
-    (fun p1 l ->
-       List.iter
-         (fun p2 ->
-            Conflict.add confl
-              (Package.of_index p1) (Package.of_index p2))
-         l)
-    c;
+(****)
 
-  let deps =
-    let d = M.compute_deps dist in
-    PTbl.init dist
-      (fun p ->
-         Formula.conjl
-           (List.map (fun l' -> Formula.lit_disj (Package.of_index_list l'))
-           d.(Package.index p)))
-  in
-  (dist, confl, deps)
-
-let f ignored_packages ic =
-  let (dist, confl, deps) = read_data ignored_packages ic in
-
-  let flatten_deps = flatten_dependencies dist confl deps in
-
+let remove_redundant_conflicts dist deps confl =
   let conj_deps p =
-    let f = PTbl.get flatten_deps p in
+    let f = PTbl.get deps p in
     Formula.fold
       (fun d s -> match Disj.to_lit d with Some p -> PSet.add p s | None -> s)
       f PSet.empty
@@ -283,15 +295,53 @@ let f ignored_packages ic =
     (fun p1 p2 ->
        let d1 = conj_deps p1 in
        let d2 = conj_deps p2 in
-       if PSet.exists (fun q1 -> PSet.exists (fun q2 -> (p1 <> q1 || q2 <> p2) && Conflict.check confl q1 q2) d2) d1 then begin
+       if
+         PSet.exists
+           (fun q1 ->
+              PSet.exists
+                (fun q2 ->
+                   (p1 <> q1 || q2 <> p2) && Conflict.check confl q1 q2)
+                d2)
+           d1
+       then begin
 (*
          Format.eprintf "%a ## %a@."
            (Package.print dist) p1 (Package.print dist) p2;
 *)
          Conflict.remove confl p1 p2
        end);
+  let try_remove_conflict p1 p2 =
+    let f1 = PTbl.get deps p1 in
+    let d2 = conj_deps p2 in
+    if
+      Formula.exists
+        (fun d1 ->
+           Disj.for_all
+             (fun q1 ->
+                PSet.exists
+                  (fun q2 ->
+                     (p1 <> q1 || q2 <> p2) && Conflict.check confl q1 q2)
+                  d2)
+             d1)
+        f1
+    then begin
+(*
+      Format.eprintf "%a ## %a@."
+        (Package.print dist) p1 (Package.print dist) p2;
+*)
+      Conflict.remove confl p1 p2
+    end
+  in
+  Conflict.iter confl try_remove_conflict;
+  Conflict.iter confl (fun p1 p2 -> try_remove_conflict p2 p1);
+  (* We may now be able to remove some dependencies *)
+  PTbl.map (simplify_formula confl) deps
 
-  let fd2 = PTbl.map (simplify_formula confl) flatten_deps in
+let f ignored_packages ic =
+  let (dist, deps, confl) = read_data ignored_packages ic in
+  let flatten_deps = flatten_dependencies dist deps confl in
+
+  let flatten_deps = remove_redundant_conflicts dist flatten_deps confl in
 
   let maybe_remove fd2 p f d =
     Disj.exists (fun q ->
@@ -325,6 +375,7 @@ Formula.iter f (fun d -> if Conflict.exists confl (fun q -> Disj.implies1 q d) p
 *)
 
 
+  let fd2 = flatten_deps in
   let fd2 =
   PTbl.mapi
     (fun p f ->
@@ -389,6 +440,15 @@ Formula.filter (fun d ->
   in
 (*Format.eprintf "==============================@.";*)
 
+(*??? Need to adapt other checks... (also, conflict to uninstallable package)
+  let fd2 = PTbl.mapi (fun p f -> filter_conflicts confl p f) fd2 in
+*)
+
+(*XXXXX
+  Build equivalence classes
+  Focus up to equivalence
+  Build equivalence classes on package in focus
+*)
   let (domain, fd2, confl) = focus dist fd2 confl in
 
   (* Build package equivalence classes *)
@@ -525,8 +585,10 @@ print_problem quotient fd2 confl;
        (fun m (c, (p, _)) -> PMap.add p (max 1. (float c /. 4.)) m)
        PMap.empty !cl
   in
+
   let package_weight p = try PMap.find p pw with Not_found -> 1. in
   let edge_color p f d =
+  (* XXX Fix *)
     if (*maybe_remove fd2 p f d &&*) is_composition fd2 p f d then
       None (*"violet"*)
     else
@@ -534,107 +596,6 @@ print_problem quotient fd2 confl;
   in
   Graph.output "/tmp/foo.dot" ~mark_all:(!mark_all) ~package_weight ~edge_color
     quotient deps confl;
-
-  exit 1;
-
-(*then
-    begin
-Format.eprintf "%a => %a@." (Package.print dist) p (Disj.print dist) d;
-Format.eprintf "  %a@." (Formula.print dist) f;
-
-if is_composition p f d then
-Format.eprintf "XXX@."
-
-(*
-XXX check "composite"
-*)
-    end)
-    ) fd2;
-*)
-
-
-
-(*
-    let fd2 =
-    Solver.f (Dgraph.invert (dep_dgraph dist deps))
-      (fun m p ->
-         let f = PTbl.get deps p in
-         let res =
-         Formula.fold
-           (fun d f ->
-              Formula.conj
-                (Disj.fold
-                   (fun p f ->
- Formula.disj (PMap.find p m) f) d Formula._false)
-                f)
-           f
-           (if Conflict.has confl p then Formula.lit p else Formula._true)
-         in
-        let res = simplify_formula confl res in
-res)
-    in
-    let t3 = Unix.gettimeofday () in
-Format.eprintf "%f@." (t3 -. t2);
-*)
-
-
-
-
-
-(*===============================================*)
-exit 1;
-    let reversed_deps = PTbl.create dist [] in
-    PTbl.iteri
-      (fun p f ->
-         Formula.iter f
-           (fun d ->
-              Disj.iter d
-                (fun q ->
-                   PTbl.set reversed_deps q
-                     ((p, d) :: PTbl.get reversed_deps q))))
-      deps;
-
-    let dep_closure = PTbl.create dist Formula._true in
-    let queue = Queue.create () in
-    PTbl.iteri
-      (fun p _ -> if Conflict.has confl p then Queue.add (p, Disj.lit p) queue)
-      dep_closure;
-    while not (Queue.is_empty queue) do
-      let (p, d) = Queue.take queue in
-      let f = PTbl.get dep_closure p in
-      if not (Formula.implies1 f d) then begin
-        PTbl.set dep_closure p (Formula.conj f (Formula.of_disj d));
-Format.eprintf "%a => %a@." (Package.print dist) p (Formula.print dist) (Formula.conj f (Formula.of_disj d));
-        let l = PTbl.get reversed_deps p in
-        List.iter
-          (fun (q, d') ->
-             let f =
-               Disj.fold
-                 (fun p' f ->
-                    Formula.disj f
-                      (if p' = p then Formula.of_disj d else
-                       PTbl.get dep_closure p'))
-                 d' Formula._false
-             in
-             Formula.iter f (fun d -> Queue.add (q, d) queue))
-          l
-(*
-        List.iter (fun (q, d') -> Queue.add (q, Disj.cut d' p d) queue) l
-*)
-      end
-else
-Format.eprintf "---@."
-    done;
-(*
-XXX
-- compute dependency closure
-  ==> mapping package from disj that depends on it
-  ==> start from packages with conflicts
-      propagate (using a queue)
-
-- simplifications...
-*)
-()
 
 end
 
