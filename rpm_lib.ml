@@ -12,6 +12,19 @@ XXXX Print generated rules
 XXXX Share more code with deb.ml
 *)
 
+let rec match_prefix_rec p d i l =
+  i = l || (d.[i] = p.[i] && match_prefix_rec p d (i + 1) l)
+let match_prefix p d =
+  let l = String.length p in
+  String.length d >= l && match_prefix_rec p d 0 l
+
+(* Mandriva has a patch that makes rpm ignore conflict on some
+   documentation files *)
+let doc_dirs =
+  ["/usr/share/man/"; "/usr/share/gtk-doc/html/"; "/usr/share/gnome/html/"]
+let keep_directory d =
+  not (List.exists (fun p -> match_prefix p d) doc_dirs)
+
 type typ =
     NULL | CHAR | INT8 | INT16 | INT32 | INT64
   | STRING | BIN | STRING_ARRAY | I18NSTRING
@@ -127,7 +140,7 @@ let tags =
    (1034, (INT32,        "FILEMTIMES", false));
    (1035, (STRING_ARRAY, "FILEMD5S", true));         (* ! *)
    (1036, (STRING_ARRAY, "FILELINKTOS", true));      (* ! *)
-   (1037, (INT32,        "FILEFLAGS", false));
+   (1037, (INT32,        "FILEFLAGS", true));        (* ! *)
    (1039, (STRING_ARRAY, "FILEUSERNAME", false));
    (1040, (STRING_ARRAY, "FILEGROUPNAME", false));
    (1044, (STRING,       "SOURCERPM", false));
@@ -152,8 +165,8 @@ let tags =
    (1082, (STRING_ARRAY, "CHANGELOGTEXT", false));
    (1085, (STRING,       "PREINPROG", false));
    (1086, (STRING,       "POSTINPROG", false));
-   (1087, (STRING,       "PREUNPROG", false));
-(*   (1087, (STRING_ARRAY, "PREUNPROG", false)); *)
+(*   (1087, (STRING,       "PREUNPROG", false));*)
+   (1087, (STRING_ARRAY, "PREUNPROG", false));
    (1088, (STRING,       "POSTUNPROG", false));
    (1090, (STRING_ARRAY, "OBSOLETENAME", false));
    (1091, (STRING,       "VERIFYSCRIPTPROG", false));
@@ -186,6 +199,10 @@ let tags =
    (1146, (BIN,          "SOURCEPKGID", false));
    (1152, (STRING,       "POSTTRANS", false));
    (1154, (STRING,       "POSTTRANSPROG", false));
+   (1156, (STRING_ARRAY, "SUGGESTSNAME", false));
+   (1157, (STRING_ARRAY, "SUGGESTSVERSION", false));
+   (1158, (INT32,        "SUGGESTSFLAGS", false));
+   (1177, (INT32,        "FILEDIGESTALGOS", false));
    (1000000, (STRING,    "FILENAME", false));
    (1000001, (INT32,     "FILESIZE", false));
    (1000005, (STRING,    "MD5", false));
@@ -245,6 +262,7 @@ let _EPOCH = 1003
 let _FILEMODES = 1030
 let _FILEMD5S = 1035
 let _FILELINKTOS = 1036
+let _FILEFLAGS = 1037
 let _PROVIDENAME = 1047
 let _REQUIREFLAGS = 1048
 let _REQUIRENAME = 1049
@@ -689,6 +707,9 @@ let parse_header pool ignored_packages ch =
     let filelinktos =
       if file_info then estring_array store entry (i + 1) _FILELINKTOS else [||]
     in
+    let fileflags =
+      if file_info then eint32_array store entry (i + 2) _FILEFLAGS else [||]
+    in
     let i = move_to entry i _PROVIDENAME in
     let providename = estring_array store entry i _PROVIDENAME in
     let requireflags = eint32_array store entry (i + 1) _REQUIREFLAGS in
@@ -732,14 +753,16 @@ let parse_header pool ignored_packages ch =
     add_to_package_list pool.packages_by_name p.name p;
     List.iter (fun pr -> add_provide pool p pr) p.provide;
     pool.size <- pool.size + 1;
-    if file_info then
+    if file_info then begin
       Array.iteri
         (fun i f ->
            let d = dirnames.(dirindexes.(i)) in
-           add_file pool (d, f)
-             (intern_file filemodes filemd5s filelinktos i, p))
+           let is_ghost = fileflags.(i) land 0x40 <> 0 in
+           if not is_ghost && keep_directory d then
+             add_file pool (d, f)
+               (intern_file filemodes filemd5s filelinktos i, p))
         basenames
-    else
+    end else
       Array.iteri
         (fun i f ->
            let d = dirnames.(dirindexes.(i)) in
@@ -929,6 +952,19 @@ let compute_conflicts pool =
       add_to_package_list conflicts p2.num p1.num
     end
   in
+  List.iter
+    (fun p ->
+       List.iter
+         (fun r ->
+            let l = resolve_pack_ref pool r in
+            List.iter (fun p' -> add_conflict p p') l)
+         p.conflict)
+    pool.packages;
+  let conflict_pairs' = Hashtbl.copy conflict_pairs in
+  let has_conflict p1 p2 =
+    let pair = (min p1.num p2.num, max p1.num p2.num) in
+    Hashtbl.mem conflict_pairs' pair
+  in
   (* File conflicts *)
   Hashtbl.iter
     (fun (d, f) {contents = l} ->
@@ -942,20 +978,17 @@ let compute_conflicts pool =
               for j = i + 1 to len - 1 do
                 let (info1, p1) = a.(i) in
                 let (info2, p2) = a.(j) in
-                if info1 <> info2 then
+                if not (has_conflict p1 p2) && info1 <> info2 then begin
+(*
+                    Format.printf "conflict between %a and %a on file %s%s (%a vs %a).@."
+                      pr_pack p1 pr_pack p2 d f pr_info info1 pr_info info2;
+*)
                   add_conflict p1 p2
+                end
               done
             done
           end)
     pool.files;
-  List.iter
-    (fun p ->
-       List.iter
-         (fun r ->
-            let l = resolve_pack_ref pool r in
-            List.iter (fun p' -> add_conflict p p') l)
-         p.conflict)
-    pool.packages;
   Array.init pool.size (fun i -> get_package_list conflicts i)
 
 let compute_deps dist =
