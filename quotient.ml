@@ -8,23 +8,49 @@ type t =
     repr_tbl : Package.t PTbl.t;
     repr_map : (Package.t, PSet.t) PMap.t }
 
-let perform pool deps =
+let trivial pool =
+  let count = ref 0 in
+  let repr_map = ref PMap.empty in
+  let repr_tbl =
+    PTbl.init pool
+      (fun p ->
+        incr count; repr_map := PMap.add p (PSet.singleton p) !repr_map; p)
+  in
+  { pool = pool; count = !count; repr_tbl = repr_tbl; repr_map = !repr_map }
+
+let subset pool s =
+  let count = ref 0 in
+  let repr_map = ref PMap.empty in
+  let repr_tbl =
+    PTbl.init pool
+      (fun p ->
+         if PSet.mem p s then begin
+           incr count; repr_map := PMap.add p (PSet.singleton p) !repr_map
+         end;
+         p)
+  in
+  { pool = pool; count = !count; repr_tbl = repr_tbl; repr_map = !repr_map }
+
+let perform pool ?packages deps =
   let classes_by_dep = Hashtbl.create 17 in
   let class_count = ref 0 in
-  PTbl.iteri
-    (fun p f ->
-       let f = Formula.normalize f in
-       let s =
-         try
-           Hashtbl.find classes_by_dep f
-         with Not_found ->
-           incr class_count;
-           let s = ref PSet.empty in
-           Hashtbl.add classes_by_dep f s;
-           s
-       in
-       s := PSet.add p !s)
-    deps;
+  let add_package p f =
+    let f = Formula.normalize f in
+    let s =
+      try
+        Hashtbl.find classes_by_dep f
+      with Not_found ->
+        incr class_count;
+        let s = ref PSet.empty in
+        Hashtbl.add classes_by_dep f s;
+        s
+    in
+    s := PSet.add p !s
+  in
+  begin match packages with
+    None   -> PTbl.iteri add_package deps
+  | Some s -> PSet.iter (fun p -> add_package p (PTbl.get deps p)) s
+  end;
   (* Compute good representatives *)
   let repr_tbl = PTbl.create pool (Package.of_index (-1)) in
   let repr_map = ref PMap.empty in

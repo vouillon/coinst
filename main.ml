@@ -300,7 +300,9 @@ let remove_redundant_conflicts dist deps confl =
            (fun q1 ->
               PSet.exists
                 (fun q2 ->
-                   (p1 <> q1 || q2 <> p2) && Conflict.check confl q1 q2)
+                   (p1 <> q1 || p2 <> q2) &&
+                   (p1 <> q2 || p2 <> q1) &&
+                   Conflict.check confl q1 q2)
                 d2)
            d1
        then begin
@@ -320,7 +322,9 @@ let remove_redundant_conflicts dist deps confl =
              (fun q1 ->
                 PSet.exists
                   (fun q2 ->
-                     (p1 <> q1 || q2 <> p2) && Conflict.check confl q1 q2)
+                     (p1 <> q1 || p2 <> q2) &&
+                     (p1 <> q2 || p2 <> q1) &&
+                     Conflict.check confl q1 q2)
                   d2)
              d1)
         f1
@@ -337,11 +341,130 @@ let remove_redundant_conflicts dist deps confl =
   (* We may now be able to remove some dependencies *)
   PTbl.map (simplify_formula confl) deps
 
+(****)
+
+let remove_self_conflicts dist deps confl =
+  let s = ref PSet.empty in
+  PTbl.iteri
+    (fun p f ->
+       if Formula.exists (fun d -> match Disj.to_lit d with Some q -> Conflict.check confl p q | None -> false) f then
+         s := PSet.add p !s)
+    deps;
+(*
+PSet.iter (fun p -> Format.eprintf "SELF CONFLICT: %a@." (Package.print dist) p) !s;
+*)
+  PTbl.map
+    (fun f ->
+       Formula.fold
+         (fun d f ->
+            let d = Disj.filter (fun q -> not (PSet.mem q !s)) d in
+            Formula.conj (Formula.of_disj d) f)
+         f Formula._true)
+    deps
+
+(****)
+
+let array_mean a =
+  let c = ref 0 in
+  let s = ref 0 in
+  for i = 0 to Array.length a - 1 do
+    let (u, v) = a.(i) in
+    c := !c + u;
+    s := !s + u * v
+  done;
+  float !s /. float !c
+
+let array_median a =
+  let c = ref 0 in
+  for i = 0 to Array.length a - 1 do
+    let (u, v) = a.(i) in
+    c := !c + u
+  done;
+  let i = ref 0 in
+  let s = ref 0 in
+  while !s < (!c + 1) / 2 do
+    let (u, v) = a.(!i) in
+    s := !s + u;
+    incr i
+  done;
+  snd a.(!i - 1)
+
+let rec cone deps s p =
+  if PSet.mem p s then s else
+  let s = PSet.add p s in
+  Formula.fold (fun d s -> Disj.fold (fun q s -> cone deps s q) d s)
+    (PTbl.get deps p) s
+
+let conflicts_count confl s =
+  let count = ref 0 in
+  PSet.iter (fun p -> if Conflict.has confl p then incr count) s;
+  !count
+
+let output_cone f pool deps confl p s =
+Format.eprintf "== %a ==@." (Package.print pool) p;
+  let quotient = Quotient.subset pool s in
+  let cfl = Conflict.create pool in
+  Conflict.iter
+    confl
+    (fun p q -> if PSet.mem p s && PSet.mem q s then Conflict.add cfl p q);
+  Graph.output f ~mark_all:true
+    ~package_weight:(fun p -> if Conflict.has confl p then 1000. else 1.)
+    ~edge_color:(fun _ _ _ -> Some "blue") quotient deps cfl
+
+let print_stats f txt quotient deps confl =
+  let pkgs = ref 0 in
+  let dps = ref 0 in
+  let cones = ref [] in
+  let confls = ref 0 in
+  Quotient.iter
+    (fun p ->
+       incr pkgs;
+       let c = cone deps PSet.empty p in
+       let sz = PSet.cardinal c in
+       let ncfl = conflicts_count confl c in
+       if sz <= 38 && sz > 20 && ncfl = 3 then
+         output_cone "/tmp/cone.dot" (Quotient.pool quotient) deps confl p c;
+       cones :=
+         (1 (*Quotient.class_size quotient p*),
+          sz, ncfl) ::
+         !cones;
+       Formula.iter (PTbl.get deps p) (fun d -> if not (Disj.implies1 p d) then incr dps))
+    quotient;
+  Conflict.iter confl (fun _ _ -> incr confls);
+  let cones = Array.of_list !cones in
+  Array.sort (fun (_, x, _) (_, y, _) -> compare y x) cones;
+  let ch = open_out (Format.sprintf "/tmp/%s.txt" f) in
+  let s = ref 0 in
+  for i = 0 to Array.length cones - 1 do
+    let (w, sz, ncfl) = cones.(i) in
+    Printf.fprintf ch "%d %d %d\n" !s sz ncfl;
+    s := !s + w;
+    if i = Array.length cones - 1 then
+      Printf.fprintf ch "%d %d\n" !s sz
+  done;
+  close_out ch;
+  let cones = Array.map (fun (w, sz, _) -> (w, sz)) cones in
+  Format.eprintf "%s: %d package, %d dependencies, %d conflicts; cone size: %d / %f / %d@."
+    txt !pkgs !dps !confls (snd cones.(0))
+    (array_mean cones) (array_median cones)
+
 let f ignored_packages ic =
   let (dist, deps, confl) = read_data ignored_packages ic in
+
+(*
+  print_stats "initial" "Initial repository"
+    (Quotient.trivial dist) deps confl;
+*)
+
   let flatten_deps = flatten_dependencies dist deps confl in
 
+(*XXX FIX: should iterate... *)
+  let flatten_deps = remove_self_conflicts dist flatten_deps confl in
+
   let flatten_deps = remove_redundant_conflicts dist flatten_deps confl in
+
+  let flatten_deps = flatten_dependencies dist flatten_deps confl in
+
 
   let maybe_remove fd2 p f d =
     Disj.exists (fun q ->
@@ -357,15 +480,47 @@ true)
   let is_composition fd2 p f d =
   Formula.exists (fun d' ->
     not (Disj.equiv d d') && not (Disj.equiv (Disj.lit p) d') &&
+(
+    let f =
+      Disj.fold (fun p f -> Formula.disj (PTbl.get fd2 p) f) d' Formula._false
+    in
+    let res1 =
+      Formula.exists (fun d'' -> Disj.implies d d'') f
+    in
+(*
+    let res2 =
+      not (Formula.implies (Formula.filter (fun d' -> not (Disj.equiv d d')) f) f)
+    in
+    let res =
     Disj.exists (fun q ->
       Formula.exists (fun d'' ->
-        Disj.implies d (Disj.cut d' q d'')
-(*
-&& (
-Format.eprintf "XXX %a / %a -> %a@." (Disj.print dist) d' (Package.print dist) q (Disj.print dist) d''; true
-)
+        Disj.implies d (Disj.cut d' q d'')) (PTbl.get fd2 q)) d'
+    in
+if res1 <> res2 then begin
+Format.eprintf "??? %b %b@." res1 res2
+end;
 *)
-) (PTbl.get fd2 q)) d') f
+(*
+if res <> res1 then begin
+(*
+Format.eprintf "%a : %a => %a@." (Package.print dist) p
+(Disj.print dist) d (Formula.print dist) f;
+
+Disj.iter d' (fun q ->
+  if not (Formula.exists (fun d'' -> Disj.equiv (Disj.lit q) d'') (PTbl.get fd2 q)) then
+    Format.eprintf "!!! %a => %a@." (Package.print dist) q (Formula.print dist) (PTbl.get fd2 q);
+  Formula.iter (PTbl.get fd2 q) (fun d'' ->
+     if Disj.implies d (Disj.cut d' q d'')
+     then Format.eprintf "%a <= %a / %a / %a@." (Disj.print dist) d (Disj.print dist) d' (Package.print dist) q (Disj.print dist) d''
+));
+*)
+
+Format.eprintf "!!! %b %b %b@." res res1 res2
+end;
+*)
+res1
+)
+) f
 in
 
 (*
@@ -374,71 +529,31 @@ Formula.iter f (fun d -> if Conflict.exists confl (fun q -> Disj.implies1 q d) p
 )) fd2;
 *)
 
+  let rec remove_deps deps =
+    let changed = ref false in
+    let deps =
+      PTbl.mapi
+        (fun p f ->
+           Formula.filter (fun d ->
+             let b =
+               not (maybe_remove deps p f d) || is_composition deps p f d
+             in
+             if not b then changed := true;
+             b) f)
+        deps
+    in
+    if !changed then remove_deps deps else deps
+  in
 
-  let fd2 = flatten_deps in
-  let fd2 =
-  PTbl.mapi
+  let fd2 = remove_deps flatten_deps in
+
+(*
+  PTbl.iteri
     (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
-  let fd2 =
-  PTbl.mapi
-    (fun p f ->
-Formula.filter (fun d ->
-  not (maybe_remove fd2 p f d) || is_composition fd2 p f d) f) fd2 
-  in
-(*Format.eprintf "==============================@.";*)
+Formula.iter f (fun d ->
+  if maybe_remove fd2 p f d then
+Format.eprintf "REM %a: %a (%a)@." (Package.print dist) p (Disj.print dist) d (Formula.print dist) f)) fd2;
+*)
 
 (*??? Need to adapt other checks... (also, conflict to uninstallable package)
   let fd2 = PTbl.mapi (fun p f -> filter_conflicts confl p f) fd2 in
@@ -462,7 +577,7 @@ Formula.filter (fun d ->
   let st = M.generate_rules dist in
 *)
 (*XXX FIX: should consider *all* packages, not just the ones we focus on*)
-  let st = generate_rules quotient fd2 confl in
+  let st = generate_rules quotient deps confl in
 (*
 print_problem quotient fd2 confl;
 *)
@@ -586,14 +701,75 @@ print_problem quotient fd2 confl;
        PMap.empty !cl
   in
 
+  let comp_count = ref 0 in
+  let comps = Hashtbl.create 107 in
+  Quotient.iter
+    (fun p ->
+       let f = PTbl.get deps p in
+       Formula.iter f
+         (fun d -> if is_composition deps p (PTbl.get deps p) d then begin
+             incr comp_count;
+             Hashtbl.add comps (p, d) ()
+         end))
+    quotient;
+(*
+  Format.eprintf "Comp count: %d@." !comp_count;
+*)
+
+  let comp_count = ref 0 in
+  let rec remove_composition deps =
+(*
+prerr_endline "COMP";
+*)
+    let changed = ref false in
+    Quotient.iter
+      (fun p ->
+         let found = ref false in
+         PTbl.set deps p
+           (Formula.filter
+              (fun d ->
+                 !found || begin
+                   let b = is_composition deps p (PTbl.get deps p) d in
+                   found := b;
+                   if !found then begin changed := true; incr comp_count end;
+                   not b
+                 end)
+              (PTbl.get deps p)))
+      quotient;
+    if !changed then remove_composition deps
+  in
+  remove_composition deps;
+  Format.eprintf "Comp count: %d@." !comp_count;
+
+  let comp_count = ref 0 in
+(*  let comps = Hashtbl.create 107 in*)
+  Quotient.iter
+    (fun p ->
+       let f = PTbl.get deps p in
+       Formula.iter f
+         (fun d -> if is_composition deps p (PTbl.get deps p) d then begin
+             incr comp_count;
+(*             Hashtbl.add comps (p, d) ()*)
+         end))
+    quotient;
+(*
+  Format.eprintf "Comp count: %d@." !comp_count;
+*)
+
   let package_weight p = try PMap.find p pw with Not_found -> 1. in
   let edge_color p f d =
-  (* XXX Fix *)
-    if (*maybe_remove fd2 p f d &&*) is_composition fd2 p f d then
-      None (*"violet"*)
+(*
+    if (*maybe_remove deps p f d &&*) (*is_composition deps p f d*)
+      Hashtbl.mem comps (p, d)
+    then
+      Some "violet"
     else
+*)
       Some "blue"
   in
+
+  print_stats "final" "Final repository" quotient deps confl;
+
   Graph.output "/tmp/foo.dot" ~mark_all:(!mark_all) ~package_weight ~edge_color
     quotient deps confl;
 

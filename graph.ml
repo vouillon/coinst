@@ -1,4 +1,6 @@
 
+let colored = true
+
 module F (R : Repository.S) = struct
 
 open R
@@ -17,6 +19,13 @@ let output
       Some f -> f
     | None   -> fun p -> float (Quotient.class_size quotient p)
   in
+
+  let confl_style = if colored then ",color=red" else ",style=dashed" in
+  let confl_clique_style =
+    if colored then ",color=red,fontcolor=red" else "" in
+  let dep_style col = if colored then Format.sprintf "color=%s" col else "" in
+  let disj_dep_style col =
+    if colored then Format.sprintf "fontcolor=%s,color=%s" col col else "" in
 
   (* Mark the packages to be included in the graph *)
   let marks = Hashtbl.create 101 in
@@ -61,55 +70,8 @@ let output
   Format.fprintf f "digraph G {@.";
   Format.fprintf f "rankdir=LR;@.";
   Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";
+  Format.fprintf f "node [style=rounded];@.";
 
-(*
-  let confl_n = ref 0 in
-  let cpairs = Hashtbl.create 101 in
-  let visited i j = Hashtbl.mem cpairs (min i j, max i j) in
-  let visit i j = Hashtbl.replace cpairs (min i j, max i j) () in
-  Quotient.iter
-    (fun i ->
-       let s = Conflict.of_package confl i in
-       if marked i then begin
-         assert (PSet.for_all (fun j -> marked j) s);
-         while
-           let c = PSet.filter (fun j -> not (visited i j)) s in
-           not (PSet.is_empty c)
-         do
-           let c = PSet.filter (fun j -> not (visited i j)) s in
-           let cset =
-             PSet.fold
-               (fun j cset ->
-                  if
-                    PSet.for_all
-                      (fun i -> Conflict.check confl i j && not (visited i j)) cset
-                  then
-                    PSet.add j cset
-                  else
-                    cset)
-               c (PSet.add i PSet.empty)
-           in
-           PSet.iter (fun i -> PSet.iter (fun j -> visit i j) cset) cset;
-           match PSet.elements cset with
-             [i; j] ->
-                Format.fprintf f "%d -> %d [dir=none,color=red];@."
-                  (Package.index i) (Package.index j)
-           | l ->
-                incr confl_n;
-                let n = !confl_n in
-                Format.fprintf f
-                  "confl%d [label=\"#\",shape=box,color=red,fontcolor=red];@."
-                  n;
-                List.iter
-                  (fun i ->
-                     Format.fprintf f
-                       "%d -> confl%d [dir=none,color=red];@."
-                       (Package.index i) n)
-                  l
-         done
-      end)
-    quotient;
-*)
   let confl_n = ref 0 in
   Conflict.iter confl
     (fun p q ->
@@ -122,19 +84,19 @@ let output
     (fun cset ->
            match PSet.elements cset with
              [i; j] ->
-                Format.fprintf f "%d -> %d [dir=none,color=red];@."
-                  (Package.index i) (Package.index j)
+                Format.fprintf f "%d -> %d [dir=none%s];@."
+                  (Package.index i) (Package.index j) confl_style
            | l ->
                 incr confl_n;
                 let n = !confl_n in
                 Format.fprintf f
-                  "confl%d [label=\"#\",shape=box,color=red,fontcolor=red];@."
-                  n;
+                  "confl%d [label=\"#\",shape=circle%s];@."
+                  n confl_clique_style;
                 List.iter
                   (fun i ->
                      Format.fprintf f
-                       "%d -> confl%d [dir=none,color=red];@."
-                       (Package.index i) n)
+                       "%d -> confl%d [dir=none%s];@."
+                       (Package.index i) n confl_style)
                   l)
     l;
 
@@ -153,14 +115,15 @@ let output
             let n = !dep_n in
             Format.fprintf f
               "dep%d \
-               [label=\"MISSING DEP\",shape=box,fontcolor=red,color=%s];@."
-              n col;
-            Format.fprintf f "%d -> dep%d [color=%s];@."
-              (Package.index i) n col
+               [label=\"MISSING DEP\",shape=box,fontcolor=red,%s];@."
+              n (dep_style col);
+            Format.fprintf f "%d -> dep%d [%s];@."
+              (Package.index i) n (dep_style col)
         | 1 ->
             if PSet.choose s <> i then
-              Format.fprintf f "%d -> %d [minlen=2, weight=2, color=%s];@."
-                (Package.index i) (Package.index (PSet.choose s)) col
+              Format.fprintf f "%d -> %d [minlen=2, weight=2, %s];@."
+                (Package.index i) (Package.index (PSet.choose s))
+                (dep_style col)
         | _ ->
             let n =
               try
@@ -169,17 +132,25 @@ let output
                 incr dep_n;
                 let n = !dep_n in
                 Hashtbl.add dep_tbl s n;
+(*
                 Format.fprintf f "dep%d [label=\"DEP\",shape=box,color=%s];@."
                   n col;
+*)
+                Format.fprintf f "dep%d [label=\"∨\",shape=circle,%s];@."
+                  n (disj_dep_style col);
+(*
+                Format.fprintf f "dep%d [label=\"or\",shape=circle,%s];@."
+                  n (disj_dep_style col);
+*)
                 PSet.iter
                   (fun j ->
-                     Format.fprintf f "dep%d -> %d [color=%s];@."
-                       n (Package.index j) col)
+                     Format.fprintf f "dep%d -> %d [%s];@."
+                       n (Package.index j) (dep_style col))
                   s;
                 n
             in
-            Format.fprintf f "%d -> dep%d [color=%s];@."
-              (Package.index i) n col
+            Format.fprintf f "%d -> dep%d [%s];@."
+              (Package.index i) n (dep_style col)
   in
   Quotient.iter
     (fun i ->
@@ -187,7 +158,8 @@ let output
        if marked i then begin
          let n = package_weight i in
          Format.fprintf f
-           "%d [label=\"%a\",style=filled,fillcolor=\"0.0,%f,1.0\"];@."
+           "%d [label=\"%a\",style=\"filled\",\
+            fillcolor=\"0.0,%f,1.0\"];@."
            (Package.index i) (Quotient.print_class quotient) i
            (min 1. (log n /. log 1000.));
          Formula.iter dep (fun s -> add_dep i dep s)

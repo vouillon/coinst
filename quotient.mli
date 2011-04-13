@@ -4,7 +4,9 @@ module F (R : Repository.S) : sig
 
   type t
 
-  val perform : pool -> Formula.t PTbl.t -> t
+  val perform : pool -> ?packages:PSet.t -> Formula.t PTbl.t -> t
+  val trivial : pool -> t
+  val subset : pool -> PSet.t -> t
 
   val formula : t -> Formula.t -> Formula.t
   val dependencies : t -> dependencies -> dependencies
