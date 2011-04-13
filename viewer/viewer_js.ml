@@ -1,3 +1,21 @@
+(* Graph viewer
+ * Copyright (C) 2010 Jérôme Vouillon
+ * Laboratoire PPS - CNRS Université Paris Diderot
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ *)
 
 type rect = {x : int; y : int; width : int; height: int}
 
@@ -73,20 +91,22 @@ open Common
 let redraw st s h v (canvas : Html.canvasElement Js.t) =
   let width = canvas##width in
   let height = canvas##height in
-Firebug.console##time (Js.string "draw");
+(*Firebug.console##time (Js.string "draw");*)
   redraw st s h v canvas
     {x = 0; y = 0; width = width; height = height} 0 0 width height;
   begin try
     ignore (canvas##getContext(Html._2d_)##getImageData (0., 0., 1., 1.)) 
   with _ -> () end
+(*
 ;Firebug.console##timeEnd (Js.string "draw")
 ;Firebug.console##log_2 (Js.string "draw", Js.date##now())
-
+*)
 
 let (>>=) = Lwt.bind
 
 let http_get url =
-  XmlHttpRequest.send url >>= fun {XmlHttpRequest.code = cod; content = msg} ->
+  XmlHttpRequest.send_string url
+    >>= fun {XmlHttpRequest.code = cod; content = msg} ->
   if cod = 0 || cod = 200
   then Lwt.return msg
   else fst (Lwt.wait ())
@@ -164,13 +184,19 @@ let start () =
      if not !started then p##style##display <- Js.string "inline";
      Lwt.return ());
 
+(*
   Firebug.console##time(Js.string "loading");
+*)
   http_get "scene.json" >>= fun s ->
+(*
   Firebug.console##timeEnd(Js.string "loading");
   Firebug.console##time(Js.string "parsing");
+*)
   let ((x1, y1, x2, y2), bboxes, scene) = json##parse (Js.string s) in
+(*
   Firebug.console##timeEnd(Js.string "parsing");
   Firebug.console##time(Js.string "init");
+*)
 
   started := true;
   Dom.removeChild doc##body p;
@@ -203,7 +229,9 @@ let start () =
 
   let redraw_queued = ref false in
   let update_view force =
+(*
 Firebug.console##log_2(Js.string "update", Js.date##now());
+*)
     let a = allocation () in
     let scale = get_scale () in
     let aw = ceil (float a.width /. scale) in
@@ -394,7 +422,9 @@ Firebug.console##log(Js.string "sleep");
         update_view false;
         Js._false
     | _ ->
+(*
         Firebug.console##log_2(Js.string "keycode:", ev##keyCode);
+*)
         Js._true
   in
   let ignored_keycode = ref (-1) in
@@ -411,10 +441,14 @@ Firebug.console##log(Js.string "sleep");
              if e##keyCode = k then Js._true else handle_key_event e));
 
 
+(*
 Firebug.console##time(Js.string "initial drawing");
+*)
   update_view true;
+(*
 Firebug.console##timeEnd(Js.string "initial drawing");
 Firebug.console##timeEnd(Js.string "init");
+*)
 
   Lwt.return ()
 

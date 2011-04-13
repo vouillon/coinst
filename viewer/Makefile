@@ -5,7 +5,7 @@ OCAMLDEP=ocamlfind ocamldep
 OCAMLYACC=ocamlyacc
 OCAMLLEX=ocamllex
 
-COMPFLAGS=-package str,cairo.lablgtk2,js_of_ocaml -syntax camlp4o
+COMPFLAGS=-package str,cairo.lablgtk2,js_of_ocaml,js_of_ocaml.syntax -syntax camlp4o
 DEPFLAGS=$(COMPFLAGS)
 
 GENERATED=dot_parser.ml dot_lexer.ml
@@ -33,6 +33,12 @@ jsviewer.js: jsviewer.byte
 
 jsviewer.byte: $(JSOBJS)
 	$(OCAMLC) -o $@ $(LINKFLAGS) $^
+
+realclean:: clean
+	rm -f dot_parser.ml dot_parser.mli dot_lexer.ml
+	rm -f jsviewer.js jsviewer.byte
+	rm -f converter viewer
+
 
 clean::
 	rm -f check_coinstall
