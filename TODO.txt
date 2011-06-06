@@ -4,18 +4,14 @@
   ==> Show exactly the selected subgraph
   ==> Generate all focus graphs (and show to which nodes they correspond)
 
-- Reponse Sylvain
-- Annonce Js_of_ocaml
 - Viwever: key bindings + redraw optimizations + tooltips
 - Graph creation: focus on a package
-- Bug in Lwt_pool
+- Bug in Lwt_pool (???)
 
 - Fix bug in eliom client (unwrapping elements)
 - Fix performance issue in Ocaml
 
 =============================
-
-- remove dep edges that can be rebuilt by transitive closure
 
 - smarter way to remove conflicts at the initial stage
     exist d, forall p, p in d -> exist q, q ## p /\ f ==> q

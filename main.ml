@@ -5,6 +5,8 @@
 let mark_all = ref false
 let explain = ref false
 let roots = ref []
+let stats = ref false
+let graph = ref "graph.dot"
 
 (****)
 
@@ -364,6 +366,107 @@ PSet.iter (fun p -> Format.eprintf "SELF CONFLICT: %a@." (Package.print dist) p)
 
 (****)
 
+module DepMap = Map.Make (Disj)
+module DepSet = Set.Make (Disj)
+
+let coinstallability_kernel quotient deps confl =
+  let deps_of_confl = PTbl.create (Quotient.pool quotient) DepSet.empty in
+  let all_deps = ref DepSet.empty in
+  PTbl.iteri
+    (fun p f ->
+       Formula.iter f
+         (fun d ->
+            all_deps := DepSet.add d !all_deps;
+            Disj.iter d
+              (fun p ->
+                 PTbl.set deps_of_confl p
+                   (DepSet.add d (PTbl.get deps_of_confl p)))))
+    deps;
+  let forced_deps = ref DepSet.empty in
+  let updated = ref false in
+  let update_dep d =
+    if not (DepSet.mem d !forced_deps) then begin
+(*
+Format.eprintf "Checking %a@." (Disj.print (Quotient.pool quotient)) d;
+*)
+      let c =
+        Disj.fold
+          (fun p n ->
+            if n > 1 then n else begin
+              if
+                Conflict.for_all confl
+                  (fun p' ->
+(*
+DepSet.iter (fun d ->
+let pool = Quotient.pool quotient in
+Format.eprintf "%a # %a => %a %b@." (Package.print pool) p (Package.print pool) p' (Disj.print pool) d (DepSet.mem d !forced_deps)) (PTbl.get deps_of_confl p');
+*)
+                     Disj.implies1 p' d
+                       ||
+                     DepSet.for_all
+                       (fun d' ->
+                          Disj.equiv d' d (*XXX implies?*)
+                            ||
+                          Disj.implies1 p d'
+                            ||
+                          DepSet.mem d' !forced_deps)
+                       (PTbl.get deps_of_confl p')
+(*
+                     DepSet.subset (DepSet.remove d (PTbl.get deps_of_confl p')) !forced_deps
+*)
+)
+                  p
+              then
+                n
+              else
+                1 + n
+            end)
+          d 0
+      in
+Format.eprintf "Checked (%d) %a@." c (Disj.print (Quotient.pool quotient)) d;
+      if c <= 1 then begin
+        updated := true;
+Format.eprintf "Forced: %a@." (Disj.print (Quotient.pool quotient)) d;
+        forced_deps := DepSet.add d !forced_deps
+      end
+    end
+  in
+prerr_endline "========================================";
+  while
+    updated := false;
+    DepSet.iter update_dep !all_deps;
+prerr_endline "========================================";
+    !updated
+  do () done;
+  DepSet.iter
+    (fun d ->
+       if not (DepSet.mem d !forced_deps) then
+       Format.eprintf "Not forced: %a@."
+         (Disj.print (Quotient.pool quotient)) d)
+    !all_deps;
+  let deps' = PTbl.create (Quotient.pool quotient) Formula._true in
+  Quotient.iter
+    (fun p ->
+       PTbl.set deps' p
+         (Formula.filter
+            (fun d -> not (DepSet.mem d !forced_deps))
+            (PTbl.get deps p)))
+    quotient;
+  let targets = ref PSet.empty in
+  DepSet.iter
+    (fun d ->
+       if not (DepSet.mem d !forced_deps) then
+         Disj.iter d (fun p -> targets := PSet.add p !targets))
+    !all_deps;
+  let confl' = Conflict.create (Quotient.pool quotient) in
+  Conflict.iter confl
+    (fun p p' ->
+      if PSet.mem p !targets || PSet.mem p' !targets then
+        Conflict.add confl' p p');
+  (deps', confl')
+
+(****)
+
 let array_mean a =
   let c = ref 0 in
   let s = ref 0 in
@@ -401,7 +504,9 @@ let conflicts_count confl s =
   !count
 
 let output_cone f pool deps confl p s =
+(*
 Format.eprintf "== %a ==@." (Package.print pool) p;
+*)
   let quotient = Quotient.subset pool s in
   let cfl = Conflict.create pool in
   Conflict.iter
@@ -448,13 +553,14 @@ let print_stats f txt quotient deps confl =
     txt !pkgs !dps !confls (snd cones.(0))
     (array_mean cones) (array_median cones)
 
+(****)
+
 let f ignored_packages ic =
   let (dist, deps, confl) = read_data ignored_packages ic in
 
-(*
-  print_stats "initial" "Initial repository"
-    (Quotient.trivial dist) deps confl;
-*)
+  if !stats then
+    print_stats "initial" "Initial repository"
+      (Quotient.trivial dist) deps confl;
 
   let flatten_deps = flatten_dependencies dist deps confl in
 
@@ -701,6 +807,10 @@ print_problem quotient fd2 confl;
        PMap.empty !cl
   in
 
+(******************
+  let (deps, confl) = coinstallability_kernel quotient deps confl in
+******************)
+
   let comp_count = ref 0 in
   let comps = Hashtbl.create 107 in
   Quotient.iter
@@ -739,7 +849,9 @@ prerr_endline "COMP";
     if !changed then remove_composition deps
   in
   remove_composition deps;
+(*
   Format.eprintf "Comp count: %d@." !comp_count;
+*)
 
   let comp_count = ref 0 in
 (*  let comps = Hashtbl.create 107 in*)
@@ -768,9 +880,10 @@ prerr_endline "COMP";
       Some "blue"
   in
 
-  print_stats "final" "Final repository" quotient deps confl;
+  if !stats then
+    print_stats "final" "Final repository" quotient deps confl;
 
-  Graph.output "/tmp/foo.dot" ~mark_all:(!mark_all) ~package_weight ~edge_color
+  Graph.output !graph ~mark_all:(!mark_all) ~package_weight ~edge_color
     quotient deps confl;
 
 end
@@ -791,6 +904,9 @@ Arg.parse
    "-deb",
    Arg.Unit (fun () -> kind := Deb),
    "  Parse (Debian) binary package control files (default)";
+   "-o",
+   Arg.String (fun f -> graph := f),
+   "FILE   Output graph to file FILE";
    "-ignore",
    Arg.String (fun p -> ignored_packages := p :: !ignored_packages),
    "PACKAGE   Ignore package of name PACKAGE";
@@ -811,6 +927,9 @@ Arg.parse
    "-explain",
    Arg.Unit (fun () -> explain := true),
    " Explain the results";
+   "-stats",
+   Arg.Unit (fun () -> stats := true),
+   " Output stats regarding the input and output repositories";
 (*
    "-debug",
    Arg.Unit (fun () -> debug := true),
