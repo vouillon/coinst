@@ -1,5 +1,5 @@
 
-OBJS=Po.vo Lattice.vo Relation.vo
+OBJS=Po.vo Lattice.vo Relation.vo coinst.vo
 
 all: $(OBJS)
 

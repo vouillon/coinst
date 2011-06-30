@@ -1620,82 +1620,165 @@ intros c f A0 A1 A2 A3; case A3; intros H1 H2; split;
          (fun p => exists q, exists H : img f d q, g q H p)));
     auto;
     intro H5; right;
-
-red in H4; simpl in H4; unfold img at 1 in H4; 
-(*
-for all representative p in final dependency, there exists a package q
-such that f q = p and exists r, conflict q r and for all p', p' not= f r
-*)
-
-
-unfold depends; simpl;
-
-    assert
-      (H6 : forall p (H : d p),
-            exists d',
-            depends c p d' /\
-            sub (img f d') (fun p => exists q, exists H, g q H p));
-      [ 
-      | generalize (dep_comp A3 H3 (@sub_reflexive _ _))
-
-
-
     generalize
-         (fun H =>
-            H5 (always_sat_when_internal_conflicts
-                 (quotient_and_self_conflicts A3 A1 A2) H));
+      (fun H =>
+         H5 (@always_sat_when_internal_conflicts _ _
+               (quotient_and_self_conflicts A3 A1 A2) H));
     clear H5; intro H5;
-
-
-generalize (fun p => not_and_or _ _ (H5 p))
-unfold internal_conflicts;
-
-generalize 
-
-
-
-unfold always_sat in H5;
-
-
-    assert (G1 : forall q, d q -> img f d (f q));
-      [ intros q G1; exists q; split; trivial
-      | generalize
-          (choice (fun pH => H4 _ (G1 (proj1_sig pH) (proj2_sig pH))));
-        intros (h, G2);
-        lapply (H2 p (fun p' => exists q, exists H : d q, h (exist d q H) p'));
-            [ intros [H5 | (d', (H5, H6))];
-                [ left; apply always_sat_when_internal_conflicts;
-                    [ 
-                    | generalize (always_sat_implies_internal_conflicts H5);
-                      intros (p', ((q, (H6, H7)), H8));
-                      exists (f p'); split;
-                        [ exists (f q); exists (G1 _ H6);
-                          generalize (proj2 (G2 (exist _ _ H6)));
-                          simpl; intro E; rewrite E;
-                          exists p'; auto
-                        | intros q' H9; generalize (quotient_in_conflict H9);
-                          intros (p1, (p2, (E1, (E2, G3))));
-                          generalize (H8 _ 
-     
-                        ] ]
-                | right; exists (img f d'); split;
-                    [ intros p'' (p', (H7, E)); subst p'';
-                      generalize (H5 _ H7);
-                      intros (q, (H8, H9));
-                      exists (f q); exists (G1 _ H8);
-                      generalize (proj2 (G2 (exist _ _ H8))); simpl;
-                      intro E; rewrite E;
-                      exists p'; auto
-                    | exists d'; auto ]
-                ]
-            | exists d; split;
-                [ trivial
-                | exists (fun p H => h (exist _ _ H)); split; trivial;
-                  intros q H; apply (proj2 (A1 q));
-                  exact (proj1 (G2 (exist _ _ H))) ] ] ] ].
-*)
-
-(****)
+    generalize
+      (choice (fun pH : {p | img f d p} => H4 _ (proj2_sig pH)));
+    clear H4; intros (dg, H4);
+    assert (H6 :
+      forall p, (exists H, dg H p) ->
+      exists p'',
+      f p = f p'' /\
+      exists q'', in_conflict c p'' q'' /\
+                  forall H : {q' | img f d q'}, ~ img f (dg H) (f q''));
+      [ intros p1 (H6, H7);
+        generalize (not_ex_all_not _ _ H5);
+        clear H5; intro H5; generalize (not_and_or _ _ (H5 (f p1)));
+        clear H5; intro H5; generalize (or_to_imply _ _ H5);
+        clear H5; intro H5; lapply H5;
+          [ clear H5; intro H5; generalize (not_all_ex_not _ _ H5);
+            clear H5; intros (q1, H5); generalize (imply_to_and _ _ H5);
+            clear H5; intros (G1, G2);red in G1;
+            assert (G3 : exists p3, exists q3,
+                         f p1 = f p3 /\ q1 = f q3 /\ in_conflict c p3 q3);
+              [ case G1;
+                  [ intros (p3, (q3, (G3, (G4, G5)))); exists p3; exists q3;
+                    unfold in_conflict; auto
+                  | intros (q3, (p3, (G3, (G4, G5)))); exists p3; exists q3;
+                    unfold in_conflict; auto ]
+              | revert G3; intros (p3, (q3, (G3, (G4, G5))));
+                exists p3; split; trivial; exists q3; split; trivial;
+                intros H; rewrite <- (proj2 (H4 H));
+                revert H; intros (q2, G6);
+                generalize (not_ex_all_not _ _ G2 q2);
+                clear G1 G2; intro G2; subst q1;
+                exact (not_ex_all_not _ _ G2 G6) ]
+          | exists (proj1_sig H6); exists (proj2_sig H6);
+            rewrite (proj2 (H4 H6)); exists p1; auto ]
+      | clear H5;
+        generalize
+          (choice (fun pH : {p | exists H, dg H p} =>
+             H6 _ (proj2_sig pH)));
+        clear H6; intros (h, H6);
+        assert (G1 :
+          forall d, @sub (set package) d (fun p => exists H, p = h H) ->
+          ~ always_sat (conflicts c) d);
+          [ intros d' G1 G2;
+            generalize (always_sat_implies_internal_conflicts G2);
+            clear G2; intros (q, (G2, G3));
+            generalize (G1 _ G2); clear G2; intros (H, E); subst q;
+            generalize (H6 H); intros (G4, (q'', (G5, G6)));
+            generalize (G1 _ (G3 _ G5));
+            intros ((p', (G7, G8)), G9);
+            subst q'';
+            apply (G6 G7);
+            exists p'; split; trivial;
+            symmetry;
+            apply
+              (proj1 (H6 (exist (fun p' => _) _ (ex_intro (fun H => _) _ G8))))
+          | assert (G2 : forall p (H : d p),
+                         exists d' : set package,
+                         sub d' (fun p => exists H, p = h H) /\
+                         depends c p d');
+              [ intros p' H5;
+                assert (G2 : forall H p'' (H' : dg H p''),
+                             exists d' : set package,
+                             sub d' (fun p => exists H, p = h H) /\
+                             depends c p'' d');
+                  [ intros H7 p'' H8;
+                    pose (G3 := exist (fun p => exists H, dg H p) _
+                                 (ex_intro (fun H => _) _ H8));
+                    assert (G2 : has_conflict c (h G3));
+                      [ generalize (proj2 (H6 G3));
+                        intros (q, (G4, _)); exists q; trivial
+                      | generalize
+                          (confl_dep_sub_confl (confl_dep_sub (f_refl A3)) G2);
+                        intros (d', (G4, G5)); exists d'; split;
+                          [ refine (sub_transitive G4 _);
+                            intros q E; rewrite E; exists G3; trivial
+                          | apply (proj2 (A1 p''));
+                            generalize (proj1 (H6 G3)); simpl;
+                            intro E; rewrite E;
+                            apply (proj1 (A1 (h G3)));
+                            trivial ] ]
+                  | assert (H7 : img f d (f p'));
+                      [ exists p'; auto
+                      | generalize
+                          (choice
+                             (fun pH => G2 (exist _ _ H7)
+                                           (proj1_sig pH) (proj2_sig pH)));
+                        intros (i, G3);
+                        generalize
+                          (dep_comp A3 (proj1 (H4 (exist _ _ H7)))
+                             (sub_reflexive _)
+                             (fun p H => proj2 (G3 (exist _ _ H))));
+                        intros (d'', ([G4 | G4], G5));
+                          [ exists d''; split;
+                              [ refine (sub_transitive G5 _); clear G5;
+                                 intros q [(G5, G6) | (q', (H, G5))];
+                                   [ case (G6 G5)
+                                   | exact (proj1 (G3 (exist _ _ H)) _ G5) ]
+                              | exact (proj2 (A1 p') _ G4) ]
+                          | generalize
+                              (always_sat_implies_internal_conflicts G4);
+                            intros (q, (G6, G7));
+                            generalize (G5 _ G6); clear G6;
+                            intros [(G6, G8) | (q', (H, G6))];
+                              [ case (G8 G6)
+                              | generalize (proj1 (G3 _) _ G6);
+                                clear G6; intros (H', E); subst q;
+                                generalize (proj2 (H6 H'));
+                                intros (q'', (G8, G9));
+                                generalize (G7 _ G8); clear G7 G8; intro G7;
+                                generalize (G5 _ G7); clear G7;
+                                intros [(I1, I2) | (q1, (I1, I2))];
+                                  [ case (I2 I1)
+                                  | generalize (proj1 (G3 _) _ I2);
+                                    clear I2; intros (I3, E); subst q'';
+                                    rewrite <- (proj1 (H6 I3)) in G9;
+                                    revert I3 G9; simpl;
+                                    intros (q2, (H'', I4)) G9;
+                                    case (G9 H'');
+                                    exists q2; auto ] ] ] ] ]
+              | assert (G2' : exists f : (forall p, d p -> set package),
+                             forall p (H : d p),
+                             sub (f _ H) (fun p => exists H, p = h H) /\
+                             depends c p (f _ H));
+                  [ generalize
+                      (choice (fun pH => G2 (proj1_sig pH) (proj2_sig pH)));
+                    intros (i, G3);
+                    exists (fun p H => i (exist _ _ H));
+                    intros q H; exact (G3 (exist _ _ H))
+                  | clear G2; revert G2'; intros (i, G2);
+                    generalize
+                      (dep_comp A3 H3 (@sub_reflexive _ _)
+                         (fun p H => proj2 (G2 p H)));
+                    intros (d'', ([G3 | G3], G4));
+                      [ exists (img f d''); split;
+                          [ intros q' (q, (G5, G6)); subst q';
+                            generalize (G4 _ G5);
+                            intros [(G6, G7) | (q', (H, G6))];
+                              [ case (G7 G6)
+                              | generalize (proj1 (G2 _ H) _ G6); clear G6;
+                                intros (G6, G7); subst q;
+                                rewrite <- (proj1 (H6 G6));
+                                generalize G6; clear G5 G6;
+                                intros (q1, ((q2, G5), G6));
+                                exists q2; exists G5;
+                                generalize
+                                  (proj2 (H4 (exist (fun p => img f d p) q2 G5)));
+                                simpl; intro E; rewrite E; clear E;
+                                exists q1; auto ]
+                          | exists d''; auto ]
+                      | case (fun H => G1 _ H G3);
+                        intros q G5; generalize (G4 _ G5); clear G5;
+                        intros [(G5, G6) | (q', (H, G5))];
+                          [ case (G6 G5)
+                          | exact (proj1 (G2 _ H) _ G5) ] ] ] ] ] ] ].
+Qed.
 
 (****)
 
