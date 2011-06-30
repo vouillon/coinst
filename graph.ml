@@ -136,12 +136,12 @@ let output
                 Format.fprintf f "dep%d [label=\"DEP\",shape=box,color=%s];@."
                   n col;
 *)
-(*
                 Format.fprintf f "dep%d [label=\"∨\",shape=circle,%s];@."
                   n (disj_dep_style col);
-*)
+(*
                 Format.fprintf f "dep%d [label=\"or\",shape=circle,%s];@."
                   n (disj_dep_style col);
+*)
                 PSet.iter
                   (fun j ->
                      Format.fprintf f "dep%d -> %d [%s];@."
