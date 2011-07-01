@@ -606,29 +606,6 @@ Lemma flatten_co_inst_prop_5 :
 intros c s; apply co_installable_implies_weakly_co_installable.
 Qed.
 
-(*
-  XXX Move...
-
-  Remark: if a package as an empty dependency, it also has an empty
-  dependency after flattening.
-
-  XXX We are increasing the number of packages with empty
-  dependencies, thus we terminate.
-*)
-
-Lemma flatten_and_empty_dep :
-  forall c p d,
-  depends c p d -> sub d (fun _ => False) ->
-  exists d', depends (flattened c) p d' /\ sub d' (fun _ => False).
-intros c p d H1 H2;
-assert (f : forall q : package, d q -> below_conflicts c q);
-  [ intros H3 H4; case (H2 _ H4)
-  | pose (dep := higher_conflicts H1 f);
-    exists (flattened_dep dep); split;
-      [ exists dep; trivial
-      | simpl; intros q (q', (H3, H4)); exact (H2 _ H3) ] ].
-Qed.
-
 (*************************************************************)
 
 (* Flat repositories (Section 7). *)
@@ -833,12 +810,7 @@ Remark confl_dep_sub_confl :
 intros c q H1 (q', H2); apply H1; exists q'; split; trivial.
 Qed.
 
-(*
-  Lemma 31.    XXX (state theorem 11?)
-  Together will Lemma 33, this implies the first part of Theorem 11:
-  the repository remain flat when dependencies in \nabla_C are
-  removed.
-*)
+(* Lemma 31. *)
 
 Lemma flat_preservation :
    forall c c',
@@ -1028,14 +1000,9 @@ intros c; split;
   | intro p; apply sub_reflexive ].
 Qed.
 
+(* We need this small lemma to complete the proof of theorem 11. *)
 (*
-  Remaining part of Theorem 11.
-  We have equivalence between weak co-instability and co-instability
-  (Lemma 25 and 10), hence it is enough to show that weak
-  co-instability is left unchanged.  One direction is by Lemma 32. The
-  converse direction is proved below.
-
-  XXX The second part of the paper proof is missing!
+  XXX Missing in the paper proof!
 *)
 
 Lemma constraint_alt_weakening :
@@ -1057,6 +1024,24 @@ lapply (@package_set_maximality P i');
               | apply G1; trivial ] ]
       | exact (proj1 H5) ]
   | intros p p' H5 H6 H7; apply (H4 _ _ H5 H6); apply H2; trivial ].
+Qed.
+
+(* Theorem 11. *)
+
+Theorem removing_clearly_irrelevant_dependencies_preserves_flatness :
+  forall c, flat c -> flat (simplified c).
+intro c; apply flat_preservation;
+  [ apply simplified_alt_larger
+  | apply simplified_smaller ].
+Qed.
+
+Theorem removing_clearly_irrelevant_dependencies_and_weak_co_installability :
+  forall c i,
+  weakly_co_installable c i <-> weakly_co_installable (simplified c) i.
+intros c i; split;
+  [ apply constraint_weakening_config_and_co_installability;
+    apply simplified_smaller
+  | apply constraint_alt_weakening; apply simplified_alt_larger ].
 Qed.
 
 (*
@@ -1118,7 +1103,7 @@ case (classic (forall q', d q' -> ~ s q' -> has_conflict c q'));
       | intros q' H8; rewrite H8; auto ] ].
 Qed.
 
-(*XXX Kill Lemma 35? *)
+(*XXX Remove Lemma 35? *)
 
 (*************************************************************)
 
@@ -1224,21 +1209,16 @@ case (classic (dep_satisfied i d)); intro H4;
           | subst p1 p2; apply H0 ] ] ].
 Qed.
 
-(* This is Lemma 13. XXXXXXXXX ??????????? *)
-(*
-XXX
-- can we find a different first condition, assuming conflict_covered?
-- forall \dep' \in \compose{\deps'}{\deps'}, \neg \dep \subseted \dep'
-*)
+(* Lemma 13. *)
+
 Lemma removal_preserves_flatness :
   forall c p d,
+  let c' := remove_dep c p d in
   ~ sub d (singleton p) ->
-  (forall d' f,
-   depends (remove_dep c p d) p d' ->
-   (forall q (H : d' q), depends (remove_dep c p d) q (f q H)) ->
-   ~sub d (fun p => exists q, exists H : d' q, f q H p)) ->
-  flat c -> flat (remove_dep c p d).
-intros c p d A1 A2 (H1, H2); split;
+  (forall d' : set package,
+   dep_fun_compose (depends c') (depends c') p d' -> ~ sub d d') ->
+  flat c -> flat c'.
+intros c p d c' A1 A2 (H1, H2); split;
   [ intros p' d' H3; generalize (H1 _ _ H3); generalize H3; clear H3;
     intros (q, (H3, H4)); subst d'; intros [H4 | (d', (H4, H5))]; auto;
     right; exists d'; split; trivial; split; trivial;
@@ -1253,12 +1233,17 @@ intros c p d A1 A2 (H1, H2); split;
       | intros (d'', (H6, H7)); right;
         exists d''; split; trivial; split; trivial;
         intros (E1, E2); subst p' d'';
-        exact (A2 _ _ H4 H5 H6) ] ].
+        apply A2 with (2 := H6);
+        exists d'; split; trivial;
+        exists f; auto ] ].
 Qed.
 
 (*************************************************************)
 
-(* XXXX Section 8.3... *)
+(* Section 8.3: redundant conflicts *)
+
+(* We specify what it means to remove a single conflict. *)
+
 Definition remove_confl c p1 p2 :=
   Build_constraints
     (depends c)
@@ -1266,7 +1251,9 @@ Definition remove_confl c p1 p2 :=
        conflicts c q1 q2 /\
        ~(q1 = p1 /\ q2 = p2) /\ ~(q1 = p2 /\ q2 = p1)).
 
-Definition implied_conflict c p1 p2 :=
+(* Definition of a redundant conflict. *)
+
+Definition redundant_conflict c p1 p2 :=
   exists d1,
   depends c p1 d1 /\
   forall q1, d1 q1 ->
@@ -1274,23 +1261,13 @@ Definition implied_conflict c p1 p2 :=
   exists d2, sub d2 (singleton q2) /\ depends c p2 d2 /\
              conflicts (remove_confl c p1 p2) q1 q2.
 
-Lemma conflict_removal_flat :
-  forall c (confl : confl_rel),
-  (forall p, sub (confl p) (conflicts c p)) ->
-  flat c -> flat (Build_constraints (depends c) confl).
-intros c confl H1 (H2, H3); split;
-  [ refine (sub_transitive _ (dsubc_weaken H1 H2));
-    simpl; intros p d (p', (H5, H6));
-    right; exists d; split;
-      [ apply sub_reflexive
-      | exists p'; split; trivial;
-        generalize H1 H5; unfold in_conflict; simpl; intuition ]
-  | exact (dsubc_weaken H1 H3) ].
-Qed.
+(*
+  Lemma 14: healthiness is preserved when a redundant conflict is removed.
+*)
 
-Lemma implied_conflict_removal_and_healthiness :
+Lemma redundant_conflict_removal_and_healthiness :
   forall c p1 p2 i,
-  implied_conflict c p1 p2 ->
+  redundant_conflict c p1 p2 ->
   healthy (remove_confl c p1 p2) i ->
   healthy c i.
 intros c p1 p2 i H1 H2; split;
@@ -1311,10 +1288,30 @@ intros c p1 p2 i H1 H2; split;
           | intros (H6, H7); subst p p'; auto ] ] ].
 Qed.
 
-Lemma implied_conflict_removal_and_weak_co_installability :
+(*
+  We can actually prove a lot more regarding redundant conflict removal:
+  - the repository remains flat;
+  - weak co-installability is preserved.
+*)
+
+Lemma conflict_removal_flat :
+  forall c (confl : confl_rel),
+  (forall p, sub (confl p) (conflicts c p)) ->
+  flat c -> flat (Build_constraints (depends c) confl).
+intros c confl H1 (H2, H3); split;
+  [ refine (sub_transitive _ (dsubc_weaken H1 H2));
+    simpl; intros p d (p', (H5, H6));
+    right; exists d; split;
+      [ apply sub_reflexive
+      | exists p'; split; trivial;
+        generalize H1 H5; unfold in_conflict; simpl; intuition ]
+  | exact (dsubc_weaken H1 H3) ].
+Qed.
+
+Lemma redundant_conflict_removal_and_weak_co_installability :
   forall c p1 p2 i,
   flat c ->
-  implied_conflict c p1 p2 ->
+  redundant_conflict c p1 p2 ->
   weakly_co_installable (remove_confl c p1 p2) i ->
   weakly_co_installable c i.
 intros c p1 p2 i A2 H0; generalize H0; intros (d1, (H1, H2)) (s', H4);
@@ -1382,89 +1379,76 @@ case (classic (dep_satisfied s d1));
           | intros (E1, E2); exact (G4 E2) ] ] ].
 Qed.
 
-Lemma conflict_and_empty_dep :
-  forall c p p' d,
-  depends c p d -> (forall q, ~ d q) -> implied_conflict c p p'.
-intros c p p' d H1 H2; exists d; split; trivial;
-intros q H3; case (H2 _ H3).
-Qed.
-
 (*************************************************************)
 
-(* XXXX Section 8.4 *)
+(* Section 8.4: dependence on conflicting packages. *)
 
-(*************************************************************)
+Definition strength_dep c p :=
+  Build_constraints
+    (fun p' d => (p' <> p /\ depends c p' d) \/ (p' = p /\ d = fun _ => False))
+    (conflicts c).
 
-(* Quotienting (Section 9). *)
+(* The class of packages that we consider as clearly broken. *)
 
-(*XXXXXX*)
+Definition clearly_broken c p :=
+  exists d, exists q,
+  depends c p d /\ sub d (singleton q) /\ in_conflict c p q.
 
-(*************************************************************)
+(* Such packages cannot be installed. *)
 
-(* Transitive reduction (Section 10). *)
-
-(* Lemma 19, and an immediate corollary. *)
-
-Lemma remove_trans_healthy :
-  forall c p d i,
-  let c' := remove_dep c p d in
-  (dep_fun_compose (depends c') (depends c') p d) ->
-  healthy c' i -> healthy c i.
-intros c p d i c' (d'', (H1, (f, (H2, E)))) (H3, H4); split; trivial;
-intros p' d' H5 H6;
-case (classic (p' = p /\ d' = d));
-  [ intros (E1, E2); subst p' d' c';
-    generalize (H3 _ _ H5 H1); intros (p', (H7, H8));
-    generalize (H3 _ _ H7 (H2 _ H8)); intros (q, (G1, G2));
-    exists q; split; trivial;
-    rewrite E; exists p'; exists H8; trivial
-  | intro H7; exact (H3 _ _ H5 (conj H6 H7)) ].
+Lemma clearly_broken_not_installable :
+  forall c p, clearly_broken c p -> ~ installable c p.
+intros c p (d, (q, (H1, (H2, H3)))) (i, ((H4, H5), H6));
+generalize (H4 _ _ H6 H1); intros (p', (H7, H8));
+generalize (H2 _ H8); unfold singleton; intro E; subst p';
+case H3; eauto.
 Qed.
 
-Lemma remove_trans_co_installable :
-  forall c p d i,
-  let c' := remove_dep c p d in
-  (dep_fun_compose (depends c') (depends c') p d) ->
-  co_installable c' i -> co_installable c i.
-intros c p d i c' H1 (s, (H2, H3)); exists s; split; trivial;
-exact (remove_trans_healthy H1 H2).
+(* The [strength_dep] is rightly named. *)
+
+Lemma strength_dep_prop : forall c p, sub c (strength_dep c p).
+intros c p; split;
+  [ intros p' d H1; case (classic (p' = p));
+      [ intro E; exists (fun _ => False); split;
+          [ simpl; contradiction
+          | right; auto ]
+      | intro H2; exists d; split;
+          [ apply sub_reflexive
+          | left; auto ] ]
+  | intro p'; apply sub_reflexive ].
 Qed.
 
-(* XXXX Lemma 20. *)
+(* Lemma 15. *)
 
-Definition no_self_dep c :=
-  Build_constraints (fun p d => depends c p d /\ ~ d p) (conflicts c).
-
-Lemma no_self_dep_smaller : forall c, sub (no_self_dep c) c.
-intros c; split;
-  [ apply dsub_incl; intros p d (H1, H2); trivial
-  | intro p; apply sub_reflexive ].
-Qed.
-
-Lemma no_self_dep_healthy :
-  forall c i, healthy (no_self_dep c) i -> healthy c i.
-intros c i (H1, H2); split; trivial;
-intros p d H3 H4; case (classic (d p)); intro H5;
-  [ exists p; split; trivial
-  | apply (H1 p); trivial;
-    split; trivial ].
-Qed.
-
-Lemma no_self_dep_co_installable :
-  forall c s, co_installable (no_self_dep c) s <-> co_installable c s.
-intros c s; split;
-  [ intros (s', (H1, H2)); exists s'; split; trivial;
-    exact (no_self_dep_healthy H1)
-  | apply constraint_weakening_and_co_installability;
-    apply no_self_dep_smaller ].
+Lemma strenghten_dependence_of_conflicting_package :
+  forall c p i,
+  ~ installable c p -> (healthy c i <-> healthy (strength_dep c p) i).
+intros c p i H1; split;
+  [ intros (H2, H3); split; trivial;
+    intros p' d H4 [(H5, H6)|(H5, H6)];
+      [ eauto
+      | case H1; exists i; subst p'; split; trivial;
+        split; trivial ]
+  | apply constraint_weakening; apply strength_dep_prop ].
 Qed.
 
 (*************************************************************)
 
 (* Quotienting (Section 9). *)
+
+(*
+  A quotient is defined by a representative function, that maps each
+  package to its representative.  The representative of a package
+  should have the same dependencies.
+*)
 
 Definition representative c (f : package -> package) :=
   forall p, equiv (depends c p) (depends c (f p)).
+
+(*
+  Given a representative function, we can define the quotient of a
+  repository.
+*)
 
 Definition quotient c f :=
   Build_constraints
@@ -1472,7 +1456,47 @@ Definition quotient c f :=
     (fun p p' => exists q,
        exists q', p = f q /\ p' = f q' /\ conflicts c q q').
 
-Lemma missing_feature_implies_conflict :
+(*
+   Lemma 16.
+   We show that the quotient repository is indeed a repository, as
+   long as no package depends on a package it conflicts with.
+   (That is, there is no clearly broken packages.)
+*)
+
+Definition no_dep_on_conflict c :=
+  forall p d q,
+  depends c p d -> sub d (singleton q) -> ~ in_conflict c p q.
+
+Lemma quotient_and_self_conflicts :
+  forall c f,
+  flat c -> representative c f -> no_dep_on_conflict c ->
+  no_self_conflict (quotient c f).
+intros c f H2 H3 H4 p (q, (q', (E1, (E2, H6))));
+assert (H7 : has_conflict c q');
+  [ exists q; right; trivial
+  | generalize (confl_dep_sub_confl (confl_dep_sub (@f_refl _ H2)) H7);
+    intros (d, (H8, H9));
+    generalize (proj1 (H3 q') _ H9); rewrite <- E2; rewrite E1;
+    intro G1; assert (G2 := proj2 (H3 q) _ G1);
+    apply (H4 _ _ _ G2 H8); left; trivial ].
+Qed.
+
+(*
+  Note that is a package has an empty dependency, all the conflicts it
+  is involved in are redundant and can be removed.
+  The [no_dep_on_conflict] assumption is thus not too strong.
+*)
+
+Lemma conflict_and_empty_dep :
+  forall c p p' d,
+  depends c p d -> (forall q, ~ d q) -> redundant_conflict c p p'.
+intros c p p' d H1 H2; exists d; split; trivial;
+intros q H3; case (H2 _ H3).
+Qed.
+
+(* Technical lemma: Remark 36. *)
+
+Remark missing_feature_implies_conflict :
   forall c s i,
   no_self_conflict c -> maximal (fun i => healthy_config c s i) i ->
   forall p, ~ i p -> has_conflict c p.
@@ -1488,6 +1512,8 @@ assert (H3 : ~always_sat (conflicts c) (singleton p));
       | intros q H6; case H5; exists q; trivial ] ].
 Qed.
 
+(* Technical lemma: Lemma 37. *)
+
 Lemma quotient_and_conflicts :
   forall c f s i p p',
   no_self_conflict c -> flat c -> representative c f ->
@@ -1500,6 +1526,11 @@ generalize (confl_dep_sub_confl (confl_dep_sub (@f_refl _ A1)) H4);
 intros (d, (H5, H6)); exists d; split; trivial;
 apply (proj2 (A2 p)); rewrite E; apply (proj1 (A2 p')); trivial.
 Qed.
+
+(*
+  Lemma 38: we can map maximal healthy configurations in the original
+  repository to healthy configurations in the quotiented repository.
+*)
 
 Lemma quotient_healthy_1 :
   forall c f s i,
@@ -1556,6 +1587,12 @@ intros c f s i A0 A1 H1 H2; split;
     exact (peace_config (proj1 H2) (H3 _ H5) (H4 _ H6) H7) ].
 Qed.
 
+(*
+  Lemma 39: one can associate an healthy configuration in the original
+  repository to any healthy configuration in the quotiented
+  repository.
+*)
+
 Lemma quotient_healthy_2 :
   forall c f i s,
   representative c f ->
@@ -1573,6 +1610,27 @@ intros c f i s H0 (H1, H2); split;
     apply (H2 _ _ H3 H4);exists p;  exists p'; auto ].
 Qed.
 
+(* Theorem 17: co-installability is left invariant by quotienting. *)
+
+Theorem quotient_and_co_installability :
+  forall c f s, no_self_conflict c -> flat c -> representative c f ->
+  (weakly_co_installable c s <->
+   weakly_co_installable (quotient c f) (img f s)).
+intros c f s A1 A2 A3; split;
+  [ intros (s', H1);
+    generalize (package_set_maximality H1);
+    intros (s'', (H2, H3));
+    exists (complimg f s'');
+    exact (quotient_healthy_1 A1 A2 A3 H2)
+  | intros (s', H1);
+    exists (preimg f s');
+    apply healthy_config_antimonotony with (2 := quotient_healthy_2 A3 H1);
+    intros p H2; exists (f p); split; trivial;
+    exists p; auto ].
+Qed.
+
+(* Technical lemma used to prove Theorem 18. *)
+
 Lemma quotient_in_conflict :
   forall c f p p',
   in_conflict (quotient c f) p p' ->
@@ -1581,23 +1639,10 @@ intros c f p p' [(q, (q', H1)) | (q', (q, H1))];
 exists q; exists q'; unfold in_conflict; tauto.
 Qed.
 
-Definition no_dep_on_conflict c :=
-  forall p d q,
-  depends c p d -> sub d (singleton q) -> ~ in_conflict c p q.
-
-Lemma quotient_and_self_conflicts :
-  forall c f,
-  flat c -> representative c f -> no_dep_on_conflict c ->
-  no_self_conflict (quotient c f).
-intros c f H2 H3 H4 p (q, (q', (E1, (E2, H6))));
-assert (H7 : has_conflict c q');
-  [ exists q; right; trivial
-  | generalize (confl_dep_sub_confl (confl_dep_sub (@f_refl _ H2)) H7);
-    intros (d, (H8, H9));
-    generalize (proj1 (H3 q') _ H9); rewrite <- E2; rewrite E1;
-    intro G1; assert (G2 := proj2 (H3 q) _ G1);
-    apply (H4 _ _ _ G2 H8); left; trivial ].
-Qed.
+(*
+  Theorem 18: the quotiented repository is flat when the original
+  repository is.
+*)
 
 Lemma quotient_flat :
   forall c f,
@@ -1780,59 +1825,331 @@ intros c f A0 A1 A2 A3; case A3; intros H1 H2; split;
                           | exact (proj1 (G2 _ H) _ G5) ] ] ] ] ] ] ].
 Qed.
 
-(****)
+(*************************************************************)
+
+(* Reflexive transitive reduction (Section 10). *)
+
+(* Lemma 19, and an immediate corollary. *)
+
+Lemma remove_trans_healthy :
+  forall c p d i,
+  let c' := remove_dep c p d in
+  (dep_fun_compose (depends c') (depends c') p d) ->
+  healthy c' i -> healthy c i.
+intros c p d i c' (d'', (H1, (f, (H2, E)))) (H3, H4); split; trivial;
+intros p' d' H5 H6;
+case (classic (p' = p /\ d' = d));
+  [ intros (E1, E2); subst p' d' c';
+    generalize (H3 _ _ H5 H1); intros (p', (H7, H8));
+    generalize (H3 _ _ H7 (H2 _ H8)); intros (q, (G1, G2));
+    exists q; split; trivial;
+    rewrite E; exists p'; exists H8; trivial
+  | intro H7; exact (H3 _ _ H5 (conj H6 H7)) ].
+Qed.
+
+Lemma remove_trans_co_installable :
+  forall c p d i,
+  let c' := remove_dep c p d in
+  (dep_fun_compose (depends c') (depends c') p d) ->
+  co_installable c' i -> co_installable c i.
+intros c p d i c' H1 (s, (H2, H3)); exists s; split; trivial;
+exact (remove_trans_healthy H1 H2).
+Qed.
+
+(* We define what it means to remove self-dependencies. *)
+
+Definition no_self_dep c :=
+  Build_constraints (fun p d => depends c p d /\ ~ d p) (conflicts c).
+
+(* Lemma 20. *)
+
+Lemma no_self_dep_healthy :
+  forall c i, healthy (no_self_dep c) i -> healthy c i.
+intros c i (H1, H2); split; trivial;
+intros p d H3 H4; case (classic (d p)); intro H5;
+  [ exists p; split; trivial
+  | apply (H1 p); trivial;
+    split; trivial ].
+Qed.
 
 (*
-Definition remove_package c p :=
-  Build_constraints
-    (fun p' d' => exists d, depends c p' d /\ d' = fun q => d q /\ q <> p)
-    (conflicts c).
-
-Lemma package_removal_flat :
-  forall c p,
-  flat c -> flat (remove_package c p).
-intros c p0 H1; split;
-  [ intros p d H2; simpl; generalize (f_refl H1 H2);
-    intros [H3 | (d', (H3, H4))]; auto;
-    right; exists (fun q => d' q /\ q <> p0); split;
-      [ intros q (H5, H6); apply H3; trivial
-      | exists d'; auto ]
-  | intros p d' (d'', ((d, (H2, E1)), (f, (H3, E2)))); subst d' d'';
-    assert
-      (H4 : forall q (H : d q),
-            exists d',
-            depends c q d' /\
-            (forall (H' : q <> p0),
-             f _ (conj H H') = fun q' => d' q' /\ q' <> p0));
-      [ intros q H4; case (classic (q = p0));
-          [ 
-          | intro H5; generalize (H3 q (conj H4 H5));
-            intros (d', (H6, H7)); exists d'; split; trivial;
-            intro H8; rewrite (proof_irrelevance _ H8 H5); trivial ]
-      | generalize (choice (fun qH => H4 (proj1_sig qH) (proj2_sig qH)));
-        intros (g, H5);
-        case (@f_trans _ H1 p
-                (fun q => exists q', exists H : d q', g (exist _ _ H) q));
-          [ exists d; split; trivial;
-            exists (fun q H => g (exist _ _ H)); split; trivial;
-            intros q H6; exact (proj1 (H5 (exist _ _ H6)))
-          | intro H6; left; 
-
-          | intros (d', (H6, H7)); right;
-exists (fun q => d' q /\ q <> p0);
-split;
-  [ intros q (H8, H9);
-    generalize (H6 _ H8); intros (q', (G1, G2));
-    exists q';
-
-generalize (proj2 (H5 (exist _ _ G1))); simpl;
-
-  | exists d'; split; trivial ]
+  Co-installability is left invariant when removing self-dependencies
+  (not explicitly in the paper).
 *)
 
-(*****************************************************************)
+Lemma no_self_dep_smaller : forall c, sub (no_self_dep c) c.
+intros c; split;
+  [ apply dsub_incl; intros p d (H1, H2); trivial
+  | intro p; apply sub_reflexive ].
+Qed.
 
-(*XXX Generalize to set of packages *)
+Lemma no_self_dep_co_installable :
+  forall c s, co_installable (no_self_dep c) s <-> co_installable c s.
+intros c s; split;
+  [ intros (s', (H1, H2)); exists s'; split; trivial;
+    exact (no_self_dep_healthy H1)
+  | apply constraint_weakening_and_co_installability;
+    apply no_self_dep_smaller ].
+Qed.
+
+(*************************************************************)
+
+(* Putting all together (Section 11). *)
+
+(* First, some definition useful to specify an algorithm. *)
+
+Definition seq A step1 step2 (c c'' : A) :=
+  exists c' : A, step1 c c' /\ step2 c' c''.
+Inductive repeat A (step : A -> A -> Prop) : A -> A -> Prop :=
+  | rep_zero :
+      forall c, repeat step c c
+  | rep_succ :
+      forall c c' c'', repeat step c c' -> step c' c'' -> repeat step c c''.
+Definition assert A P (c c' : A) := c' = c /\ P c.
+Infix "++" := seq.
+
+Lemma seq_elim :
+  forall A (P : Prop) (step1 step2 : A -> A -> Prop) c c',
+  seq step1 step2 c c' -> (forall c'', step1 c c'' -> step2 c'' c' -> P) -> P.
+intros A P step1 step2 c c' (c'', (H1, H2)); eauto.
+Qed.
+
+Lemma repeat_elim :
+  forall A (P : A -> Prop) (step : A -> A -> Prop) c c',
+  repeat step c c' -> (forall c c', step c c' -> (P c <-> P c')) ->
+  (P c <-> P c').
+intros A P step c c' H1 H2; induction H1;
+  [ reflexivity
+  | rewrite IHrepeat; auto ].
+Qed.
+
+(*
+  We now specify the algorithm. Note that we do not prove formally any
+  termination result when operations are repeated, but there are
+  simple arguments for that in each case. Thus, the specification just
+  states that some numbers of repetitions have been performed.
+*)
+
+Definition flatten c c' := c' = flattened c.
+Definition canonise (c c' : constraints) := equiv c c'.
+Definition remove_clearly_irrelevant_deps c c' := c' = simplified c.
+Definition remove_clearly_broken c c' :=
+  exists p, clearly_broken c p /\ c' = strength_dep c p.
+Definition remove_redundant_conflict c c' :=
+  exists p1, exists p2,
+  redundant_conflict c p1 p2 /\ c' = remove_confl c p1 p2.
+Definition remove_conflict_covered_deps c c' :=
+  exists d, exists p, exists q,
+  conflict_covered c d q /\
+  let c'' := remove_dep c p d in
+  ~ sub d (singleton p) /\
+  (forall d' : set package,
+   dep_fun_compose (depends c') (depends c') p d' -> ~ sub d d') /\
+  c' = c''.
+Definition perform_quotient f c c' :=
+  representative c f /\ c' = quotient c f.
+
+Definition phase1 :=
+  flatten ++ canonise ++ remove_clearly_irrelevant_deps ++
+  repeat remove_clearly_broken ++ repeat remove_redundant_conflict.
+
+Definition simplification f :=
+  repeat phase1
+    ++
+  flatten
+    ++
+  assert no_dep_on_conflict
+    ++
+  repeat remove_conflict_covered_deps
+    ++
+  perform_quotient f.
+
+(* We have two technical lemmas regarding phase 1. *)
+
+Lemma phase1_and_co_installability :
+  forall c c' i, phase1 c c' -> (co_installable c i <-> co_installable c' i).
+intros c1 c4 i H1;
+apply (seq_elim H1); clear H1; unfold flatten; intros c2 E H2; subst c2;
+apply (seq_elim H2); clear H2; unfold canonise; intros c2 H1 H2;
+apply (seq_elim H2); clear H2; unfold remove_clearly_irrelevant_deps;
+intros c3 E H2; subst c3;
+apply (seq_elim H2); clear H2; intros c3 H2 H3;
+transitivity (co_installable c2 i);
+  [ transitivity (co_installable (flattened c1) i);
+      [ split;
+          [ apply flatten_co_inst_prop_1
+          | intro H4; apply flatten_co_inst_prop_3;
+            apply flatten_co_inst_prop_5; trivial ]
+      | split; apply constraint_weakening_and_co_installability;
+        case H1;trivial ]
+  | transitivity (co_installable (simplified c2) i);
+       [ assert (H4 : flat c2);
+           [ apply strongly_flat_implies_flat;
+             apply (strongly_flat_preserved H1);
+             apply flattened_strongly_flat
+           | split; intro H5;
+               [ apply weakly_co_installable_implies_co_installable_3;
+                   [ apply
+           removing_clearly_irrelevant_dependencies_preserves_flatness;
+                     trivial
+                   | rewrite <-
+           removing_clearly_irrelevant_dependencies_and_weak_co_installability;
+                     apply co_installable_implies_weakly_co_installable;
+                     trivial ]
+               | apply weakly_co_installable_implies_co_installable_3; trivial;
+                 rewrite
+           removing_clearly_irrelevant_dependencies_and_weak_co_installability;
+                 apply co_installable_implies_weakly_co_installable;
+                 trivial ] ]
+       | transitivity (co_installable c3 i);
+           [ apply (repeat_elim (P := fun c => co_installable c i) H2);
+             intros c c' (p, (H4, E)); subst c';
+             assert (H5 := clearly_broken_not_installable H4);
+             split; intros (i', (H6, H7)); exists i'; split; trivial;
+             apply (strenghten_dependence_of_conflicting_package _ H5); trivial
+           | apply (repeat_elim (P := fun c => co_installable c i) H3);
+             intros c c' (p1, (p2, (H4, E))); subst c';
+             split; intros (i', (H6, H7)); exists i'; split; trivial;
+               [ apply constraint_weakening with (2 := H6); split;
+                   [ apply sub_reflexive
+                   | intros p p' (H8, H9); trivial ]
+               | apply
+                   (redundant_conflict_removal_and_healthiness H4 H6) ] ] ] ].
+Qed.
+
+Lemma phase1_preserves_no_self_conflict :
+  forall c c', phase1 c c' -> no_self_conflict c -> no_self_conflict c'.
+intros c1 c4 H1;
+apply (seq_elim H1); clear H1; unfold flatten; intros c2 E H2; subst c2;
+apply (seq_elim H2); clear H2; unfold canonise; intros c2 H1 H2;
+apply (seq_elim H2); clear H2; unfold remove_clearly_irrelevant_deps;
+intros c3 E H2; subst c3;
+apply (seq_elim H2); clear H2; intros c3 H2 H3 H4;
+assert (H5 : no_self_conflict c2);
+  [ assert (H5 : no_self_conflict (flattened c1));
+      [ exact H4
+      | intros p H6; apply (H5 p); apply (proj2 (proj2 H1)); trivial ]
+  | assert (H6 : no_self_conflict (simplified c2));
+      [ exact H5
+      | assert (H7 : no_self_conflict c3);
+          [ clear H3; induction H2; trivial;
+            revert H; intros (p, (H7, E)); subst c''; apply IHrepeat; auto
+          | induction H3; trivial;
+            revert H; intros (p1, (p2, (H8, E))); subst c'';
+            intros p (H9, _); revert p H9; apply IHrepeat; trivial ] ] ].
+Qed.
+
+(* We can finally prove Theorem 21. *)
+
+Lemma simplification_and_co_installability :
+  forall f c c' i, no_self_conflict c -> simplification f c c' ->
+  (co_installable c i <-> co_installable c' (img f i)) /\ flat c'.
+intros f c1 c4 i A1 H1;
+apply (seq_elim H1); clear H1; intros c2 H1 H2;
+apply (seq_elim H2); clear H2; unfold flatten; intros c' E H2; subst c';
+apply (seq_elim H2); clear H2; intros c' (E, H2) H3; subst c';
+apply (seq_elim H3); clear H3; intros c3 H3 (H4, E); subst c4;
+assert (A2 : (co_installable c1 i <-> co_installable (flattened c2) i)
+             /\ flat (flattened c2) /\ no_self_conflict (flattened c2)
+             /\ no_dep_on_conflict (flattened c2));
+  [ assert (A2 : (co_installable c1 i <-> co_installable c2 i)
+             /\ no_self_conflict c2);
+      [ split;
+          [ apply (repeat_elim H1 (P := fun c => co_installable c i));
+            intros c c'; apply phase1_and_co_installability
+          | clear H2 H3; induction H1; trivial;
+            generalize (phase1_preserves_no_self_conflict H); auto ]
+      | rewrite (proj1 A2); split;
+          [ split;
+              [ apply flatten_co_inst_prop_1
+              | intro H5; apply flatten_co_inst_prop_3;
+                apply flatten_co_inst_prop_5; trivial ]
+          | split;
+              [ apply strongly_flat_implies_flat; apply flattened_strongly_flat
+              | split; trivial;
+                exact (proj2 A2) ] ] ]
+  | rewrite (proj1 A2); clear A1 H1;
+    assert (A1 : (co_installable (flattened c2) i <-> co_installable c3 i)
+                 /\ flat c3 /\ no_self_conflict c3 /\ no_dep_on_conflict c3);
+      [ clear H2 H4;
+        induction H3;
+          [ tauto
+          | revert H; intros (d, (p, (q, (G1, (G2, (G3, G4))))));
+            subst c''; assert (G4 : flat (remove_dep c' p d));
+              [ apply (removal_preserves_flatness G2 G3); tauto
+              | split;
+                  [ rewrite (proj1 (IHrepeat A2)); split;
+                      [ intro G5;
+                        apply weakly_co_installable_implies_co_installable_3;
+                        trivial;
+                        apply
+                          constraint_weakening_config_and_co_installability
+                        with
+                          (2 :=
+                            co_installable_implies_weakly_co_installable
+                              G5);
+                        split;
+                          [ intros p' d' (G6, G7);
+                            exists d'; split; trivial;
+                            apply sub_reflexive
+                          | intro p'; apply sub_reflexive ]
+                      | intro G5;
+                        assert (G6 := proj1 (proj2 (proj2 (IHrepeat A2))));
+                        assert (G7 := proj1 (proj2 (IHrepeat A2)));
+                        apply
+                          weakly_co_installable_implies_co_installable_3;
+                        trivial;
+                        apply (remove_conflict_covered (p := p) G6 G7 G1);
+                        apply co_installable_implies_weakly_co_installable;
+                        trivial ]
+                  | split; trivial;
+                    split;
+                      [ exact (proj1 (proj2 (proj2 (IHrepeat A2))))
+                      | intros p' d' q' (G5, _); revert p' d' q' G5;
+                        exact (proj2 (proj2 (proj2 (IHrepeat A2)))) ] ] ] ]
+      | clear A2; revert A1; intros (A1, (A2, (A3, A4))); rewrite A1; split;
+          [ split;
+              [ intro G1;
+                apply (weakly_co_installable_implies_co_installable_3
+                         (quotient_flat A3 H4 A4 A2));
+                apply (quotient_and_co_installability i A3 A2 H4);
+                apply co_installable_implies_weakly_co_installable; trivial
+              | intro G1;
+                apply (weakly_co_installable_implies_co_installable_3 A2);
+                apply (quotient_and_co_installability i A3 A2 H4);
+                apply co_installable_implies_weakly_co_installable; trivial ] 
+           | exact (quotient_flat A3 H4 A4 A2) ] ] ].
+Qed.
+
+(*
+  The repetition of phase 1 should terminate.  The argument is that
+  the "remove clearly broken" phase either do nothing or stricly
+  increases the number of packages with empty dependencies. Other
+  steps in phase 1 preserves or increases this number of packages.
+  We prove below that this is the case for flattening.
+*)
+
+Lemma flatten_and_empty_dep :
+  forall c p d,
+  depends c p d -> sub d (fun _ => False) ->
+  exists d', depends (flattened c) p d' /\ sub d' (fun _ => False).
+intros c p d H1 H2;
+assert (f : forall q : package, d q -> below_conflicts c q);
+  [ intros H3 H4; case (H2 _ H4)
+  | pose (dep := higher_conflicts H1 f);
+    exists (flattened_dep dep); split;
+      [ exists dep; trivial
+      | simpl; intros q (q', (H3, H4)); exact (H2 _ H3) ] ].
+Qed.
+
+(*************************************************************)
+
+(* Shapes of installations *)
+
+(*
+  To prove that a package is weakly installable, one only needs to
+  consider the packages it depends on.
+*)
 Lemma installability_shape :
   forall c p,
   weakly_co_installable c (singleton p) ->
@@ -1848,7 +2165,14 @@ exists (fun q => s q /\ exists d : set package, depends c p d /\ d q); split;
   | tauto ].
 Qed.
 
-(* XXX Instance of a more general connexity theorem *)
+(*
+  The following lemma can be used to prune down the number of pairs of
+  packages to consider when computing strong conflicts.
+
+  If two weakly installable packages p and p' are not weakly
+  co-installable, one can find two conflicting packages p' and q'
+  such that p depends on p' and q depends on q'
+*)
 Lemma strong_conflict_shape :
   forall c p p',
   weakly_co_installable c (singleton p) ->
@@ -1880,8 +2204,3 @@ exists (fun q => s q \/ s' q); split;
         red; auto
       | exact (peace_config H6 G1 G2 G3) ] ].
 Qed.
-
-(*
-* Pairs of dependencies in minimal constraint sets
-* "Forced" constraints
-*)
