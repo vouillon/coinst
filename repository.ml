@@ -17,6 +17,7 @@ module type S = sig
   end
 
   module PSet : Set.S with type elt = Package.t
+  module PMap : Map.S with type key = Package.t
 
   module PTbl : sig
     type 'a t
@@ -107,6 +108,8 @@ module F (M : Api.S) = struct
   let print_set ch pr sep l = print_list ch pr sep (PSet.elements l)
   let pset_of_lst l = List.fold_left (fun s x -> PSet.add x s) PSet.empty l
   let pset_map f s = pset_of_lst (List.map f (PSet.elements s))
+
+  module PMap = Map.Make (Package)
 
   module PTbl = struct
     type 'a t = 'a array

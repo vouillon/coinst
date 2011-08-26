@@ -6,7 +6,7 @@ type t =
   { pool : pool;
     count : int;
     repr_tbl : Package.t PTbl.t;
-    repr_map : (Package.t, PSet.t) PMap.t }
+    repr_map : PSet.t PMap.t }
 
 let trivial pool =
   let count = ref 0 in

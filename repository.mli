@@ -13,6 +13,7 @@ module type S = sig
   end
 
   module PSet : Set.S with type elt = Package.t
+  module PMap : Map.S with type key = Package.t
 
   module PTbl : sig
     type 'a t
