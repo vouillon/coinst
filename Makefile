@@ -1,3 +1,6 @@
+VERSION=1.0
+COINST=coinst
+
 
 OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
@@ -7,16 +10,16 @@ OBJS = util.cmx common.cmx dgraph.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx
 COMPFLAGS=-package unix,str,cudf
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 
-all: check_coinstall
+all: $(COINST)
 
-check_coinstall: $(OBJS)
+$(COINST): $(OBJS)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-check_coinstall.byte: $(OBJS:.cmx=.cmo)
+$(COINST).byte: $(OBJS:.cmx=.cmo)
 	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::
-	rm -f check_coinstall
+	rm -f $(COINST)
 
 #####
 
@@ -53,3 +56,8 @@ depend:
 	$(OCAMLDEP) $(DEPFLAGS) *.ml *.mli > .depend
 
 include .depend
+
+####
+
+release:
+	darcs dist -d coinst-$(VERSION)

@@ -20,12 +20,12 @@ OPTLINKFLAGS=-package str,cairo.lablgtk2 -linkpkg
 JSOBJS=scene.cmo viewer_common.cmo viewer_js.cmo
 LINKFLAGS=-package js_of_ocaml -linkpkg
 
-all: viewer jsviewer.js converter
+all: coinst_viewer jsviewer.js coinst_converter
 
-viewer: $(OBJS)
+coinst_viewer: $(OBJS)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^
 
-converter: $(CONVERTER)
+coinst_converter: $(CONVERTER)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^
 
 jsviewer.js: jsviewer.byte
@@ -36,12 +36,10 @@ jsviewer.byte: $(JSOBJS)
 
 realclean:: clean
 	rm -f dot_parser.ml dot_parser.mli dot_lexer.ml
-	rm -f jsviewer.js jsviewer.byte
-	rm -f converter viewer
-
 
 clean::
-	rm -f check_coinstall
+	rm -f coinst_converter coinst_viewer
+	rm -f jsviewer.js jsviewer.byte
 
 #####
 
