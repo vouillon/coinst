@@ -3,7 +3,7 @@ OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
 OCAMLDEP=ocamldep
 
-OBJS = util.cmx common.cmx dgraph.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx cudf_lib.cmx repository.cmx quotient.cmx conflicts.cmx graph.cmx main.cmx
+OBJS = util.cmx common.cmx dgraph.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx repository.cmx quotient.cmx conflicts.cmx graph.cmx main.cmx
 COMPFLAGS=-package unix,str,cudf
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 
