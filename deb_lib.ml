@@ -117,7 +117,7 @@ let strict_version_re_2 =
 (* Some upstream version do not start with a digit *)
 let version_re_1 =
   Str.regexp
-  "^\\(\\([0-9]+\\):\\)?\\([A-Za-z0-9._:+~-]+\\)-\\([A-Za-z0-9.+~]+\\)$"
+  "^\\(\\([0-9]+\\):\\)?\\([A-Za-z0-9._:+~-]+\\)-\\([A-Za-z0-9.+~]*\\)$"
 let version_re_2 =
   Str.regexp
   "^\\(\\([0-9]+\\):\\)?\\([A-Za-z0-9._:+~]+\\)\\( \\)?$"
@@ -239,6 +239,7 @@ type p =
     mutable pre_depends : dep;
     mutable provides : dep;
     mutable conflicts : dep;
+    mutable breaks : dep;
     mutable replaces : dep }
 let dummy_version = (-1, "", None)
 
@@ -254,7 +255,8 @@ let parse_fields p =
   let q =
     { num = 0; package = " "; version = dummy_version;
       depends = []; recommends = []; suggests = []; enhances = [];
-      pre_depends = []; provides = []; conflicts = []; replaces = [] }
+      pre_depends = []; provides = []; conflicts = []; breaks = [];
+      replaces = [] }
   in
   List.iter
     (fun (f, l) ->
@@ -272,6 +274,8 @@ let parse_fields p =
        | "Provides"    -> q.provides <-
                              parse_rel f false false (single_line f l)
        | "Conflicts"   -> q.conflicts <-
+                             parse_rel f true false (single_line f l)
+       | "Breaks"      -> q.breaks <-
                              parse_rel f true false (single_line f l)
        | "Replaces"    -> q.replaces <-
                              parse_rel f true false (single_line f l)
@@ -574,7 +578,13 @@ let generate_rules pool =
          (normalize_set
              (List.flatten
                 (List.map (fun p -> resolve_package_dep pool (single p))
-                   p.conflicts))))
+                   p.conflicts)));
+       List.iter
+         (fun n -> add_conflict pr [p.num; n])
+         (normalize_set
+             (List.flatten
+                (List.map (fun p -> resolve_package_dep pool (single p))
+                   p.breaks))))
     pool.packages;
   Common.stop_generate st;
   Solver.propagate pr;
@@ -685,6 +695,24 @@ let check pool st =
                   Format.printf "{ok}, ")
              p.conflicts;
            Format.printf "@."
+         end;
+         if p.breaks <> [] then begin
+           Format.printf "Breaks: ";
+           List.iter
+             (fun l ->
+                Format.printf "%a " print_package_disj l;
+                try
+                  let n =
+                    List.find
+                      (fun n -> n <> i && assign.(n) = Solver.True)
+                      (resolve_package_dep pool (single l))
+                  in
+                  Format.printf "{CONFLICT: %a}" (print_pack pool) n;
+                  exit 1
+                with Not_found ->
+                  Format.printf "{ok}, ")
+             p.breaks;
+           Format.printf "@."
          end
        end)
     assign
@@ -721,7 +749,7 @@ let conflicts_in_reasons rl = List.fold_left (fun cl -> function R_conflict (i,j
 
 (****)
 
-(*XXX Build the array directely *)
+(*XXX Build the array directly *)
 let compute_conflicts pool =
   let conflict_pairs = Hashtbl.create 1000 in
   let conflicts = Hashtbl.create 1000 in
@@ -738,7 +766,7 @@ let compute_conflicts pool =
          (normalize_set
             (List.flatten
                (List.map (fun p -> resolve_package_dep pool (single p))
-                   p.conflicts))))
+                   (p.conflicts @ p.breaks)))))
     pool.packages;
   Array.init pool.size (fun i -> get_package_list conflicts i)
 
