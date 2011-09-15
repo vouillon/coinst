@@ -442,13 +442,16 @@ let compare_version v1 v2 =
 
 (****)
 
+let package_name pool n =
+  let p = Hashtbl.find pool.packages_by_num n in
+  p.package
+
 let print_pack pool ch n =
   let p = Hashtbl.find pool.packages_by_num n in
   Format.fprintf ch "%s (= %a)" p.package print_version p.version
 
 let print_pack_name pool ch n =
-  let p = Hashtbl.find pool.packages_by_num n in
-  Format.fprintf ch "%s" p.package
+  Format.fprintf ch "%s" (package_name pool n)
 
 (****)
 

@@ -24,6 +24,8 @@ rpm_lib.cmo: util.cmi solver.cmi common.cmi rpm_lib.cmi
 rpm_lib.cmx: util.cmx solver.cmx common.cmx rpm_lib.cmi
 solver.cmo: solver.cmi
 solver.cmx: solver.cmi
+update.cmo: deb_lib.cmi
+update.cmx: deb_lib.cmx
 util.cmo: util.cmi
 util.cmx: util.cmi
 api.cmi: solver.cmi
