@@ -31,6 +31,22 @@ let subset pool s =
   in
   { pool = pool; count = !count; repr_tbl = repr_tbl; repr_map = !repr_map }
 
+let from_partition pool pkgs partition =
+  let repr_tbl = PTbl.create pool (Package.of_index (-1)) in
+  let repr_map = ref PMap.empty in
+  List.iter
+    (fun l ->
+       let s = List.fold_left (fun s p -> PSet.add p s) PSet.empty l in
+       let s' = PSet.filter (fun p -> PSet.mem p pkgs) s in
+       if not (PSet.is_empty s') then begin
+         let p = PSet.choose s' in
+         repr_map := PMap.add p s !repr_map;
+         PSet.iter (fun q -> PTbl.set repr_tbl q p) s
+       end)
+    partition;
+  { pool = pool; count = List.length partition;
+    repr_tbl = repr_tbl; repr_map = !repr_map }
+
 let perform pool ?packages deps =
   let classes_by_dep = Hashtbl.create 17 in
   let class_count = ref 0 in

@@ -7,6 +7,7 @@ module F (R : Repository.S) : sig
   val perform : pool -> ?packages:PSet.t -> Formula.t PTbl.t -> t
   val trivial : pool -> t
   val subset : pool -> PSet.t -> t
+  val from_partition : pool -> PSet.t -> Package.t list list -> t
 
   val formula : t -> Formula.t -> Formula.t
   val dependencies : t -> dependencies -> dependencies

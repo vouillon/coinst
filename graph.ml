@@ -66,6 +66,16 @@ let output
        *)
     List.iter mark roots;
 
+  let dep_targets = ref PSet.empty in
+  Quotient.iter
+    (fun p ->
+       Formula.iter (PTbl.get deps p)
+         (fun d -> 
+            Disj.iter d
+              (fun q ->
+                 if p <> q then dep_targets := PSet.add q !dep_targets)))
+    quotient;
+
   let ch = open_out file in
   let f = Format.formatter_of_out_channel ch in
   Format.fprintf f "digraph G {@.";
@@ -89,6 +99,12 @@ let output
     (fun cset ->
            match PSet.elements cset with
              [i; j] ->
+                if
+                  PSet.mem j !dep_targets && not (PSet.mem i !dep_targets)
+                then
+                Format.fprintf f "%d -> %d [dir=none%s];@."
+                  (Package.index j) (Package.index i) confl_style
+                else
                 Format.fprintf f "%d -> %d [dir=none%s];@."
                   (Package.index i) (Package.index j) confl_style
            | l ->

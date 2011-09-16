@@ -198,11 +198,11 @@ let remove_redundant_conflicts dist deps confl =
 (****)
 
 let (file1,file2) =
-(*
-("/tmp/last_month", "/tmp/new")
-("snapshots/updates/oldstable", "snapshots/updates/stable")
-*)
 ("snapshots/updates/stable", "snapshots/updates/testing")
+(*
+("snapshots/updates/oldstable", "snapshots/updates/stable")
+("/tmp/last_month", "/tmp/new")
+*)
 
 let flatten dist deps confl =
   let deps = flatten_dependencies dist deps confl in
@@ -458,6 +458,116 @@ let find_problems dist deps confl check =
 
 (****)
 
+let output_conflicts filename dist2 results =
+  let in_conflict p p' =
+    p <> p' && PSetSet.exists (fun s -> PSet.mem p s && PSet.mem p' s) results
+  in
+  let involved = PSet.elements (PSetSet.fold PSet.union results PSet.empty) in
+  let partition =
+    List.fold_left
+      (fun l p ->
+         List.fold_left
+           (fun l s ->
+              let (s1, s2) = List.partition (fun p' -> in_conflict p p') s in
+              let l = if s1 = [] then l else s1 :: l in
+              let l = if s2 = [] then l else s2 :: l in
+              l)
+           [] l)
+      [involved] involved
+  in
+  let classes = Hashtbl.create 101 in
+  let repr = Hashtbl.create 101 in
+  List.iter
+    (fun s ->
+       let p = List.hd s in
+       Hashtbl.add classes p s;
+       List.iter (fun q -> Hashtbl.add repr q p) s)
+    partition;
+  let results =
+    PSetSet.filter (fun s -> PSet.for_all (fun p -> Hashtbl.find repr p = p) s)
+      results
+  in
+  (*
+  List.iter
+    (fun s ->
+       Format.printf "Set ";
+       List.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
+       Format.printf "@.")
+    partition
+  *)
+  PSetSet.iter
+    (fun s ->
+       let start = ref true in
+       PSet.iter
+         (fun p ->
+            if not !start then Format.printf ", ";
+            start := false;
+            let l = Hashtbl.find classes p in
+            let start = ref true in
+            List.iter
+              (fun p ->
+                 if not !start then Format.printf " | ";
+                 start := false;
+                 Format.printf "%a" (Package.print_name dist2) p)
+              l)
+         s;
+      Format.printf "@.")
+    results;
+
+  let ch = open_out filename in
+  let f = Format.formatter_of_out_channel ch in
+  Format.fprintf f "digraph G {@.";
+  Format.fprintf f "rankdir=LR;@.";
+  (*Format.fprintf f "overlap=false;@.";*)
+  (*Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";*)
+  Format.fprintf f "node[fontsize=7];@.";
+  Format.fprintf f "node[margin=0,0];@.";
+  Format.fprintf f "node [style=rounded];@.";
+
+  let confl_style = ",color=red" in
+  let confl_clique_style = ",color=red,fontcolor=red" in
+  let n = ref 0 in
+  PSetSet.iter
+    (fun s ->
+       if PSet.cardinal s = 2 then begin
+         let i = PSet.choose s in
+         let j = PSet.choose (PSet.remove i s) in
+         Format.fprintf f "%d -> %d [dir=none%s];@."
+           (Package.index i) (Package.index j) confl_style
+       end else begin
+         incr n;
+         Format.fprintf f
+           "confl%d [label=\" \",shape=circle%s];@."
+           !n confl_clique_style;
+         PSet.iter
+           (fun i ->
+              Format.fprintf f
+                "%d -> confl%d [dir=none%s];@."
+                (Package.index i) !n confl_style)
+           s
+       end)
+    results;
+
+  List.iter
+    (fun i ->
+       if Hashtbl.find repr i = i then begin
+         let print_name f i =
+           let l = List.length (Hashtbl.find classes i) in
+           if l = 1 then Package.print_name dist2 f i else
+           Format.fprintf f "%a (x %d)" (Package.print_name dist2) i l
+         in
+         Format.fprintf f
+           "%d [label=\"%a\",style=\"filled\",\
+                fillcolor=\"0.0,%f,1.0\"];@."
+           (Package.index i) print_name i 0.
+       end)
+    involved;
+
+  Format.fprintf f "}@.";
+  close_out ch
+
+(****)
+
 let _ =
 let (dist1, deps1, confl1) = read_data [] (open_in file1) in
 let (dist2, deps2, confl2) = read_data [] (open_in file2) in
@@ -640,61 +750,132 @@ find_problems dist2 deps2 confl2 check;
 
 (****)
 
+let ch = open_out "/tmp/index.html" in
+let f = Format.formatter_of_out_channel ch in
+Format.fprintf f "<h1>Upgrade issues</h1>@.";
+output_conflicts "/tmp/conflicts.dot" dist2 !results;
+let basename = "/tmp/conflicts" in
+ignore
+  (Sys.command
+     (Format.sprintf "dot %s.dot -Tsvg -o %s.svg" basename basename));
+Format.fprintf f "<h2>The graph of new conflicts</h2>@.";
+Format.fprintf f
+  "<p><object data=\"conflicts.svg\" type=\"image/svg+xml\"></object></p>@.";
+
 let all_pkgs = ref PSet.empty in
 let all_conflicts = Conflict.create dist2 in
 let dep_src = PTbl.create dist2 PSet.empty in
 let dep_trg = PTbl.create dist2 PSet.empty in
 let add_rel r p q = PTbl.set r p (PSet.add q (PTbl.get r p)) in
 
-let ch = open_out "/tmp/index.html" in
-let f = Format.formatter_of_out_channel ch in
-PSetSet.iter
-  (fun s ->
-     let l = List.map Package.index (PSet.elements s) in
-     let nm =
-       String.concat ","
-         (List.map (fun p -> M.package_name dist2 (Package.index p))
-            (PSet.elements s))
-     in
-     let res = M.Solver.solve_lst st2init l in
-     assert (not res);
-Format.eprintf "--- %s@." nm;
-     let r = M.Solver.collect_reasons_lst st2init l in
-     
-     let confl = Conflict.create dist2 in
-     let deps = PTbl.create dist2 Formula._true in
-     let pkgs = ref PSet.empty in
-     let package i =
-       let p = Package.of_index i in pkgs := PSet.add p !pkgs; p
-     in
-     List.iter
-       (fun r ->
-          match r with
-            M.R_conflict (n1, n2) ->
-              Conflict.add confl (package n1) (package n2);
-              Conflict.add all_conflicts (package n1) (package n2)
-          | M.R_depends (n, l) ->
-              let p = package n in
-              let l =
-                List.map package
-                  (List.flatten (List.map (M.resolve_package_dep dist2) l))
-              in
-              List.iter
-                (fun q ->
-                   add_rel dep_src q p;
-                   add_rel dep_trg p q)
-                l;
-              PTbl.set deps p
-                (Formula.conj (PTbl.get deps p)
-                   (Formula.of_disj (Disj.lit_disj l))))
-       r;
-     all_pkgs := PSet.union !all_pkgs !pkgs;
+let graphs =
+  List.map
+    (fun s ->
+       let l = List.map Package.index (PSet.elements s) in
+       let nm =
+         String.concat ","
+           (List.map (fun p -> M.package_name dist2 (Package.index p))
+              (PSet.elements s))
+       in
+       let res = M.Solver.solve_lst st2init l in
+       assert (not res);
+       let r = M.Solver.collect_reasons_lst st2init l in
+       M.Solver.reset st2init;
+       let confl = Conflict.create dist2 in
+       let deps = PTbl.create dist2 Formula._true in
+       let pkgs = ref PSet.empty in
+       let package i =
+         let p = Package.of_index i in pkgs := PSet.add p !pkgs; p in
+       List.iter
+         (fun r ->
+            match r with
+              M.R_conflict (n1, n2) ->
+                Conflict.add confl (package n1) (package n2);
+                Conflict.add all_conflicts (package n1) (package n2)
+            | M.R_depends (n, l) ->
+                let p = package n in
+                let l =
+                  List.map package
+                    (List.flatten (List.map (M.resolve_package_dep dist2) l))
+                in
+                List.iter
+                  (fun q ->
+                     add_rel dep_src q p;
+                     add_rel dep_trg p q)
+                  l;
+                PTbl.set deps p
+                  (Formula.conj (PTbl.get deps p)
+                     (Formula.of_disj (Disj.lit_disj l))))
+         r;
+       all_pkgs := PSet.union !all_pkgs !pkgs;
+       (s, nm, !pkgs, deps, confl))
+    (PSetSet.elements !results)
+in
 
+let involved = PSet.elements !all_pkgs in
+let partition =
+  List.fold_left
+    (fun l p ->
+       List.fold_left
+         (fun l s ->
+            let (s1, s2) = List.partition (fun p' -> Conflict.check all_conflicts p p') s in
+            let l = if s1 = [] then l else s1 :: l in
+            let l = if s2 = [] then l else s2 :: l in
+            l)
+         [] l)
+    [involved] involved
+in
+let partition =
+  List.fold_left
+    (fun l p ->
+       List.fold_left
+         (fun l s ->
+            let (s1, s2) =
+              List.partition (fun p' -> PSet.mem p' (PTbl.get dep_src p)) s in
+            let l = if s1 = [] then l else s1 :: l in
+            let l = if s2 = [] then l else s2 :: l in
+            l)
+         [] l)
+    partition involved
+in
+let partition =
+  List.fold_left
+    (fun l p ->
+       List.fold_left
+         (fun l s ->
+            let (s1, s2) =
+              List.partition (fun p' -> PSet.mem p (PTbl.get dep_src p')) s in
+            let l = if s1 = [] then l else s1 :: l in
+            let l = if s2 = [] then l else s2 :: l in
+            l)
+         [] l)
+    partition involved
+in
+let classes = Hashtbl.create 101 in
+let repr = Hashtbl.create 101 in
+List.iter
+  (fun s ->
+     let p = List.hd s in
+     Hashtbl.add classes p s;
+     List.iter (fun q -> Hashtbl.add repr q p) s)
+  partition;
+let graphs =
+  List.filter
+    (fun (s, _, _, _, _) -> PSet.for_all (fun p -> Hashtbl.find repr p = p) s)
+    graphs
+in
+
+Format.fprintf f "<h2>Explanations of conflicts</h2>@.";
+List.iter
+  (fun (s, nm, pkgs, deps, confl) ->
+     let quotient = Quotient.from_partition dist2 pkgs partition in
+     let deps = Quotient.dependencies quotient deps in
+     let confl = Quotient.conflicts quotient confl in
      let basename = "/tmp/" ^ nm in
      Graph.output (basename ^ ".dot")
-       ~options:["rankdir=LR;"; (*"dpi=100;";*) "node[fontsize=7];"; (*"margin=1;"*)]
-       ~package_weight:(fun p -> if PSet.mem p s then 1000. else 1.)
-       ~mark_all:true (Quotient.subset dist2 !pkgs) deps confl;
+       ~options:["rankdir=LR;"; "node[fontsize=7];"; "node[margin=0,0];"]
+       ~package_weight:(fun p -> if PSet.mem p s then 10. else 1.)
+       ~mark_all:true quotient deps confl;
 (*
      ignore
        (Sys.command
@@ -705,120 +886,11 @@ Format.eprintf "--- %s@." nm;
        (Sys.command
           (Format.sprintf "dot %s.dot -Tsvg -o %s.svg" basename basename));
      Format.fprintf f
-       "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>" nm;
-(*
-*)
-     M.show_reasons dist2 r;
-     M.Solver.reset st2init)
-  !results;
+       "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>@." nm)
+  graphs;
 close_out ch;
 
-let in_conflict p p' =
-  p <> p' && PSetSet.exists (fun s -> PSet.mem p s && PSet.mem p' s) !results
-in
-let involved = PSet.elements (PSetSet.fold PSet.union !results PSet.empty) in
-let partition =
-  List.fold_left
-    (fun l p ->
-       List.fold_left
-         (fun l s ->
-            let (s1, s2) = List.partition (fun p' -> in_conflict p p') s in
-            let l = if s1 = [] then l else s1 :: l in
-            let l = if s2 = [] then l else s2 :: l in
-            l)
-         [] l)
-    [involved] involved
-in
-let classes = Hashtbl.create 101 in
-let repr = Hashtbl.create 101 in
-List.iter
-  (fun s ->
-     let p = List.hd s in
-     Hashtbl.add classes p s;
-     List.iter (fun q -> Hashtbl.add repr q p) s)
-  partition;
-let results =
-  PSetSet.filter (fun s -> PSet.for_all (fun p -> Hashtbl.find repr p = p) s)
-    !results
-in
-(*
-List.iter
-  (fun s ->
-     Format.printf "Set ";
-     List.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
-     Format.printf "@.")
-  partition
-*)
-PSetSet.iter
-  (fun s ->
-     let start = ref true in
-     PSet.iter
-       (fun p ->
-          if not !start then Format.printf ", ";
-          start := false;
-          let l = Hashtbl.find classes p in
-          let start = ref true in
-          List.iter
-            (fun p ->
-               if not !start then Format.printf " | ";
-               start := false;
-               Format.printf "%a" (Package.print_name dist2) p)
-            l)
-       s;
-    Format.printf "@.")
-  results;
-
-
-let ch = open_out "/tmp/conflicts.dot" in
-let f = Format.formatter_of_out_channel ch in
-Format.fprintf f "digraph G {@.";
-Format.fprintf f "rankdir=LR;@.";
-Format.fprintf f "overlap=false;@.";
-(*Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";*)
-Format.fprintf f "node [style=rounded];@.";
-
-let confl_style = ",color=red" in
-let confl_clique_style = ",color=red,fontcolor=red" in
-let n = ref 0 in
-PSetSet.iter
-  (fun s ->
-     if PSet.cardinal s = 2 then begin
-       let i = PSet.choose s in
-       let j = PSet.choose (PSet.remove i s) in
-       Format.fprintf f "%d -> %d [dir=none%s];@."
-         (Package.index i) (Package.index j) confl_style
-     end else begin
-       incr n;
-       Format.fprintf f
-         "confl%d [label=\" \",shape=circle%s];@."
-         !n confl_clique_style;
-       PSet.iter
-         (fun i ->
-            Format.fprintf f
-              "%d -> confl%d [dir=none%s];@."
-              (Package.index i) !n confl_style)
-         s
-     end)
-  results;
-
-List.iter
-  (fun i ->
-     if Hashtbl.find repr i = i then begin
-       let print_name f i =
-         let l = List.length (Hashtbl.find classes i) in
-         if l = 1 then Package.print_name dist2 f i else
-         Format.fprintf f "%a (x %d)" (Package.print_name dist2) i l
-       in
-       Format.fprintf f
-         "%d [label=\"%a\",style=\"filled\",\
-              fillcolor=\"0.0,%f,1.0\"];@."
-         (Package.index i) print_name i 0.
-     end)
-  involved;
-
-Format.fprintf f "}@.";
-close_out ch
-
+(****)
 
 (*
 libjpeg8-dev "replaces" libjpeg62-dev, so why does the tools do not
