@@ -297,42 +297,42 @@ Formula.iter f (fun d -> if Conflict.exists confl (fun q -> Disj.implies1 q d) p
 (****)
 
 let new_deps pred deps1 dist2 deps2 =
-PTbl.mapi
-  (fun p2 i ->
-     if i = -1 then
-       Formula._true
-     else begin
-       let p1 = Package.of_index i in
-       let f1 = PTbl.get deps1 p1 in
-       let f2 = PTbl.get deps2 p2 in
+  PTbl.mapi
+    (fun p2 i ->
+       if i = -1 then
+         Formula._true
+       else begin
+         let p1 = Package.of_index i in
+         let f1 = PTbl.get deps1 p1 in
+         let f2 = PTbl.get deps2 p2 in
 
-       let f2 =
-         Formula.filter
-           (fun d2 ->
-              let d1 =
-                Disj.fold
-                  (fun p2 d2 ->
-                     let i = PTbl.get pred p2 in
-                     if i = -1 then d2 else
-                     Disj.disj (Disj.lit (Package.of_index i)) d2)
-                  d2 Disj._false
-              in
-              not (Formula.implies1 f1 d1))
-           f2
-       in
-if debug && not (Formula.implies Formula._true f2) then begin
-Format.printf "%a ==> %a@."
- (Package.print_name dist2) p2
- (Formula.print dist2) f2;
-(*
-Format.printf "%a --> %a@."
- (Package.print_name dist1) p1
- (Formula.print dist1) f1
-*)
-end;
-       f2
-     end)
-  pred
+         let f2 =
+           Formula.filter
+             (fun d2 ->
+                let d1 =
+                  Disj.fold
+                    (fun p2 d2 ->
+                       let i = PTbl.get pred p2 in
+                       if i = -1 then d2 else
+                       Disj.disj (Disj.lit (Package.of_index i)) d2)
+                    d2 Disj._false
+                in
+                not (Formula.implies1 f1 d1))
+             f2
+         in
+  if debug && not (Formula.implies Formula._true f2) then begin
+  Format.printf "%a ==> %a@."
+   (Package.print_name dist2) p2
+   (Formula.print dist2) f2;
+  (*
+  Format.printf "%a --> %a@."
+   (Package.print_name dist1) p1
+   (Formula.print dist1) f1
+  *)
+  end;
+         f2
+       end)
+    pred
 
 (****)
 
@@ -364,10 +364,15 @@ let rec add_piece st i cont =
   let (p, d) = Hashtbl.find st.pieces i in
 if debug then Format.printf "Try to add %a => %a@." (Package.print_name st.dist) p
          (Disj.print st.dist) d;
-  (* This could be refined by checking that d is not implied by the
-     dependencies of all packages in st.set *)
+  (* XXX
+     When adding a package in st.set, one could also check that d is not
+     implied by any of the dependencies of a package already in st.set *)
   if
-    not (IntSet.exists (fun i' -> let (_, d') = Hashtbl.find st.pieces i' in Disj.implies d d' || Disj.implies d' d) st.installed)
+    not (IntSet.exists
+           (fun i' ->
+              let (_, d') = Hashtbl.find st.pieces i' in
+              Disj.implies d d' || Disj.implies d' d)
+           st.installed)
       &&
     (PSet.mem p st.set || st.check (PSet.add p st.set))
   then begin
@@ -457,24 +462,21 @@ let _ =
 let (dist1, deps1, confl1) = read_data [] (open_in file1) in
 let (dist2, deps2, confl2) = read_data [] (open_in file2) in
 
-let pred = PTbl.create dist2 (-1) in
-let succ =
-  PTbl.init dist1
-    (fun p1 ->
-       let nm = M.package_name dist1 (Package.index p1) in
-       match M.parse_package_name dist2 nm with
+let pred =
+  PTbl.init dist2
+    (fun p2 ->
+       let nm = M.package_name dist2 (Package.index p2) in
+       match M.parse_package_name dist1 nm with
          [] ->
-           if debug then Format.printf "%s has been removed@." nm;
+           if debug then Format.printf "%s is a new package@." nm;
            -1
-       | [p2] ->
-           PTbl.set pred (Package.of_index p2) (Package.index p1);
-           p2
+       | [p1] ->
+           p1
        | _ ->
            assert false)
 in
-ignore succ;
 
-let known_conflicts = ref [] in
+let new_conflicts = ref [] in
 Conflict.iter confl2
   (fun p2 q2 ->
      let i = PTbl.get pred p2 in
@@ -488,55 +490,61 @@ if debug then begin
            (Package.print_name dist1) p1
            (Package.print_name dist1) q1;
 end;
-         (*XXX Should check wether the packages were in fact installable... *)
-         known_conflicts := (p2, q2) :: !known_conflicts
+         new_conflicts := (p2, q2) :: !new_conflicts;
+         Conflict.remove confl2 p2 q2
        end
      end);
-List.iter (fun (p2, q2) -> Conflict.remove confl2 p2 q2) !known_conflicts;
 
-  let (deps1', confl1) = flatten dist1 deps1 confl1 in
-  let (deps2', confl2) = flatten dist2 deps2 confl2 in
+let (deps1', confl1) = flatten dist1 deps1 confl1 in
+let (deps2', confl2) = flatten dist2 deps2 confl2 in
+let st1 = generate_rules (Quotient.trivial dist1) deps1' confl1 in
+let st2 = generate_rules (Quotient.trivial dist2) deps2' confl2 in
+let st2init = M.generate_rules dist2 in
 
-  let results = ref PSetSet.empty in
+let results = ref PSetSet.empty in
 
-
-  let st1 = generate_rules (Quotient.trivial dist1) deps1 confl1 in
-  let st2 = generate_rules (Quotient.trivial dist2) deps2' confl2 in
-  List.iter
-    (fun (p2, q2) ->
-      let i = PTbl.get pred p2 in
-      let j = PTbl.get pred q2 in
-      let p1 = Package.of_index i in
-      let q1 = Package.of_index j in
-      if M.Solver.solve_lst st1 [i; j] then begin
-        Format.printf "new conflict: %a %a@."
-          (Package.print_name dist1) p1
-          (Package.print_name dist1) q1;
-        results := PSetSet.add (PSet.add p2 (PSet.add q2 PSet.empty)) !results
-      end else begin
+List.iter
+  (fun (p2, q2) ->
+    let i = PTbl.get pred p2 in
+    let j = PTbl.get pred q2 in
+    let p1 = Package.of_index i in
+    let q1 = Package.of_index j in
+    if M.Solver.solve_lst st1 [i; j] then begin
 if debug then begin
-        Format.printf "NOT new conflict: %a %a@."
-          (Package.print_name dist1) p1
-          (Package.print_name dist1) q1;
-        M.show_reasons dist1 (M.Solver.collect_reasons st1 i)
+      Format.printf "new conflict: %a %a@."
+        (Package.print_name dist1) p1
+        (Package.print_name dist1) q1;
+end;
+      results := PSetSet.add (PSet.add p2 (PSet.add q2 PSet.empty)) !results
+    end else begin
+if debug then begin
+      Format.printf "NOT new conflict: %a %a@."
+        (Package.print_name dist1) p1
+        (Package.print_name dist1) q1;
+      M.show_reasons dist1 (M.Solver.collect_reasons_lst st1 [i; j])
 end
-      end;
-      M.Solver.reset st1)
-    !known_conflicts;
+    end;
+    M.Solver.reset st1)
+  !new_conflicts;
 
+(* Only consider new dependencies. *)
 let deps2 = new_deps pred deps1 dist2 deps2 in
-
+(* Compute the corresponding flattened dependencies. *)
 let deps2 =
   PTbl.mapi
      (fun p f ->
         Formula.fold
-          (fun d f -> Formula.conj (PSet.fold (fun p f -> Formula.disj (PTbl.get deps2' p) f) (Disj.to_lits d) Formula._false) f)
+          (fun d f ->
+             Formula.conj
+               (PSet.fold
+                  (fun p f -> Formula.disj (PTbl.get deps2' p) f)
+                  (Disj.to_lits d) Formula._false) f)
           f Formula._true)
     deps2
 in
-
+(* Only keep those that are new... *)
 let deps2 = new_deps pred deps1' dist2 deps2 in
-
+(* ...and that are indeed in the flattened repository *)
 let deps2 =
   PTbl.mapi
     (fun p f ->
@@ -547,11 +555,7 @@ let deps2 =
     deps2
 in
 
-(*
-let quotient = Quotient.perform dist2 deps2 in
-*)
-
-
+(* Only keep relevant conflicts. *)
 let dep_targets = ref PSet.empty in
 PTbl.iteri
   (fun _ f ->
@@ -559,40 +563,42 @@ PTbl.iteri
        (fun d ->
           Disj.iter d (fun p -> dep_targets := PSet.add p !dep_targets)))
   deps2;
-
-  Conflict.iter confl2
-    (fun p2 q2 ->
-       let i1 = PTbl.get pred p2 in
-       let j1 = PTbl.get pred q2 in
-       if
-         not ((PSet.mem p2 !dep_targets && j1 <> -1) ||
-              (PSet.mem q2 !dep_targets && i1 <> -1) ||
-              (PSet.mem p2 !dep_targets && PSet.mem q2 !dep_targets))
-       then
-         Conflict.remove confl2 p2 q2);
+Conflict.iter confl2
+  (fun p2 q2 ->
+     let i1 = PTbl.get pred p2 in
+     let j1 = PTbl.get pred q2 in
+     if
+       not ((PSet.mem p2 !dep_targets && j1 <> -1) ||
+            (PSet.mem q2 !dep_targets && i1 <> -1) ||
+            (PSet.mem p2 !dep_targets && PSet.mem q2 !dep_targets))
+     then
+       Conflict.remove confl2 p2 q2);
+(* As a consequence, some new dependencies might not be relevant anymore. *)
 let deps2 = flatten_dependencies dist2 deps2 confl2 in
 
+Graph.output "/tmp/update.dot"
+  ~package_weight:(fun p ->
+    if Formula.implies (Formula.lit p) (PTbl.get deps2 p) then
+      (if PTbl.get pred p = -1 then 1. else 10.)
+    else 1000.)
+  (Quotient.trivial dist2) deps2 confl2;
 
-Graph.output "/tmp/update.dot" ~mark_all:false ~package_weight:(fun p ->
- if Formula.implies (Formula.lit p) (PTbl.get deps2 p) then (if PTbl.get pred p = -1 then 1. else 10.) else 1000.) ~edge_color:(fun _ _ _ -> Some "blue")
- (Quotient.trivial dist2)
-(*quotient*)
-   deps2 confl2;
-
+(* Flattening may have added self dependencies for new packages,
+   which are not relevant. *)
 let deps2 =
   PTbl.mapi
     (fun p f -> if PTbl.get pred p = -1 then Formula._true else f)
     deps2
 in
 
-let now_installable s =
-  let res =
-    M.Solver.solve_lst st2 (List.map Package.index (PSet.elements s)) in
-  M.Solver.reset st2;
-  res
-in
 
 let check s =
+  let now_installable s =
+    let res =
+      M.Solver.solve_lst st2 (List.map Package.index (PSet.elements s)) in
+    M.Solver.reset st2;
+    res
+  in
   let l = PSet.elements s in
   let was_coinstallable =
     M.Solver.solve_lst st1 (List.map (fun p -> PTbl.get pred p) l)
@@ -631,6 +637,81 @@ Format.printf "@.";
   end
 in
 find_problems dist2 deps2 confl2 check;
+
+(****)
+
+let all_pkgs = ref PSet.empty in
+let all_conflicts = Conflict.create dist2 in
+let dep_src = PTbl.create dist2 PSet.empty in
+let dep_trg = PTbl.create dist2 PSet.empty in
+let add_rel r p q = PTbl.set r p (PSet.add q (PTbl.get r p)) in
+
+let ch = open_out "/tmp/index.html" in
+let f = Format.formatter_of_out_channel ch in
+PSetSet.iter
+  (fun s ->
+     let l = List.map Package.index (PSet.elements s) in
+     let nm =
+       String.concat ","
+         (List.map (fun p -> M.package_name dist2 (Package.index p))
+            (PSet.elements s))
+     in
+     let res = M.Solver.solve_lst st2init l in
+     assert (not res);
+Format.eprintf "--- %s@." nm;
+     let r = M.Solver.collect_reasons_lst st2init l in
+     
+     let confl = Conflict.create dist2 in
+     let deps = PTbl.create dist2 Formula._true in
+     let pkgs = ref PSet.empty in
+     let package i =
+       let p = Package.of_index i in pkgs := PSet.add p !pkgs; p
+     in
+     List.iter
+       (fun r ->
+          match r with
+            M.R_conflict (n1, n2) ->
+              Conflict.add confl (package n1) (package n2);
+              Conflict.add all_conflicts (package n1) (package n2)
+          | M.R_depends (n, l) ->
+              let p = package n in
+              let l =
+                List.map package
+                  (List.flatten (List.map (M.resolve_package_dep dist2) l))
+              in
+              List.iter
+                (fun q ->
+                   add_rel dep_src q p;
+                   add_rel dep_trg p q)
+                l;
+              PTbl.set deps p
+                (Formula.conj (PTbl.get deps p)
+                   (Formula.of_disj (Disj.lit_disj l))))
+       r;
+     all_pkgs := PSet.union !all_pkgs !pkgs;
+
+     let basename = "/tmp/" ^ nm in
+     Graph.output (basename ^ ".dot")
+       ~options:["rankdir=LR;"; (*"dpi=100;";*) "node[fontsize=7];"; (*"margin=1;"*)]
+       ~package_weight:(fun p -> if PSet.mem p s then 1000. else 1.)
+       ~mark_all:true (Quotient.subset dist2 !pkgs) deps confl;
+(*
+     ignore
+       (Sys.command
+          (Format.sprintf "dot %s.dot -Tpng -o %s.png" basename basename));
+     Format.fprintf f "<p><img src=\"%s.png\" alt=\"%s\"/></p>@." nm nm;
+*)
+     ignore
+       (Sys.command
+          (Format.sprintf "dot %s.dot -Tsvg -o %s.svg" basename basename));
+     Format.fprintf f
+       "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>" nm;
+(*
+*)
+     M.show_reasons dist2 r;
+     M.Solver.reset st2init)
+  !results;
+close_out ch;
 
 let in_conflict p p' =
   p <> p' && PSetSet.exists (fun s -> PSet.mem p s && PSet.mem p' s) !results

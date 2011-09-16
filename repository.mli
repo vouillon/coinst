@@ -77,6 +77,7 @@ module type S = sig
     val add : t -> Package.t -> Package.t -> unit
     val remove : t -> Package.t -> Package.t -> unit
     val iter : t -> (Package.t -> Package.t -> unit) -> unit
+    val copy : t -> t
 
     val has : t -> Package.t -> bool
     val of_package : t -> Package.t -> PSet.t

@@ -81,6 +81,7 @@ module type S = sig
     val add : t -> Package.t -> Package.t -> unit
     val remove : t -> Package.t -> Package.t -> unit
     val iter : t -> (Package.t -> Package.t -> unit) -> unit
+    val copy : t -> t
 
     val has : t -> Package.t -> bool
     val of_package : t -> Package.t -> PSet.t
@@ -121,6 +122,7 @@ module F (M : Api.S) = struct
     let iteri f a = Array.iteri (fun i v -> f (Package.of_index i) v) a
     let map = Array.map
     let mapi f a = Array.mapi (fun i v -> f (Package.of_index i) v) a
+    let copy = Array.copy 
   end
 
   module type DISJ = sig
@@ -219,6 +221,7 @@ module F (M : Api.S) = struct
       PTbl.iteri (fun i s -> PSet.iter (fun j -> if i < j then f i j) s) c
     let iter_on_packages c f = PTbl.iteri f c
     let of_package = PTbl.get
+    let copy = PTbl.copy 
 
     let exists c f p = PSet.exists f (PTbl.get c p)
     let for_all c f p = PSet.for_all f (PTbl.get c p)

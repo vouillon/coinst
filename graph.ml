@@ -10,6 +10,7 @@ module Quotient = Quotient.F(R)
 module Conflicts = Conflicts.F (R)
 
 let output
+      ?options
       ?package_weight
       ?(edge_color = fun _ _ _ -> Some "blue")
       file ?(mark_all = false) ?(roots = [])
@@ -68,10 +69,14 @@ let output
   let ch = open_out file in
   let f = Format.formatter_of_out_channel ch in
   Format.fprintf f "digraph G {@.";
-  Format.fprintf f "rankdir=LR;@.";
-  Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";
+  begin match options with
+    None ->
+      Format.fprintf f "rankdir=LR;@.";
+      Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@."
+  | Some l ->
+      List.iter (fun s -> Format.fprintf f "%s@." s) l
+  end;
   Format.fprintf f "node [style=rounded];@.";
-
   let confl_n = ref 0 in
   Conflict.iter confl
     (fun p q ->

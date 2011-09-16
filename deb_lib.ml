@@ -475,10 +475,12 @@ let normalize_set (l : int list) =
 
 (****)
 
-type reason =
+type deb_reason =
     R_conflict of int * int
   | R_depends
     of int * (string * (rel * (int * string * string option)) option) list
+
+type reason = deb_reason
 
 (****)
 
