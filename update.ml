@@ -520,8 +520,9 @@ let output_conflicts filename dist2 results =
   Format.fprintf f "rankdir=LR;@.";
   (*Format.fprintf f "overlap=false;@.";*)
   (*Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";*)
-  Format.fprintf f "node[fontsize=7];@.";
+  Format.fprintf f "node[fontsize=8];@.";
   Format.fprintf f "node[margin=0,0];@.";
+  Format.fprintf f "node[height=0.2];@.";
   Format.fprintf f "node [style=rounded];@.";
 
   let confl_style = ",color=red" in
@@ -872,8 +873,32 @@ List.iter
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
      let basename = "/tmp/" ^ nm in
-     Graph.output (basename ^ ".dot")
-       ~options:["rankdir=LR;"; "node[fontsize=7];"; "node[margin=0,0];"]
+     let edge_color p2 _ d2 =
+Format.printf "%a:@."(Package.print dist2) p2;
+       let i1 = PTbl.get pred p2 in
+       let is_new =
+         i1 <> -1 &&
+         let d1 =
+           Disj.fold
+             (fun p2 d2 ->
+                let i = PTbl.get pred p2 in
+                if i = -1 then d2 else
+                Disj.disj (Disj.lit (Package.of_index i)) d2)
+             d2 Disj._false
+         in
+Format.printf "  %a / %a@."
+(Formula.print dist1) (PTbl.get deps1 (Package.of_index i1))
+(Disj.print dist1) d1;
+         not (Formula.implies1 (PTbl.get deps1 (Package.of_index i1)) d1)
+       in
+       if is_new then
+         Some "violet"
+       else
+         Some "blue"
+     in
+    Graph.output (basename ^ ".dot")
+       ~options:["rankdir=LR;"; "node[fontsize=8];"; "node[margin=0,0];"; "node[height=0.2];"]
+       ~edge_color
        ~package_weight:(fun p -> if PSet.mem p s then 10. else 1.)
        ~mark_all:true quotient deps confl;
 (*
