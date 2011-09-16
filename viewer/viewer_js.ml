@@ -39,6 +39,8 @@ module Common = Viewer_common.F (struct
   let scale ctx ~sx ~sy = ctx##scale (sx, sy)
   let translate ctx ~tx ~ty = ctx##translate (tx, ty)
 
+  let set_line_width ctx w = ctx##lineWidth <- w
+
   let begin_path ctx = ctx##beginPath ()
   let close_path ctx = ctx##closePath ()
   let move_to ctx ~x ~y = ctx##moveTo (x, y)

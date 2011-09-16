@@ -31,6 +31,8 @@ module F (M : sig
   val scale : ctx -> sx:float -> sy:float -> unit
   val translate : ctx -> tx:float -> ty:float -> unit
 
+  val set_line_width : ctx -> float -> unit
+
   val begin_path : ctx -> unit
   val close_path : ctx -> unit
   val move_to : ctx -> x:float -> y:float -> unit

@@ -37,6 +37,8 @@ module F (M : sig
   val scale : ctx -> sx:float -> sy:float -> unit
   val translate : ctx -> tx:float -> ty:float -> unit
 
+  val set_line_width : ctx -> float -> unit
+
   val begin_path : ctx -> unit
   val close_path : ctx -> unit
   val move_to : ctx -> x:float -> y:float -> unit
@@ -194,6 +196,7 @@ Format.eprintf "REDRAW %d %d %d %d@." x' y' w h;
   let x = float x /. scale in
   let y = float y /. scale in
   M.scale ctx scale scale;
+  M.set_line_width ctx (max 2. (0.5 /. scale));
   translate ctx (-. st.st_x -. x) (-. st.st_y -. y);
   let bbox =
     let x = st.st_x +. x +. float x' /. scale in

@@ -80,6 +80,8 @@ module Common = Viewer_common.F (struct
   let scale = Cairo.scale
   let translate = Cairo.translate
 
+  let set_line_width = Cairo.set_line_width
+
   let begin_path = Cairo.new_path
   let close_path = Cairo.close_path
   let move_to = Cairo.move_to
