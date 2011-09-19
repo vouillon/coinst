@@ -18,6 +18,7 @@ module F (R : Repository.S) : sig
 
   val print : t -> dependencies -> unit
   val print_class : t -> Format.formatter -> Package.t -> unit
+  val clss : t -> Package.t -> PSet.t
   val class_size : t -> Package.t -> int
 
   val pool : t -> pool

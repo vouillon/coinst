@@ -687,6 +687,7 @@ Format.eprintf "REM %a: %a (%a)@." (Package.print dist) p (Disj.print dist) d (F
 (*
 print_problem quotient fd2 confl;
 *)
+  let st' = if !explain then Some (M.generate_rules dist) else None in
 
   Util.title "NON-INSTALLABLE PACKAGES";
   let non_inst = ref PSet.empty in
@@ -696,8 +697,18 @@ print_problem quotient fd2 confl;
        let i = Package.index p in
        if not (M.Solver.solve st i) then begin
          Format.printf "%a@." (Quotient.print_class quotient) p;
-         if !explain then
-           M.show_reasons dist (M.Solver.collect_reasons st i);
+         begin match st' with
+           Some st' ->
+             PSet.iter
+               (fun p ->
+                  let i = Package.index p in
+                  ignore (M.Solver.solve st' i);
+                  M.show_reasons dist (M.Solver.collect_reasons st' i);
+                  M.Solver.reset st')
+               (Quotient.clss quotient p)
+         | None ->
+             ()
+         end;
          non_inst := PSet.add p !non_inst
        end;
        M.Solver.reset st)
@@ -755,7 +766,16 @@ print_problem quotient fd2 confl;
  *))
                    end else begin
                      incr c'';
-                     let r = M.Solver.collect_reasons_lst st [i; j] in
+                     let r =
+                       match st' with
+                         Some st' ->
+                           ignore (M.Solver.solve_lst st' [i; j]);
+                           let r = M.Solver.collect_reasons_lst st' [i; j] in
+                           M.Solver.reset st';
+                           r
+                       | None ->
+                           []
+                     in
                      insert conflicts p (q, r);
                      insert conflicts q (p, r);
 ((*
@@ -796,10 +816,7 @@ print_problem quotient fd2 confl;
             if !nf then Format.printf ","; nf := true;
             Format.printf " %a" (Quotient.print_class quotient) j) l;
        Format.printf "@.";
-       if !explain then begin
-         List.iter (fun (_, (_, r)) -> M.show_reasons dist r) l;
-         Format.printf "@."
-       end)
+       List.iter (fun (_, (_, r)) -> if r <> [] then M.show_reasons dist r) l)
     (sort !cl);
   let pw =
      List.fold_left
