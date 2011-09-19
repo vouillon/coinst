@@ -109,6 +109,7 @@ let tags =
    ( 257, (INT32,        "SIGSIZE", false));
    ( 261, (BIN,          "SIGMD5", false));
    ( 262, (BIN,          "SIGGPG", false));
+   ( 266, (STRING_ARRAY, "PUBKEYS", false));
    ( 267, (BIN,          "DSAHEADER", false));
    ( 269, (STRING,       "SHA1HEADER", false));
    (1000, (STRING,       "NAME", true));             (* ! *)
@@ -184,6 +185,7 @@ let tags =
    (1117, (STRING_ARRAY, "BASENAMES", true));        (* ! *)
    (1118, (STRING_ARRAY, "DIRNAMES", true));         (* ! *)
    (1122, (STRING,       "OPTFLAGS", false));
+   (1123, (STRING,       "DISTURL", false));
    (1124, (STRING,       "PAYLOADFORMAT", false));
    (1125, (STRING,       "PAYLOADCOMPRESSOR", false));
    (1126, (STRING,       "PAYLOADFLAGS", false));
@@ -199,10 +201,16 @@ let tags =
    (1146, (BIN,          "SOURCEPKGID", false));
    (1152, (STRING,       "POSTTRANS", false));
    (1154, (STRING,       "POSTTRANSPROG", false));
+   (1155, (STRING,       "DISTTAG", false));
    (1156, (STRING_ARRAY, "SUGGESTSNAME", false));
    (1157, (STRING_ARRAY, "SUGGESTSVERSION", false));
    (1158, (INT32,        "SUGGESTSFLAGS", false));
    (1177, (INT32,        "FILEDIGESTALGOS", false));
+   (1199, (INT32,        "RPMLIBVERSION", false));
+   (1200, (INT32,        "RPMLIBTIMESTAMP", false));
+   (1201, (INT32,        "RPMLIBVENDOR", false));
+   (1218, (STRING,       "DISTEPOCH", true));
+   (5012, (STRING,       "BUGURL", false));
    (1000000, (STRING,    "FILENAME", false));
    (1000001, (INT32,     "FILESIZE", false));
    (1000005, (STRING,    "MD5", false));
@@ -278,6 +286,7 @@ let _OBSOLETENVERSION = 1115
 let _DIRINDEXES = 1116
 let _BASENAMES = 1117
 let _DIRNAMES = 1118
+let _DISTEPOCH = 1218
 
 let etag entry i = let (tag, _, _, _) = entry.(i) in tag
 
@@ -408,11 +417,12 @@ let skipped_dep name flags i =
    nm.[0] = 'r' && nm.[1] = 'p' && nm.[2] = 'm' && nm.[3] = 'l' &&
    nm.[4] = 'i' && nm.[5] = 'b' && nm.[6] = '(')
 
-type vers = int option * string * string option
+type vers = int option * string * string option * string option
 type pack_ref = string * rel * vers option
 type p =
   { num : int;
-    name : string; version : string; release : string; epoch : int option;
+    name : string; version : string; release : string;
+    epoch : int option; distepoch : string option;
     provide : pack_ref list;
     require : pack_ref list;
     conflict : pack_ref list }
@@ -420,9 +430,7 @@ type p =
 type pool =
   { mutable size : int;
     files : (string * string, (file_info * p) list ref) Hashtbl.t;
-    provides : (string,
-                (rel * (int option * string * string option) option *
-                 p) list ref) Hashtbl.t;
+    provides : (string, (rel * vers option * p) list ref) Hashtbl.t;
     mutable packages : p list;
     packages_by_num : (int, p) Hashtbl.t;
     packages_by_name : (string, p list ref) Hashtbl.t;
@@ -452,15 +460,20 @@ let add_provide pool p (nm, rel, vers) =
 
 (****)
 
-let pr_version ch (epoch, version, release) =
+let pr_version ch (epoch, version, release, distepoch) =
   begin match epoch with
     None   -> ()
   | Some e -> Format.fprintf ch "%d:" e
   end;
   Format.fprintf ch "%s" version;
-  match release with
+  begin match release with
     Some r -> Format.fprintf ch "-%s" r
   | None   -> ()
+  end;
+  begin match distepoch with
+    Some e -> Format.fprintf ch ":%s" e
+  | None   -> ()
+  end
 
 let is_lower c = c >= 'a' && c <= 'z'
 let is_upper c = c >= 'A' && c <= 'Z'
@@ -468,16 +481,16 @@ let is_digit c = c >= '0' && c <= '9'
 let is_alpha c = is_lower c || is_upper c
 let is_alnum c = is_alpha c || is_digit c
 
-(* parseEVR, rpmds.c *)
-let version_re_1 =
-  Str.regexp
-  "^\\(\\([0-9]*\\):\\)?\\(.*\\)-\\([^-]*\\)$"
-let version_re_2 =
-  Str.regexp
-  "^\\(\\([0-9]*\\):\\)?\\(.*\\)\\(-\\)?$"
-  (* HACK: last parenthesis never matched *)
 
 let check_version s = s <> "" && not (is_alnum s.[String.length s - 1])
+
+(* _evr_tuple_match, rpmevr.c *)
+let version_re_1 =
+  Str.regexp
+  "^\\(\\([0-9]*\\):\\)?\\([^:]+\\)\\(-\\([^:-]+\\)\\)\\(:\\([^:-]+\\)\\)?$"
+let version_re_2 =
+  Str.regexp
+  "^\\(\\([0-9]*\\):\\)?\\([^:-]+\\)\\(-\\([^:-]+\\)\\)?\\(:\\([^:-]+\\)\\)?$"
 
 let parse_version s =
   if s = "" then
@@ -494,7 +507,8 @@ let parse_version s =
         None
     in
     let version = Str.matched_group 3 s in
-    let release = try Some (Str.matched_group 4 s) with Not_found -> None in
+    let release = try Some (Str.matched_group 5 s) with Not_found -> None in
+    let distepoch = try Some (Str.matched_group 7 s) with Not_found -> None in
     if
       check_version s ||
       match release with Some r -> check_version r | _ -> false
@@ -502,10 +516,10 @@ let parse_version s =
       let b = Buffer.create 80 in
       Format.bprintf b
         "version '%a' not ending with an alphanumeric character@?"
-        pr_version (epoch, version, release);
+        pr_version (epoch, version, release, distepoch);
       Util.print_warning (Buffer.contents b)
     end;
-    Some (epoch, version, release)
+    Some (epoch, version, release, distepoch)
   end
 
 let rec split_vers_rec s p l =
@@ -570,17 +584,29 @@ let compare_vers s1 s2 =
   if s1 = s2 then 0 else
   compare_vers_rec (split_vers s1) (split_vers s2)
 
-let promote = ref false
+let promote = false
 
-let compare_versions ver1 ver2 =
+let compare_versions ver1 ver2 rel2 =
   match ver1, ver2 with
-    Some (e1, v1, r1), Some (e2, v2, r2) ->
+    Some (e1, v1, r1, d1), Some (e2, v2, r2, d2) ->
       let c2 =
         let c = compare_vers v1 v2 in
         if c <> 0 then c else
-        match r1, r2 with
-          Some r1, Some r2 -> compare_vers r1 r2
-        | _                -> 0
+        let c =
+          match r1, r2, rel2 with
+            Some r1, Some r2, _        -> compare_vers r1 r2
+          | _,       None,    (E|EQ|L) -> 0
+          | None,    Some r2, _        -> compare_vers "" r2
+          | Some r1, None,    _        -> compare_vers r1 ""
+          | None,    None,    _        -> 0
+        in
+        if c <> 0 then c else
+        match d1, d2, rel2 with
+          Some d1, Some d2, _        -> compare_vers d1 d2
+        | _,       None,    (EQ|L)   -> 0
+        | None,    Some d2, _        -> compare_vers "" d2
+        | Some d1, None,    _        -> compare_vers d1 ""
+        | None,    None,    _        -> 0
       in
       let c1 =
         match e1, e2 with
@@ -591,7 +617,7 @@ let compare_versions ver1 ver2 =
         | None, Some _ ->
             -1
         | Some _, None ->
-            if !promote then 0 else 1
+            if promote then 0 else 1
       in
       if c1 <> 0 then c1 else c2
   | _ ->
@@ -603,11 +629,11 @@ let compare_pack_refs (n1, r1, v1) (n2, r2, v2) =
   n1 = n2 &&
   match r1, r2 with
     ALL, _ | _, ALL | (SE | E), (SE | E) | (SL | L), (SL | L) -> true
-  | (EQ | L | SL), SE | SL, (EQ | E) -> compare_versions v1 v2 < 0
-  | SE, (EQ | L | SL) | (EQ | E), SL -> compare_versions v1 v2 > 0
-  | EQ, E | L, E | L, EQ -> compare_versions v1 v2 <= 0
-  | E, EQ | E, L | EQ, L -> compare_versions v1 v2 >= 0
-  | EQ, EQ -> compare_versions v1 v2 = 0
+  | (EQ | L | SL), SE | SL, (EQ | E) -> compare_versions v1 v2 r2 < 0
+  | SE, (EQ | L | SL) | (EQ | E), SL -> compare_versions v1 v2 r2 > 0
+  | EQ, E | L, E | L, EQ -> compare_versions v1 v2 r2 <= 0
+  | E, EQ | E, L | EQ, L -> compare_versions v1 v2 r2 >= 0
+  | EQ, EQ -> compare_versions v1 v2 r2 = 0
 
 let pr_pack_ref ch (name, rel, ver) =
   Format.fprintf ch "%s" name;
@@ -616,7 +642,8 @@ let pr_pack_ref ch (name, rel, ver) =
   | None   -> ()
 
 let pr_pack ch p =
-  pr_pack_ref ch (p.name, EQ, Some (p.epoch, p.version, Some p.release))
+  pr_pack_ref ch
+    (p.name, EQ, Some (p.epoch, p.version, Some p.release, p.distepoch))
 
 let resolve_file_dep p (nm, rel, ver) =
   if nm = "" || nm.[0] <> '/' then [] else begin
@@ -737,13 +764,18 @@ let parse_header pool ignored_packages ch =
       if non_empty then estring_array store entry (i + 1) _BASENAMES else [||] in
     let dirnames =
       if non_empty then estring_array store entry (i + 2) _DIRNAMES else [||] in
-
+    let i = move_to entry i _DISTEPOCH in
+    let distepoch =
+      if etag entry i <> _DISTEPOCH then None else
+      Some (estring store entry i _DISTEPOCH)
+    in
 
     if List.mem name ignored_packages then raise Skip;
 
     let p =
       { num = pool.size;
-        name = name; version = version; release = release; epoch = epoch;
+        name = name; version = version; release = release;
+        epoch = epoch; distepoch = distepoch;
         provide = parse_deps providename provideflags provideversion;
         require = parse_deps requirename requireflags requireversion;
         conflict = parse_deps conflictname conflictflags conflictversion }
