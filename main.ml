@@ -905,11 +905,11 @@ prerr_endline "COMP";
 
 end
 
-type kind = (*Cudf |*) Deb | Rpm
+type kind = (*Cudf |*) Deb | Rpm | Auto
 
 let _ =
 let ignored_packages = ref [] in
-let kind = ref Deb in
+let kind = ref Auto in
 let file = ref None in
 Arg.parse
   [(*
@@ -962,8 +962,10 @@ Arg.parse
     \n\
     Options:");
 
-let ic = match !file with None -> stdin | Some f -> open_in f in
-match !kind with
+let ic = File.filter (match !file with None -> stdin | Some f -> open_in f) in
+let kind =
+  if !kind = Auto && File.has_magic ic "\142\173\232" then Rpm else !kind in
+match kind with
 (*  Cudf -> let module M = F(Cudf_lib) in M.f !ignored_packages ic*)
-| Deb  -> let module M = F(Deb_lib) in M.f !ignored_packages ic
-| Rpm  -> let module M = F(Rpm_lib) in M.f !ignored_packages ic
+| Auto | Deb -> let module M = F(Deb_lib) in M.f !ignored_packages ic
+| Rpm        -> let module M = F(Rpm_lib) in M.f !ignored_packages ic

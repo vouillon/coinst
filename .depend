@@ -10,11 +10,13 @@ deb_lib.cmo: util.cmi solver.cmi common.cmi deb_lib.cmi
 deb_lib.cmx: util.cmx solver.cmx common.cmx deb_lib.cmi
 dgraph.cmo: dgraph.cmi
 dgraph.cmx: dgraph.cmi
+file.cmo: file.cmi
+file.cmx: file.cmi
 graph.cmo: repository.cmi quotient.cmi conflicts.cmo graph.cmi
 graph.cmx: repository.cmx quotient.cmx conflicts.cmx graph.cmi
-main.cmo: util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi \
+main.cmo: util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi file.cmi \
     deb_lib.cmi api.cmi
-main.cmx: util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
+main.cmx: util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx file.cmx \
     deb_lib.cmx api.cmx
 quotient.cmo: util.cmi repository.cmi quotient.cmi
 quotient.cmx: util.cmx repository.cmx quotient.cmi
@@ -33,6 +35,7 @@ common.cmi:
 cudf_lib.cmi: api.cmi
 deb_lib.cmi: api.cmi
 dgraph.cmi:
+file.cmi:
 graph.cmi: repository.cmi quotient.cmi
 quotient.cmi: repository.cmi
 repository.cmi: api.cmi
