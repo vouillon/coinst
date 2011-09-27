@@ -166,8 +166,8 @@ let tags =
    (1082, (STRING_ARRAY, "CHANGELOGTEXT", false));
    (1085, (STRING,       "PREINPROG", false));
    (1086, (STRING,       "POSTINPROG", false));
-(*   (1087, (STRING,       "PREUNPROG", false));*)
-   (1087, (STRING_ARRAY, "PREUNPROG", false));
+   (1087, (STRING,       "PREUNPROG", false));
+(*   (1087, (STRING_ARRAY, "PREUNPROG", false));*)
    (1088, (STRING,       "POSTUNPROG", false));
    (1090, (STRING_ARRAY, "OBSOLETENAME", false));
    (1091, (STRING,       "VERIFYSCRIPTPROG", false));
@@ -361,7 +361,7 @@ let intern_file filemodes filemd5s filelinktos i =
   | 0o120000 -> Link (filelinktos.(i))
   | 0o140000 -> Sock
   | 0o10000  -> Pipe
-  | 0o100000 -> Reg (filemd5s.(i))
+  | 0o100000 -> Reg (String.sub filemd5s.(i) 0 32)
   | _        -> Util.fail (Format.sprintf "unknown mode %o" mode)
 
 let pr_info ch i =
