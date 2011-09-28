@@ -910,7 +910,7 @@ type kind = (*Cudf |*) Deb | Rpm | Auto
 let _ =
 let ignored_packages = ref [] in
 let kind = ref Auto in
-let file = ref None in
+let files = ref [] in
 Arg.parse
   [(*
    "-cudf",
@@ -955,14 +955,18 @@ Arg.parse
    "  Output debugging informations";
 *)
   ]
-  (fun p -> file := Some p)
-  ("Usage: " ^ Sys.argv.(0) ^ " [OPTION]...\n\
-    Analyze package coinstallability.  The package information are read\n\
-    from the standard input.\n\
+  (fun p -> files := p :: !files)
+  ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS INPUT-FILES\n\
+    Analyze package coinstallability. Package information is read from\n\
+    the given input files. If none are provided, it is read from the\n\
+    standard input instead.\n\
     \n\
     Options:");
 
-let ic = File.filter (match !file with None -> stdin | Some f -> open_in f) in
+let ic =
+  if !files = [] then File.filter stdin else
+  File.open_in_multiple (List.rev !files)
+in
 let kind =
   if !kind = Auto && File.has_magic ic "\142\173\232" then Rpm else !kind in
 match kind with
