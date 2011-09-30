@@ -26,8 +26,12 @@ rpm_lib.cmo: util.cmi solver.cmi common.cmi rpm_lib.cmi
 rpm_lib.cmx: util.cmx solver.cmx common.cmx rpm_lib.cmi
 solver.cmo: solver.cmi
 solver.cmx: solver.cmi
-update.cmo: repository.cmi quotient.cmi graph.cmi deb_lib.cmi
-update.cmx: repository.cmx quotient.cmx graph.cmx deb_lib.cmx
+task.cmo:
+task.cmx:
+update.cmo: task.cmo repository.cmi quotient.cmi graph.cmi file.cmi \
+    deb_lib.cmi
+update.cmx: task.cmx repository.cmx quotient.cmx graph.cmx file.cmx \
+    deb_lib.cmx
 util.cmo: util.cmi
 util.cmx: util.cmi
 api.cmi: solver.cmi

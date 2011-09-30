@@ -476,7 +476,8 @@ let normalize_set (l : int list) =
 (****)
 
 type deb_reason =
-    R_conflict of int * int
+    R_conflict
+    of int * int * (int * (string * (rel * version) option) list) option
   | R_depends
     of int * (string * (rel * (int * string * string option)) option) list
 
@@ -488,7 +489,7 @@ module Solver = Solver.F (struct type t = reason type reason = t end)
 
 let print_rules = ref false
 
-let add_conflict st l =
+let add_conflict st confl l =
   let l = normalize_set l in
   if List.length l > 1 then begin
     if !print_rules then begin
@@ -502,7 +503,7 @@ let add_conflict st l =
       for j = i + 1 to len - 1 do
         let p = Solver.lit_of_var a.(i) false in
         let p' = Solver.lit_of_var a.(j) false in
-        Solver.add_rule st [|p; p'|] [R_conflict (a.(i), a.(j))]
+        Solver.add_rule st [|p; p'|] [R_conflict (a.(i), a.(j), confl)]
       done
     done
   end
@@ -557,7 +558,7 @@ let generate_rules pool =
   (* Cannot install two packages with the same name *)
   Hashtbl.iter
     (fun _ l ->
-       add_conflict pr (List.map (fun p -> p.num) !l))
+       add_conflict pr None (List.map (fun p -> p.num) !l))
     pool.packages_by_name;
   Hashtbl.iter
     (fun _ p ->
@@ -578,18 +579,18 @@ let generate_rules pool =
                  (List.map (fun p -> resolve_package_dep pool p) l)))
          p.pre_depends;
        (* Conflicts *)
+       let c = List.map (fun p -> single p) p.conflicts in
        List.iter
-         (fun n -> add_conflict pr [p.num; n])
+         (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
          (normalize_set
              (List.flatten
-                (List.map (fun p -> resolve_package_dep pool (single p))
-                   p.conflicts)));
+                (List.map (fun p -> resolve_package_dep pool p) c)));
+       let c = List.map (fun p -> single p) p.breaks in
        List.iter
-         (fun n -> add_conflict pr [p.num; n])
+         (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
          (normalize_set
              (List.flatten
-                (List.map (fun p -> resolve_package_dep pool (single p))
-                   p.breaks))))
+                (List.map (fun p -> resolve_package_dep pool p) c))))
     pool.packages;
   Common.stop_generate st;
   Solver.propagate pr;
@@ -738,7 +739,7 @@ let show_reasons pool l =
     List.iter
       (fun r ->
          match r with
-           R_conflict (n1, n2) ->
+           R_conflict (n1, n2, _) ->
              Format.printf "  %a conflicts with %a@."
                (print_pack pool) n1 (print_pack pool) n2
          | R_depends (n, l) ->
@@ -749,8 +750,10 @@ let show_reasons pool l =
       l
   end
 
-let conflicts_in_reasons rl = List.fold_left (fun cl -> function R_conflict (i,j) -> (min i j, max i j)::cl | _ -> cl) [] rl
-
+let conflicts_in_reasons rl =
+  List.fold_left
+    (fun cl ->
+       function R_conflict (i,j,_) -> (min i j, max i j)::cl | _ -> cl) [] rl
 
 (****)
 

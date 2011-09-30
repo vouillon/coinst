@@ -1,9 +1,11 @@
 
 type rel
+type version = int * string * string option
 type deb_reason =
-    R_conflict of int * int
+    R_conflict
+    of int * int * (int * (string * (rel * version) option) list) option
   | R_depends
-    of int * (string * (rel * (int * string * string option)) option) list
+    of int * (string * (rel * version) option) list
 
 include Api.S with type reason = deb_reason
 

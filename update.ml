@@ -1,3 +1,25 @@
+(*
+- Consider only the most recent version of each packages
+- Compute problematic packages for all configurations
+- Iterate until there is no problematic packages
+
+- We might miss some configurations (because we generate only
+  non-minimal supersets)
+- Il doit être possible d'aller beaucoup plus vite en ne considérant
+  que des paquets intéressants (en particulier, au-dessus de nouvelles
+  dependences)...
+- Reflattening is quite slow...
+
+*)
+
+let (file1,file2) =
+("snapshots/updates/stable", "snapshots/updates/testing")
+(*
+("snapshots/updates/oldstable", "snapshots/updates/stable")
+("/tmp/last_month", "/tmp/new")
+*)
+
+(****)
 
 let debug = false
 
@@ -6,6 +28,12 @@ module Repository = Repository.F(M)
 open Repository
 module Quotient = Quotient.F (Repository)
 module Graph = Graph.F (Repository)
+
+module IntSet =
+  Set.Make (struct type t = int let compare (x : int) y = compare x y end)
+
+module PSetSet = Set.Make (PSet)
+module PSetMap = Map.Make (PSet)
 
 (****)
 
@@ -118,9 +146,6 @@ and flatten_dep tbl dist deps conflicts visited i =
           flatten_deps tbl dist deps conflicts (i :: visited) (PTbl.get deps i)
         in
         let l = simplify_formula conflicts l in
-(*???
-        let l = filter_conflicts conflicts i l in
-*)
         let r = PSet.remove i r in
         if Conflict.has conflicts i then
           (Formula.conj (Formula.lit i) l, r)
@@ -133,8 +158,13 @@ and flatten_dep tbl dist deps conflicts visited i =
     res
 
 let flatten_dependencies dist deps confl =
+let t=Unix.gettimeofday () in
+let res =
   let tbl = Hashtbl.create 17 in
   PTbl.init dist (fun p -> fst (flatten_dep tbl dist deps confl [] p))
+in
+Format.eprintf "Flatten: %fs@." (Unix.gettimeofday () -. t);
+res
 
 (****)
 
@@ -145,27 +175,6 @@ let remove_redundant_conflicts dist deps confl =
       (fun d s -> match Disj.to_lit d with Some p -> PSet.add p s | None -> s)
       f PSet.empty
   in
-  Conflict.iter confl
-    (fun p1 p2 ->
-       let d1 = conj_deps p1 in
-       let d2 = conj_deps p2 in
-       if
-         PSet.exists
-           (fun q1 ->
-              PSet.exists
-                (fun q2 ->
-                   (p1 <> q1 || p2 <> q2) &&
-                   (p1 <> q2 || p2 <> q1) &&
-                   Conflict.check confl q1 q2)
-                d2)
-           d1
-       then begin
-(*
-         Format.eprintf "%a ## %a@."
-           (Package.print_name dist) p1 (Package.print_name dist) p2;
-*)
-         Conflict.remove confl p1 p2
-       end);
   let try_remove_conflict p1 p2 =
     let f1 = PTbl.get deps p1 in
     let d2 = conj_deps p2 in
@@ -191,23 +200,50 @@ let remove_redundant_conflicts dist deps confl =
     end
   in
   Conflict.iter confl try_remove_conflict;
-  Conflict.iter confl (fun p1 p2 -> try_remove_conflict p2 p1);
-  (* We may now be able to remove some dependencies *)
-  PTbl.map (simplify_formula confl) deps
+  Conflict.iter confl (fun p1 p2 -> try_remove_conflict p2 p1)
 
 (****)
 
-let (file1,file2) =
-("snapshots/updates/stable", "snapshots/updates/testing")
-(*
-("snapshots/updates/oldstable", "snapshots/updates/stable")
-("/tmp/last_month", "/tmp/new")
-*)
+let remove_self_conflicts dist deps confl =
+prerr_endline "RSC";
+  let clearly_broken p f =
+    Formula.exists
+      (fun d ->
+         match Disj.to_lit d with
+           Some q -> Conflict.check confl p q
+         | None   -> false)
+      f
+  in
+  let changed = ref false in
+  let deps =
+    PTbl.mapi
+      (fun p f ->
+         if clearly_broken p f then begin
+Format.printf "self conflict: %a@." (Package.print_name dist) p;
+           changed := true; Formula._false
+         end else
+           f)
+      deps
+  in
+  (deps, !changed)
+
+(****)
 
 let flatten dist deps confl =
+let t = Unix.gettimeofday () in
   let deps = flatten_dependencies dist deps confl in
-  let deps = remove_redundant_conflicts dist deps confl in
-  let deps = flatten_dependencies dist deps confl in
+  let rec remove_conflicts deps =
+(*
+    let (deps, changed) = remove_self_conflicts dist deps confl in*)
+let changed = false in
+    remove_redundant_conflicts dist deps confl;
+    let deps = flatten_dependencies dist deps confl in
+    if changed then
+      remove_conflicts deps
+    else
+      deps
+  in
+  let deps = remove_conflicts deps in
 
   let maybe_remove fd2 p f d =
     Disj.exists (fun q ->
@@ -220,79 +256,51 @@ true)
 *)
 ) d
   in
+  let compositions = ref PSetMap.empty in
   let is_composition fd2 p f d =
-  Formula.exists (fun d' ->
-    not (Disj.equiv d d') && not (Disj.equiv (Disj.lit p) d') &&
-(
-    let f =
-      Disj.fold (fun p f -> Formula.disj (PTbl.get fd2 p) f) d' Formula._false
-    in
-    let res1 =
-      Formula.exists (fun d'' -> Disj.implies d d'') f
-    in
-(*
-    let res2 =
-      not (Formula.implies (Formula.filter (fun d' -> not (Disj.equiv d d')) f) f)
-    in
-    let res =
-    Disj.exists (fun q ->
-      Formula.exists (fun d'' ->
-        Disj.implies d (Disj.cut d' q d'')) (PTbl.get fd2 q)) d'
-    in
-if res1 <> res2 then begin
-Format.eprintf "??? %b %b@." res1 res2
-end;
-*)
-(*
-if res <> res1 then begin
-(*
-Format.eprintf "%a : %a => %a@." (Package.print_name dist) p
-(Disj.print dist) d (Formula.print dist) f;
+    Formula.exists
+      (fun d' ->
+         not (Disj.equiv d d') && not (Disj.equiv (Disj.lit p) d') &&
+         let f' =
+           try
+             PSetMap.find (Disj.to_lits d') !compositions
+           with Not_found ->
+             let f' =
+               Disj.fold (fun p f -> Formula.disj (PTbl.get fd2 p) f)
+                 d' Formula._false
+             in
+             compositions := PSetMap.add (Disj.to_lits d') f' !compositions;
+             f'
+         in
+         Formula.exists (fun d'' -> Disj.implies d d'') f')
+      f
+  in
 
-Disj.iter d' (fun q ->
-  if not (Formula.exists (fun d'' -> Disj.equiv (Disj.lit q) d'') (PTbl.get fd2 q)) then
-    Format.eprintf "!!! %a => %a@." (Package.print_name dist) q (Formula.print dist) (PTbl.get fd2 q);
-  Formula.iter (PTbl.get fd2 q) (fun d'' ->
-     if Disj.implies d (Disj.cut d' q d'')
-     then Format.eprintf "%a <= %a / %a / %a@." (Disj.print dist) d (Disj.print dist) d' (Package.print_name dist) q (Disj.print dist) d''
-));
-*)
-
-Format.eprintf "!!! %b %b %b@." res res1 res2
-end;
-*)
-res1
-)
-) f
-in
-
-(*
-PTbl.iteri (fun p f ->
-Formula.iter f (fun d -> if Conflict.exists confl (fun q -> Disj.implies1 q d) p then Format.eprintf "YYY %a ==> %a@." (Package.print_name dist) p (Disj.print dist) d
-)) fd2;
-*)
-
+prerr_endline "---vvv";
   let rec remove_deps deps =
+prerr_endline "------";
     let changed = ref false in
+    compositions := PSetMap.empty;
     let deps =
       PTbl.mapi
         (fun p f ->
            Formula.filter (fun d ->
-             let b =
-               not (maybe_remove deps p f d) || is_composition deps p f d
+(*if maybe_remove deps p f d then Format.printf ">>>> %a@." (Formula.print dist) f;*)
+             let remove =
+               maybe_remove deps p f d && not (is_composition deps p f d)
              in
-             if not b then changed := true;
-             b) f)
+             if remove then changed := true;
+             not remove) f)
         deps
     in
     if !changed then remove_deps deps else deps
   in
 
   let deps = remove_deps deps in
+prerr_endline "---^^^";
 
+Format.eprintf "Flattening: %fs@." (Unix.gettimeofday () -. t);
   (deps, confl)
-
-
 
 (****)
 
@@ -335,11 +343,6 @@ let new_deps pred deps1 dist2 deps2 =
     pred
 
 (****)
-
-module IntSet =
-  Set.Make (struct type t = int let compare (x : int) y = compare x y end)
-
-module PSetSet = Set.Make (PSet)
 
 type st =
   { dist : M.pool; deps : Formula.t PTbl.t; confl : Conflict.t;
@@ -570,8 +573,15 @@ let output_conflicts filename dist2 results =
 (****)
 
 let _ =
-let (dist1, deps1, confl1) = read_data [] (open_in file1) in
-let (dist2, deps2, confl2) = read_data [] (open_in file2) in
+let (file1, file2) =
+  if Array.length Sys.argv >= 3 then (Sys.argv.(1), Sys.argv.(2)) else
+  (file1, file2)
+in
+let (dist1, deps1, confl1) = read_data [] (File.open_in file1) in
+let (dist2, deps2, confl2) = read_data [] (File.open_in file2) in
+
+Format.eprintf "%d@." (String.length (Marshal.to_string (dist1, deps1, confl1) []));
+Format.eprintf "%d@." (String.length (Marshal.to_string (dist2, deps2, confl2) []));
 
 let pred =
   PTbl.init dist2
@@ -596,46 +606,87 @@ Conflict.iter confl2
        let p1 = Package.of_index i in
        let q1 = Package.of_index j in
        if not (Conflict.check confl1 p1 q1) then begin
-if debug then begin
+if true (*debug*) then begin
          Format.printf "possible new conflict: %a %a@."
            (Package.print_name dist1) p1
            (Package.print_name dist1) q1;
 end;
          new_conflicts := (p2, q2) :: !new_conflicts;
+(*XXXXX????
          Conflict.remove confl2 p2 q2
+*)
        end
      end);
 
+Format.eprintf "%d@." (String.length (Marshal.to_string (fun () -> flatten dist1 deps1 confl1) [Marshal.Closures]));
+
 let (deps1', confl1) = flatten dist1 deps1 confl1 in
+Format.eprintf "%d@." (String.length (Marshal.to_string (deps1', confl1) []));
 let (deps2', confl2) = flatten dist2 deps2 confl2 in
+Format.eprintf "%d@." (String.length (Marshal.to_string (deps2', confl2) []));
 let st1 = generate_rules (Quotient.trivial dist1) deps1' confl1 in
 let st2 = generate_rules (Quotient.trivial dist2) deps2' confl2 in
 let st2init = M.generate_rules dist2 in
 
 let results = ref PSetSet.empty in
+let add_result s =
+  if not (PSetSet.mem s !results) then begin
+Format.printf "==>";
+PSet.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
+Format.printf "@.";
+    results := PSetSet.add s !results
+  end
+in
 
+let is_installable p =
+  let res = M.Solver.solve st2 (Package.index p) in
+  M.Solver.reset st2;
+  res
+and was_installable p =
+  let res = M.Solver.solve st1 (PTbl.get pred p) in
+  M.Solver.reset st1;
+  res
+in
+(*
+(* Clearly non installable packages *)
+PTbl.iteri
+  (fun p f ->
+     if
+       PTbl.get pred p <> -1 &&
+       Formula.implies f Formula._false && was_installable p
+     then
+       add_result (PSet.singleton p))
+  deps2';
+*)
+(* New conflict pairs *)
 List.iter
   (fun (p2, q2) ->
-    let i = PTbl.get pred p2 in
-    let j = PTbl.get pred q2 in
-    let p1 = Package.of_index i in
-    let q1 = Package.of_index j in
-    if M.Solver.solve_lst st1 [i; j] then begin
+     let pi = is_installable p2 in
+     let qi = is_installable q2 in
+     if not pi && was_installable p2 then add_result (PSet.singleton p2);
+     if not qi && was_installable q2 then add_result (PSet.singleton q2);
+     if pi && qi then begin
+       let i = PTbl.get pred p2 in
+       let j = PTbl.get pred q2 in
+       let p1 = Package.of_index i in
+       let q1 = Package.of_index j in
+       if M.Solver.solve_lst st1 [i; j] then begin
 if debug then begin
-      Format.printf "new conflict: %a %a@."
-        (Package.print_name dist1) p1
-        (Package.print_name dist1) q1;
+         Format.printf "new conflict: %a %a@."
+           (Package.print_name dist1) p1
+           (Package.print_name dist1) q1;
 end;
-      results := PSetSet.add (PSet.add p2 (PSet.add q2 PSet.empty)) !results
-    end else begin
+         add_result (PSet.add p2 (PSet.add q2 PSet.empty))
+       end else begin
 if debug then begin
-      Format.printf "NOT new conflict: %a %a@."
-        (Package.print_name dist1) p1
-        (Package.print_name dist1) q1;
-      M.show_reasons dist1 (M.Solver.collect_reasons_lst st1 [i; j])
+         Format.printf "NOT new conflict: %a %a@."
+           (Package.print_name dist1) p1
+           (Package.print_name dist1) q1;
+         M.show_reasons dist1 (M.Solver.collect_reasons_lst st1 [i; j])
 end
-    end;
-    M.Solver.reset st1)
+       end;
+       M.Solver.reset st1
+     end)
   !new_conflicts;
 
 (* Only consider new dependencies. *)
@@ -660,6 +711,9 @@ let deps2 =
   PTbl.mapi
     (fun p f ->
        let f' = PTbl.get deps2' p in
+let nm = M.package_name dist2 (Package.index p) in
+if nm = "libffi-ruby" then
+Format.printf "%a ==> %a / %a@." (Package.print_name dist2) p (Formula.print dist2) f (Formula.print dist2) f';
        Formula.filter
          (fun d ->
             Formula.exists (fun d' -> Disj.equiv d d') f') f)
@@ -702,7 +756,6 @@ let deps2 =
     deps2
 in
 
-
 let check s =
   let now_installable s =
     let res =
@@ -739,10 +792,7 @@ List.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) l;
 Format.printf "@.";
 end;
     end else begin
-Format.printf "==>";
-List.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) l;
-Format.printf "@.";
-      results := PSetSet.add s !results
+      add_result s
     end;
     false
   end
@@ -750,6 +800,7 @@ in
 find_problems dist2 deps2 confl2 check;
 
 (****)
+Format.eprintf "Outputting results...@.";
 
 let ch = open_out "/tmp/index.html" in
 let f = Format.formatter_of_out_channel ch in
@@ -762,6 +813,10 @@ ignore
 Format.fprintf f "<h2>The graph of new conflicts</h2>@.";
 Format.fprintf f
   "<p><object data=\"conflicts.svg\" type=\"image/svg+xml\"></object></p>@.";
+
+(****)
+let t = Unix.gettimeofday () in
+Format.printf "Preparing explanations...@.";
 
 let all_pkgs = ref PSet.empty in
 let all_conflicts = Conflict.create dist2 in
@@ -790,7 +845,7 @@ let graphs =
        List.iter
          (fun r ->
             match r with
-              M.R_conflict (n1, n2) ->
+              M.R_conflict (n1, n2, _) ->
                 Conflict.add confl (package n1) (package n2);
                 Conflict.add all_conflicts (package n1) (package n2)
             | M.R_depends (n, l) ->
@@ -809,7 +864,7 @@ let graphs =
                      (Formula.of_disj (Disj.lit_disj l))))
          r;
        all_pkgs := PSet.union !all_pkgs !pkgs;
-       (s, nm, !pkgs, deps, confl))
+       (s, nm, !pkgs, deps, confl, r))
     (PSetSet.elements !results)
 in
 
@@ -862,19 +917,27 @@ List.iter
   partition;
 let graphs =
   List.filter
-    (fun (s, _, _, _, _) -> PSet.for_all (fun p -> Hashtbl.find repr p = p) s)
+    (fun (s, _, _, _, _, _) ->
+       PSet.for_all
+         (fun p -> try Hashtbl.find repr p = p with Not_found -> false) s)
     graphs
 in
+Format.printf "Preparing explanations... %fs@." (Unix.gettimeofday () -. t);
 
+let t = Unix.gettimeofday () in
+Format.printf "Generating explanations...@.";
 Format.fprintf f "<h2>Explanations of conflicts</h2>@.";
 List.iter
-  (fun (s, nm, pkgs, deps, confl) ->
+  (fun (s, nm, pkgs, deps, confl, reasons) ->
+Format.eprintf ">>>>";
+PSet.iter (fun p -> Format.eprintf " %a" (Package.print dist2) p) s;
+Format.eprintf "@.";
+(*Task.async (fun () ->*)
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
      let basename = "/tmp/" ^ nm in
      let edge_color p2 _ d2 =
-Format.printf "%a:@."(Package.print dist2) p2;
        let i1 = PTbl.get pred p2 in
        let is_new =
          i1 <> -1 &&
@@ -886,9 +949,6 @@ Format.printf "%a:@."(Package.print dist2) p2;
                 Disj.disj (Disj.lit (Package.of_index i)) d2)
              d2 Disj._false
          in
-Format.printf "  %a / %a@."
-(Formula.print dist1) (PTbl.get deps1 (Package.of_index i1))
-(Disj.print dist1) d1;
          not (Formula.implies1 (PTbl.get deps1 (Package.of_index i1)) d1)
        in
        if is_new then
@@ -896,10 +956,23 @@ Format.printf "  %a / %a@."
        else
          Some "blue"
      in
-    Graph.output (basename ^ ".dot")
-       ~options:["rankdir=LR;"; "node[fontsize=8];"; "node[margin=0,0];"; "node[height=0.2];"]
+     let package_weight p =
+       let i = PTbl.get pred p in
+       if i = -1 then 2. else begin
+         let name dist p =
+           let b = Buffer.create 16 in
+           Format.fprintf (Format.formatter_of_buffer b) "%a@?"
+             (Package.print dist) p;
+           Buffer.contents b
+         in
+         if name dist2 p = name dist1 (Package.of_index i) then 1. else 10.
+       end
+     in
+     Graph.output (basename ^ ".dot")
+       ~options:["rankdir=LR;"; "node[fontsize=8];"; "node[margin=\"0.05,0\"];"; "node[height=0.2];"]
        ~edge_color
-       ~package_weight:(fun p -> if PSet.mem p s then 10. else 1.)
+       ~package_weight
+       ~package_emph:(fun p -> PSet.mem p s)
        ~mark_all:true quotient deps confl;
 (*
      ignore
@@ -911,9 +984,94 @@ Format.printf "  %a / %a@."
        (Sys.command
           (Format.sprintf "dot %s.dot -Tsvg -o %s.svg" basename basename));
      Format.fprintf f
-       "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>@." nm)
-  graphs;
+       "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>@." nm;
+     List.iter
+       (fun r ->
+          match r with
+            M.R_depends (n, l) ->
+              let p = Package.of_index n in
+              let resolve_dep dist l =
+                Disj.lit_disj
+                  (List.map Package.of_index
+                     (List.flatten (List.map (M.resolve_package_dep dist) l)))
+              in
+              let d1 = resolve_dep dist1 l in
+              let d2 = resolve_dep dist2 l in
+              let s2 =
+                Disj.fold
+                  (fun p s ->
+                     let i = PTbl.get pred p in
+                     if i = -1 then s else PSet.add (Package.of_index i) s)
+                  d2 PSet.empty
+              in
+              let delta = PSet.diff (Disj.to_lits d1) s2 in
+              let is_new d =
+                let i1 = PTbl.get pred p in
+                i1 <> -1 &&
+                not (Formula.implies1
+                       (PTbl.get deps1 (Package.of_index i1)) d)
+              in
+(*
+Format.eprintf "%a: %a / %a / %a@." (Package.print_name dist2) p
+  (Disj.print dist1) d1 (Disj.print dist2) d2 (Disj.print dist1) (Disj.lit_disj (PSet.elements delta));
+*)
+              if is_new (Disj.lit_disj (PSet.elements s2)) then begin
+                if is_new d1 then
+                  Format.fprintf f "<p>Should not upgrade: %a</p>@."
+                    (Package.print_name dist2) p;
+                if not (PSet.is_empty delta) then begin
+                  Format.fprintf f "<p>Should not upgrade: ";
+                  PSet.iter
+                    (fun p ->
+                       Format.fprintf f " %a" (Package.print_name dist1) p)
+                    delta;
+                  Format.fprintf f "</p>@."
+                end
+              end
+          | M.R_conflict (i2, j2, Some (k2, l)) ->
+              let p2 = Package.of_index i2 in
+              let q2 = Package.of_index j2 in
+              let i1 = PTbl.get pred p2 in
+              let j1 = PTbl.get pred q2 in
+              if
+                i1 <> -1 && j1 <> -1 &&
+                not (Conflict.check confl1
+                       (Package.of_index i1) (Package.of_index j1))
+              then begin
+                (* If the conflict did already exist, we should not upgrade k;
+                   otherwise, we should not upgrade l *)
+                let confls =
+                  List.flatten (List.map (M.resolve_package_dep dist1) l) in
+                let p = (min i1 j1, max i1 j1) in
+                let k1 = PTbl.get pred (Package.of_index k2) in
+ Format.eprintf "(%a#%a) %a #"
+(Package.print dist2) (Package.of_index i2)
+(Package.print dist2) (Package.of_index j2)
+(Package.print dist1) (Package.of_index k1);
+List.iter (fun p -> Format.eprintf " %a" (Package.print
+ dist1) (Package.of_index p)) confls;
+Format.eprintf "@.";
+                if
+                  List.exists (fun k1' -> p = (min k1 k1', max k1 k1')) confls
+                then begin
+                  Format.fprintf f "<p>Should not upgrade: %a</p>@."
+                    (Package.print_name dist1) (Package.of_index k1);
+                end else begin
+                  let k1' = if i1 = k1 then j1 else i1 in
+                  Format.fprintf f "<p>Should not upgrade: %a</p>@."
+                    (Package.print_name dist1) (Package.of_index  k1')
+                end
+              end
+          | M.R_conflict (_, _, None) ->
+              ())
+       reasons)
+
+  (List.sort
+     (fun (s, _, _, _, _, _) (s', _, _, _, _, _) ->
+        - compare (PSet.cardinal s) (PSet.cardinal s'))
+     graphs);
 close_out ch;
+Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t);
 
 (****)
 

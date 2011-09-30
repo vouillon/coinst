@@ -12,6 +12,7 @@ module Conflicts = Conflicts.F (R)
 let output
       ?options
       ?package_weight
+      ?package_emph
       ?(edge_color = fun _ _ _ -> Some "blue")
       file ?(mark_all = false) ?(roots = [])
       quotient deps confl =
@@ -19,6 +20,11 @@ let output
     match package_weight with
       Some f -> f
     | None   -> fun p -> float (Quotient.class_size quotient p)
+  in
+  let package_emph =
+    match package_emph with
+      Some f -> f
+    | None   -> fun p -> false
   in
 
   let confl_style = if colored then ",color=red" else ",style=dashed" in
@@ -178,11 +184,13 @@ let output
        let dep = PTbl.get deps i in
        if marked i then begin
          let n = package_weight i in
+         let em = package_emph i in
          Format.fprintf f
            "%d [label=\"%a\",style=\"filled\",\
-            fillcolor=\"0.0,%f,1.0\"];@."
+            fillcolor=\"0.0,%f,1.0\"%s];@."
            (Package.index i) (Quotient.print_class quotient) i
-           (min 1. (log n /. log 1000.));
+           (min 1. (log n /. log 1000.))
+           (if em then ",penwidth=1.7" else "");
          Formula.iter dep (fun s -> add_dep i dep s)
        end)
     quotient;
