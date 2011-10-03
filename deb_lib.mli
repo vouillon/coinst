@@ -13,3 +13,7 @@ val package_name : pool -> int -> string
 
 val resolve_package_dep :
   pool -> string * (rel * (int * string * string option)) option -> int list
+
+val only_latest : pool -> pool
+
+val merge : pool -> (int -> bool) -> pool -> unit

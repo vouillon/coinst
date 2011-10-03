@@ -32,7 +32,7 @@ module type S = sig
 
   module type DISJ = sig
     type t
-    val print : pool -> Format.formatter -> t -> unit
+    val print : ?compact:bool -> pool -> Format.formatter -> t -> unit
     val implies : t -> t -> bool
     val equiv : t -> t -> bool
     val lit : Package.t -> t
@@ -127,7 +127,7 @@ module F (M : Api.S) = struct
 
   module type DISJ = sig
     type t
-    val print : M.pool -> Format.formatter -> t -> unit
+    val print : ?compact:bool -> pool -> Format.formatter -> t -> unit
     val implies : t -> t -> bool
     val equiv : t -> t -> bool
     val lit : Package.t -> t
@@ -139,9 +139,13 @@ module F (M : Api.S) = struct
 
   module Disj  = struct
     type t = PSet.t
-    let print pool ch l =
-      if PSet.is_empty l then Format.fprintf ch "MISSING"
-      else print_set ch (Package.print pool) " | " l
+    let print ?(compact=false) pool ch l =
+      if PSet.is_empty l then
+        Format.fprintf ch "MISSING"
+      else
+        print_set ch
+          (if compact then Package.print_name pool else Package.print pool)
+          " | " l
     let implies = PSet.subset
     let equiv = PSet.equal
     let lit = PSet.singleton
@@ -165,7 +169,7 @@ module F (M : Api.S) = struct
 
   module Formula  = struct
     type t = Disj.t list
-    let print pool ch = print_list ch (Disj.print pool) ", "
+    let print ?compact pool ch = print_list ch (Disj.print ?compact pool) ", "
 
     let of_disj d = [d]
     let lit p = of_disj (Disj.lit p)

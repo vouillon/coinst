@@ -314,6 +314,19 @@ let add_to_package_list h n p =
 
 let get_package_list h n = try !(Hashtbl.find h n) with Not_found -> []
 
+let insert_package pool p =
+  pool.size <- pool.size + 1;
+  Hashtbl.add pool.packages (p.package, p.version) p;
+  Hashtbl.add pool.packages_by_num p.num p;
+  add_to_package_list pool.packages_by_name p.package p;
+  add_to_package_list pool.provided_packages p.package p;
+  List.iter
+    (fun l ->
+       match l with
+         [(n, None)] -> add_to_package_list pool.provided_packages n p
+       | _           -> assert false)
+    p.provides
+
 let rec parse_packages_rec ignored_packages pool st i =
   match parse_paragraph i with
     None -> ()
@@ -326,20 +339,7 @@ let rec parse_packages_rec ignored_packages pool st i =
         not (Hashtbl.mem pool.packages (p.package, p.version))
       then begin
         p.num <- pool.size;
-        pool.size <- pool.size + 1;
-(*
-Format.eprintf "%s %a@." p.package print_version p.version;
-*)
-        Hashtbl.add pool.packages (p.package, p.version) p;
-        Hashtbl.add pool.packages_by_num p.num p;
-        add_to_package_list pool.packages_by_name p.package p;
-        add_to_package_list pool.provided_packages p.package p;
-        List.iter
-          (fun l ->
-             match l with
-               [(n, None)] -> add_to_package_list pool.provided_packages n p
-             | _           -> assert false)
-          p.provides
+        insert_package pool p
       end;
       parse_packages_rec ignored_packages pool st i
 
@@ -791,3 +791,30 @@ let compute_deps dist =
 (****)
 
 let pool_size p = p.size
+
+(****)
+
+(*
+type pool =
+  { mutable size : int;
+    packages : (string * version, p) Hashtbl.t;
+    packages_by_name : (string, p list ref) Hashtbl.t;
+    packages_by_num : (int, p) Hashtbl.t;
+    provided_packages : (string, p list ref) Hashtbl.t }
+*)
+
+let only_latest pool' =
+  let pool = new_pool () in
+  Hashtbl.iter
+    (fun _ {contents = l} ->
+       let l =
+         List.sort (fun p1 p2 -> - compare_version p1.version p2.version) l in
+       insert_package pool {(List.hd l) with num = pool.size})
+    pool'.packages_by_name;
+  pool
+
+let merge pool filter pool' =
+  Hashtbl.iter
+    (fun _ p ->
+       if filter p.num then insert_package pool {p with num = pool.size})
+    pool'.packages

@@ -28,7 +28,7 @@ module type S = sig
 
   module type DISJ = sig
     type t
-    val print : pool -> Format.formatter -> t -> unit
+    val print : ?compact:bool -> pool -> Format.formatter -> t -> unit
     val implies : t -> t -> bool
     val equiv : t -> t -> bool
     val lit : Package.t -> t
