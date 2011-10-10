@@ -29,6 +29,11 @@ let start_from_channel ch =
 
 (****)
 
+type version = int * string * string option
+let dummy_version = (-1, "", None)
+
+(****)
+
 let is_blank i = not (eof i) && cur i = ""
 
 let skip_blank_lines i =
@@ -101,9 +106,15 @@ let check_package_name s =
       failwith (Format.sprintf "Bad package name '%s'@." s)
   end
 
+let names = Hashtbl.create 1013
+
 let parse_package s =
-  check_package_name s;
-  s
+  try
+    Hashtbl.find names s
+  with Not_found ->
+    check_package_name s;
+    Hashtbl.add names s s;
+    s
 
 let strict_version_re_1 =
   Str.regexp
@@ -140,8 +151,15 @@ let split_version s =
     (epoch, upstream_version, debian_revision)
   end
 
+let versions = Hashtbl.create 1001
+
 let parse_version s =
-  split_version s
+  try
+    Hashtbl.find versions s
+  with Not_found ->
+    let res = split_version s in
+    Hashtbl.add versions s res;
+    res
 
 (* May need to accept package name containing "_" *)
 let token_re =
@@ -172,7 +190,7 @@ type rel = SE | E | EQ | L | SL
 
 let parse_package_dep f vers s =
   let name = cur s in
-  check_package_name name;
+  let name = parse_package name in
   next s;
   if not (eof s) && cur s = "(" then begin
     if not vers then
@@ -188,7 +206,7 @@ let parse_package_dep f vers s =
       | _          -> failwith (Format.sprintf "Bad relation '%s'" (cur s))
     in
     next s;
-    let version = split_version (cur s) in
+    let version = parse_version (cur s) in
     next s;
     expect s ")";
     (name, Some (comp, version))
@@ -226,12 +244,27 @@ let parse_rel f vers disj s =
   let s = start_token_stream s in
   parse_package_conj f vers disj s
 
-type version = int * string * string option
+let parse_package_source s =
+  let s = start_token_stream s in
+  let name = cur s in
+  let name = parse_package name in
+  next s;
+  if not (eof s) && cur s = "(" then begin
+    next s;
+    let version = parse_version (cur s) in
+    next s;
+    expect s ")";
+    assert (eof s);
+    (name, version)
+  end else
+    (name, dummy_version)
+
 type dep = (string * (rel * version) option) list list
 type p =
   { mutable num : int;
     mutable package : string;
     mutable version : version;
+    mutable source : string * version;
     mutable depends : dep;
     mutable recommends : dep;
     mutable suggests : dep;
@@ -241,7 +274,6 @@ type p =
     mutable conflicts : dep;
     mutable breaks : dep;
     mutable replaces : dep }
-let dummy_version = (-1, "", None)
 
 let print_version ch v =
   let (epoch, upstream_version, debian_revision) = v in
@@ -254,6 +286,7 @@ let print_version ch v =
 let parse_fields p =
   let q =
     { num = 0; package = " "; version = dummy_version;
+      source = (" ", dummy_version);
       depends = []; recommends = []; suggests = []; enhances = [];
       pre_depends = []; provides = []; conflicts = []; breaks = [];
       replaces = [] }
@@ -263,6 +296,7 @@ let parse_fields p =
        match f with
          "Package"     -> q.package <- parse_package (single_line f l)
        | "Version"     -> q.version <- parse_version (single_line f l)
+       | "Source"      -> q.source <- parse_package_source (single_line f l)
        | "Depends"     -> q.depends <- parse_rel f true true (single_line f l)
        | "Recommends"  -> q.recommends <-
                               parse_rel f true true (single_line f l)
@@ -282,16 +316,20 @@ let parse_fields p =
        | _         -> ())
     p;
   assert (q.package <> " "); assert (q.version <> dummy_version);
+  if fst q.source = " " then q.source <- (q.package, q.version);
+  if snd q.source = dummy_version then q.source <- (fst q.source, q.version);
   q
 
 (****)
 
-type pool =
+type deb_pool =
   { mutable size : int;
     packages : (string * version, p) Hashtbl.t;
     packages_by_name : (string, p list ref) Hashtbl.t;
     packages_by_num : (int, p) Hashtbl.t;
     provided_packages : (string, p list ref) Hashtbl.t }
+
+type pool = deb_pool
 
 let new_pool () =
   { size = 0;
@@ -347,6 +385,36 @@ let parse_packages pool ignored_packages ch =
   let i = start_from_channel ch in
   let st = Common.start_parsing true ch in
   parse_packages_rec ignored_packages pool st i;
+  Common.stop_parsing st
+
+(****)
+
+let parse_src_fields p =
+  let name = ref " " in
+  let version = ref dummy_version in
+  List.iter
+    (fun (f, l) ->
+       match f with
+         "Package"     -> name := parse_package (single_line f l)
+       | "Version"     -> version := parse_version (single_line f l)
+       | _         -> ())
+    p;
+  assert (!name <> " "); assert (!version <> dummy_version);
+  (!name, !version)
+
+let rec parse_src_packages_rec pool st i =
+  match parse_paragraph i with
+    None -> ()
+  | Some p ->
+      Common.parsing_tick st;
+      let (name, version) = parse_src_fields p in
+      Hashtbl.add pool name version;
+      parse_src_packages_rec pool st i
+
+let parse_src_packages pool ch =
+  let i = start_from_channel ch in
+  let st = Common.start_parsing true ch in
+  parse_src_packages_rec pool st i;
   Common.stop_parsing st
 
 (****)
@@ -818,3 +886,22 @@ let merge pool filter pool' =
     (fun _ p ->
        if filter p.num then insert_package pool {p with num = pool.size})
     pool'.packages
+
+let merge2 pool filter pool' =
+  Hashtbl.iter
+    (fun _ p -> if filter p then insert_package pool {p with num = pool.size})
+    pool'.packages
+
+let add_package pool p = insert_package pool {p with num = pool.size}
+
+let src_only_latest h =
+  let h' = Hashtbl.create 101 in
+  Hashtbl.iter
+    (fun nm v ->
+       try
+         let v' = Hashtbl.find h' nm in
+         if compare_version v v' > 0 then Hashtbl.replace h' nm v
+       with Not_found ->
+         Hashtbl.add h' nm v)
+    h;
+  h'
