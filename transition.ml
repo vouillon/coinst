@@ -1,23 +1,44 @@
 (*
+- also take hints files as input
+
+- generate hints
+   > One can't specify binary packages. The syntax
+   > "source-package/arch/source-version" is used for migrating
+   > binNMUs and roughly translates as "the set of binaries built from
+   > (source) version <source-version> of <source-package> on <arch>".
+
+- Cannot we focus on just some relevant subrepositories?
+  ===> any package changed between testing and unstable,
+       all packages they depend on, and their immediate conflicts,
+       all packages that depend directly on them
+
+- Fixes:
+  ==> what about removal and bugs?
+  ==> make sure each bug is associated to an existing package
+  ==> check age comparison (off by one or not?)
+  ==> age and new packages?
+  ==> Do not propagate empty source files
+
 - Improved analysis of new packages: consider not upgrading some packages
   if this breaks a new package.
-
-XXX Generic solver
-- Do not propagate empty source files
+- Check : do not downgrade any package (source + bin)
+- Generic solver
 - Different policies: conservative, greedy
   (behavior when disjunction: skip all/one)
 - Option to not remove any package (for proposed updates?)
 
 - More constraints?
-  ==> propagate all bins or none, per architecture.
-  ==> block on some architectures
-  ==> not up to date on some architecture blocks other architectures?
+  ==> all release architectures are in sync
 *)
 
 let dir = Filename.concat (Sys.getenv "HOME") "debian-dists"
 let archs = ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
 let sects = ["main"; "contrib"; "non-free"]
 let ext = ".bz2"
+
+(****)
+
+let atomic = true
 
 (****)
 
@@ -74,7 +95,7 @@ module StringSet = Upgrade_common.StringSet
 
 let _ =
 Gc.set {(Gc.get ())
-        with (*Gc.space_overhead = 20; *)Gc.max_overhead = 1000000}
+        with Gc.space_overhead = 300; Gc.max_overhead = 1000000}
 
 (****)
 
@@ -187,7 +208,7 @@ type reason =
   | Conflict
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated of (string * M.version)
-  | Binary_not_propagated of (string * M.version) * string
+  | Binary_not_propagated of ((string * M.version) * string)
 
 let print_reason f reason =
   match reason with
@@ -280,23 +301,60 @@ let check_binaries suite src bin_of_source =
        end)
     src
 
-(*
-If a bin package is removed from testing, its source must go as well.
-If a bin package is added in testing, its source must be added as well.
-*)
+(****)
+
+let source_version src nm =
+  try Some (Hashtbl.find src nm) with Not_found -> None
+let same_source_version t u nm =
+  match source_version t nm, source_version u nm with
+    None, None      -> true
+  | Some v, Some v' -> M.compare_version v v' = 0
+  | _               -> false
+let bin_version dist nm =
+  try
+    Some (List.hd !(Hashtbl.find dist.M.packages_by_name nm)).M.version
+  with Not_found ->
+    None
+let same_bin_version t u nm =
+  match bin_version t nm, bin_version u nm with
+    None, None      -> true
+  | Some v, Some v' -> M.compare_version v v' = 0
+  | _               -> false
 
 (****)
 
-let predecessors dist1 dist2 =
-  let succ = PTbl.create dist1 (-1) in
-  PTbl.init dist2
-    (fun p2 ->
-       let nm = M.package_name dist2 (Package.index p2) in
-       match M.parse_package_name dist1 nm with
-         []   -> -1
-       | [p1] -> PTbl.set succ (Package.of_index p1) (Package.index p2); p1
-       | _    -> assert false),
-  succ
+let stats l =
+  let n = ref 0 in
+  List.iter
+    (fun (arch, t', u') ->
+       let s = ref StringSet.empty in
+       let consider_package _ p =
+         let nm = p.M.package in
+         if
+           not (same_bin_version t' u' nm ||
+                Hashtbl.mem unchanged (nm, arch))
+         then begin
+           if not (StringSet.mem nm !s) then begin
+(*
+             let pr_vers dist f nm =
+               match bin_version dist nm with
+                   None -> Format.fprintf f "ABSENT"
+                 | Some v -> M.print_version f v
+             in
+             Format.printf "Change: %s %a -> %a@."
+               nm (pr_vers t') nm (pr_vers u') nm
+*)
+           end;
+           s := StringSet.add nm !s
+         end
+       in
+       Hashtbl.iter consider_package t'.M.packages_by_num;
+       Hashtbl.iter consider_package u'.M.packages_by_num;
+       n := !n + StringSet.cardinal !s)
+    l;
+  Format.eprintf "Maybe changed: %d@." !n
+
+(****)
 
 let f() =
   let (dates, urgencies, testing_bugs, unstable_bugs) = read_extra_info () in
@@ -327,32 +385,6 @@ let f() =
       (load_src_packages "testing", load_src_packages "unstable"))
   in
 
-(*
-  let bin_of_source_testing = Hashtbl.create 101 in
-  let bin_of_source_unstable = Hashtbl.create 101 in
-*)
-
-  let source_version src nm =
-    try Some (Hashtbl.find src nm) with Not_found -> None
-  in
-  let same_source_version t u nm =
-    match source_version t nm, source_version u nm with
-      None, None      -> true
-    | Some v, Some v' -> M.compare_version v v' = 0
-    | _               -> false
-  in      
-  let bin_version dist nm =
-    try
-      Some (List.hd !(Hashtbl.find dist.M.packages_by_name nm)).M.version
-    with Not_found ->
-      None
-  in
-  let same_bin_version t u nm =
-    match bin_version t nm, bin_version u nm with
-      None, None      -> true
-    | Some v, Some v' -> M.compare_version v v' = 0
-    | _               -> false
-  in
   let old_enough src =
     let d = try Hashtbl.find dates src with Not_found -> now in
     let u = try Hashtbl.find urgencies src with Not_found -> 10 in
@@ -401,9 +433,13 @@ let f() =
                 no_change pkg More_bugs;
               (* We cannot add a binary package without also adding
                  its source. *)
-              if not (same_source_version t u (fst p.M.source)) then
+              if not (same_source_version t u (fst p.M.source)) then begin
                 associates pkg (p.M.source, "source")
-                  (Source_not_propagated p.M.source)
+                  (Source_not_propagated p.M.source);
+              if atomic then
+                associates (p.M.source, "source") pkg
+                  (Binary_not_propagated pkg);
+              end
             end)
          u'.M.packages_by_num;
        Hashtbl.iter
@@ -414,43 +450,16 @@ let f() =
               associates
                 (p.M.source, "source") ((p.M.package, p.M.version), arch)
                 (Binary_not_propagated ((p.M.package, p.M.version), arch)))
-         t'.M.packages_by_num;
-(*
-       check_sources "testing" arch t t' bin_of_source_testing;
-       check_sources "unstable" arch u u' bin_of_source_unstable
-*)
-    )
+         t'.M.packages_by_num)
     l;
-(*
-  check_binaries "testing" t bin_of_source_testing;
-  check_binaries "unstable" u bin_of_source_unstable
-*)
+
+  stats l;
 
   while
     let changed = ref false in
     List.iter
       (fun (arch, t', u') ->
          Format.printf "==================== %s@." arch;
-(*
-         let t'' = M.new_pool () in
-         M.merge2 t'' (fun _ -> true) t';
-         Hashtbl.iter
-           (fun _ p ->
-              if
-                not (Hashtbl.mem t'.M.packages_by_name p.M.package)
-                  &&
-                not (Hashtbl.mem unchanged (p.M.package, arch))
-              then begin
-                M.add_package t''
-                  { M.num = 0; package = p.M.package; version = p.M.version;
-                    source = p.M.source;
-                    depends = []; recommends = []; suggests = [];
-                    enhances = []; pre_depends = []; provides = [];
-                    conflicts = []; breaks = []; replaces = [] }
-              end)
-           u'.M.packages_by_num;
-         let t' = t'' in
-*)
          while
            let s =
              Upgrade_common.find_problematic_packages
@@ -474,6 +483,7 @@ let f() =
            non_empty
          do () done)
       l;
+stats l;
     !changed
   do () done;
 

@@ -1,264 +1,137 @@
 
-type t =
-  { mutable next : unit -> string;
-    mutable cur : string;
-    mutable eof : bool }
+let len = 4096
+type st =
+  { buf : string;
+    mutable pos : int;
+    mutable last : int;
+    mutable start : int;
+    mutable eof : bool;
+    input : string -> int -> int -> int }
 
-let eof i = i.eof
 
-let cur i =
-  assert (not i.eof);
-  i.cur
+let at_eof st = st.eof
 
-let parse_error i =
-  failwith "Parse error"
+let start_token st = st.start <- st.pos
 
-let next i =
-  assert (not i.eof);
-  try
-    i.cur <- i.next ()
-  with End_of_file ->
-    i.eof <- true
+let get_token st ofs =
+  let t = String.sub st.buf st.start (st.pos - st.start - ofs) in
+  st.start <- -1;
+  t
 
-let start_from_fun f =
-  let res = { next = f; cur = ""; eof = false } in
-  next res; res
+let from_channel ch =
+  let buf = String.create len in
+  { buf = buf; pos = 0; last = 0; eof = false; start = -1;
+    input = fun buf pos len -> input ch buf pos len }
 
-let start_from_channel ch =
-  start_from_fun (fun () -> input_line ch)
+let from_string s =
+  { buf = s; pos = 0; last = String.length s; eof = false; start = -1;
+    input = fun _ _ _ -> 0 }
 
-(****)
-
-type version = int * string * string option
-let dummy_version = (-1, "", None)
-
-(****)
-
-let is_blank i = not (eof i) && cur i = ""
-
-let skip_blank_lines i =
-  while is_blank i do next i done
-
-let field_re = Str.regexp "^\\([^:]*\\)*:[ \t]*\\(.*\\)$"
-
-let remove_ws s =
-  let l = String.length s in
-  let p = ref (l - 1) in
-  while !p >= 0 && (s.[!p] = ' ' || s.[!p] = '\t') do decr p done;
-  if !p + 1 = l then s else
-  String.sub s 0 (!p + 1)
-
-let parse_paragraph i =
-  skip_blank_lines i;
-  if eof i then None else begin
-    let fields = ref [] in
-    while
-      let l = cur i in
-      let p =
-        try
-          String.index l ':'
-        with Not_found ->
-          parse_error i
-      in
-      let name = String.sub l 0 p in
-      let n = String.length l in
-      let p = ref (p + 1) in
-      while !p < n && let c = l.[!p] in c = ' ' || c = '\t' do incr p done;
-      let data1 = remove_ws (String.sub l !p (n - !p)) in
-(*
-      if not (Str.string_match field_re l 0) then
-        parse_error i;
-      let name = Str.matched_group 1 l in
-      let data1 = remove_ws (Str.matched_group 2 l) in
-*)
-      let data = ref [data1] in
-(*
-  Format.eprintf "%s@." name;
-*)
-      next i;
-      while
-        not (eof i || is_blank i) &&
-        let l = cur i in l.[0] = ' ' || l.[0] = '\t'
-      do
-        data := remove_ws (cur i) :: !data;
-        next i
-      done;
-      fields := (name, List.rev !data) :: !fields;
-      not (eof i || is_blank i)
-    do () done;
-    Some (List.rev !fields)
-  end
-
-let single_line f l =
-  match l with
-    [s] -> s
-  | _   -> Util.print_warning
-             (Format.sprintf "field '%s' should be a single line" f);
-           String.concat " " l
-
-let strict_package_re = Str.regexp "^[a-z0-9][a-z0-9.+-]+$"
-let package_re = Str.regexp "^[A-Za-z0-9][A-Za-z0-9._+-]+$"
-
-let check_package_name s =
-  if not (Str.string_match strict_package_re s 0) then begin
-    Util.print_warning (Format.sprintf "bad package name '%s'" s);
-    if not (Str.string_match package_re s 0) then
-      failwith (Format.sprintf "Bad package name '%s'@." s)
-  end
-
-let names = Hashtbl.create 1013
-
-let parse_package s =
-  try
-    Hashtbl.find names s
-  with Not_found ->
-    check_package_name s;
-    Hashtbl.add names s s;
-    s
-
-let strict_version_re_1 =
-  Str.regexp
-  ("^\\(\\([0-9]+\\):\\)?" ^
-   "\\([0-9][A-Za-z0-9.:+~-]*\\)" ^
-   "-\\([A-Za-z0-9.+~]+\\)$")
-let strict_version_re_2 =
-  Str.regexp
-  ("^\\(\\([0-9]+\\):\\)?" ^
-   "\\([0-9][A-Za-z0-9.:+~]*\\)\\( \\)?$")
-(* Some upstream version do not start with a digit *)
-let version_re_1 =
-  Str.regexp
-  "^\\(\\([0-9]+\\):\\)?\\([A-Za-z0-9._:+~-]+\\)-\\([A-Za-z0-9.+~]*\\)$"
-let version_re_2 =
-  Str.regexp
-  "^\\(\\([0-9]+\\):\\)?\\([A-Za-z0-9._:+~]+\\)\\( \\)?$"
-
-let split_version s =
-  if not (Str.string_match strict_version_re_1 s 0 ||
-          Str.string_match strict_version_re_2 s 0)
-        &&
-     (Util.print_warning (Format.sprintf "bad version '%s'" s);
-      not (Str.string_match version_re_1 s 0 ||
-           Str.string_match version_re_2 s 0))
-  then begin
-    failwith ("Bad version " ^ s)
-  end else begin
-    let epoch =
-      try int_of_string (Str.matched_group 2 s) with Not_found -> 0 in
-    let upstream_version = Str.matched_group 3 s in
-    let debian_revision =
-      try Some (Str.matched_group 4 s) with Not_found -> None in
-    (epoch, upstream_version, debian_revision)
-  end
-
-let versions = Hashtbl.create 1001
-
-let parse_version s =
-  try
-    Hashtbl.find versions s
-  with Not_found ->
-    let res = split_version s in
-    Hashtbl.add versions s res;
-    res
-
-(* May need to accept package name containing "_" *)
-let token_re =
-  Str.regexp
-    ("[ \t]+\\|\\(" ^
-     String.concat "\\|"
-       [","; "|"; "("; ")"; "<<"; "<="; "="; ">="; ">>"; "<"; ">";
-        "[A-Za-z0-9.:_+~-]+"] ^
-     "\\)")
-
-let rec next_token s p =
-  if !p = String.length s then raise End_of_file else
-  if Str.string_match token_re s !p then begin
-    p := Str.match_end ();
-    try
-      Str.matched_group 1 s
-    with Not_found ->
-      next_token s p
+let refill st =
+  if st.start <> -1 then begin
+    st.pos <- st.pos - st.start;
+    String.blit st.buf st.start st.buf 0 st.pos;
+    st.start <- 0
   end else
-    failwith (Format.sprintf "Bad token in '%s' at %d" s !p)
+    st.pos <- 0;
+assert (len > st.pos);  (*FIX: error message...*)
+  st.last <- st.pos + st.input st.buf st.pos (len - st.pos);
+  if st.last = st.pos then st.eof <- true
 
-let start_token_stream s =
-  let p = ref 0 in start_from_fun (fun () -> next_token s p)
+let rec next st =
+  let pos = st.pos in
+  if pos < st.last then begin
+    st.pos <- st.pos + 1;
+    st.buf.[pos]
+  end else if st.eof then '\000' else begin
+    refill st;
+    next st
+  end
 
-let expect s v = assert (not (eof s) && cur s = v); next s
+let unread st =
+  if not st.eof then begin
+    assert (st.pos > st.start && st.start <> -1);
+    st.pos <- st.pos - 1
+  end
+
+let rec accept st c =
+  let pos = st.pos in
+  if pos < st.last then begin
+    if st.buf.[pos] = c then begin
+      st.pos <- st.pos + 1;
+      true
+    end else
+      false
+  end else if st.eof then
+    false
+  else begin
+    refill st;
+    accept st c
+  end
+
+let rec find st c =
+  let pos = st.pos in
+  if pos < st.last then begin
+    let c' = st.buf.[pos] in
+    st.pos <- st.pos + 1;
+    c' = c
+      ||
+    (c' <> '\n' &&
+     find st c)
+  end else if st.eof then
+    false
+  else begin
+    refill st;
+    find st c
+  end
+
+let at_eof st = st.eof
+
+(****)
+
+let rec skip_blank_lines st = if accept st '\n' then skip_blank_lines st
+let ignore_line st = ignore (find st '\n')
+
+let accept_whitespace st = accept st ' ' || accept st '\t'
+let skip_whitespaces st = while accept_whitespace st do () done
+
+let parse_field ~field s st =
+  start_token st;
+  if not (find st ':') then failwith "Incorrect field: missing ':'";
+  let name = get_token st 1 in
+  skip_whitespaces st;
+  if not (field s name st) then begin
+    ignore_line st;
+    while accept_whitespace st do
+      ignore_line st
+    done
+  end
+
+let parse_stanza ~start ~field ~finish st =
+  skip_blank_lines st;
+  if not (at_eof st) then begin
+    let s = start () in
+    while
+      not (at_eof st || accept st '\n')
+    do
+      parse_field ~field s st
+    done;
+    finish s
+  end
+
+let parse_stanzas ~start ~field ~finish st =
+  while not (at_eof st) do
+    parse_stanza ~start ~field ~finish st
+  done
+
+let parse_field_end st =
+  skip_whitespaces st;
+  if not (accept st '\n' || at_eof st) then failwith "Garbage at end of field"
+
+(****)
 
 type rel = SE | E | EQ | L | SL
-
-let parse_package_dep f vers s =
-  let name = cur s in
-  let name = parse_package name in
-  next s;
-  if not (eof s) && cur s = "(" then begin
-    if not vers then
-      failwith (Format.sprintf "Package version not allowed in '%s'" f);
-    next s;
-    let comp =
-      match cur s with
-        "<<"       -> SE
-      | "<=" | "<" -> E
-      | "="        -> EQ
-      | ">=" | ">" -> L
-      | ">>"       -> SL
-      | _          -> failwith (Format.sprintf "Bad relation '%s'" (cur s))
-    in
-    next s;
-    let version = parse_version (cur s) in
-    next s;
-    expect s ")";
-    (name, Some (comp, version))
-  end else
-    (name, None)
-
-let rec parse_package_disj f vers disj s =
-  let nm = parse_package_dep f vers s in
-  if eof s || cur s <> "|" then
-    [nm]
-  else begin
-    if not disj then begin
-      if f = "Enhances" then
-(*XXX Turn disjunction into conjunction? *)
-        Util.print_warning
-          (Format.sprintf "package disjunction not allowed in field '%s'" f)
-      else
-        failwith (Format.sprintf "Package disjunction not allowed in '%s'" f)
-    end;
-    next s;
-    nm :: parse_package_disj f vers disj s
-  end
-
-let rec parse_package_conj f vers disj s =
-  let nm = parse_package_disj f vers disj s in
-  if eof s then
-    [nm]
-  else if cur s = "," then begin
-    next s;
-    nm :: parse_package_conj f vers disj s
-  end else
-    failwith (Format.sprintf "Bad token '%s'" (cur s))
-
-let parse_rel f vers disj s =
-  let s = start_token_stream s in
-  parse_package_conj f vers disj s
-
-let parse_package_source s =
-  let s = start_token_stream s in
-  let name = cur s in
-  let name = parse_package name in
-  next s;
-  if not (eof s) && cur s = "(" then begin
-    next s;
-    let version = parse_version (cur s) in
-    next s;
-    expect s ")";
-    assert (eof s);
-    (name, version)
-  end else
-    (name, dummy_version)
-
+type version = int * string * string option
 type dep = (string * (rel * version) option) list list
 type p =
   { mutable num : int;
@@ -275,6 +148,172 @@ type p =
     mutable breaks : dep;
     mutable replaces : dep }
 
+let dummy_version = (-1, "", None)
+
+(****)
+
+let package_names : (string, string) Hashtbl.t = Hashtbl.create 32768
+
+let parse_package st =
+  start_token st;
+  let bad = ref false in
+  begin match next st with
+    'a'..'z' | '0'..'9' -> ()
+  | 'A'..'Z' ->
+      bad := true
+  | _ ->
+      failwith "Missing package name"
+  end;
+  while
+    match next st with
+      'a'..'z' | '0'..'9' | '.' | '+' | '-' ->
+        true
+    | 'A'..'Z' | '_' ->
+        bad := true; true
+    | _ ->
+        unread st; false
+  do () done;
+  let s = get_token st 0 in
+  if !bad || String.length s < 2 then
+    Util.print_warning (Format.sprintf "bad package name '%s'" s);
+  try
+    Hashtbl.find package_names s
+  with Not_found ->
+    Hashtbl.add package_names s s;
+    s
+
+let parse_version_end st epoch n bad hyphen =
+  unread st;
+  if n = 0 then
+    failwith (Format.sprintf "Bad version %d:%s" epoch (get_token st 0));
+  let s = get_token st 0 in
+  if bad then
+    Util.print_warning (Format.sprintf "bad version '%d:%s'" epoch s);
+  if hyphen = -1 then
+    (epoch, s, None)
+  else
+    (epoch, String.sub s 0 hyphen,
+     Some (String.sub s (hyphen + 1) (String.length s - hyphen - 1)))
+
+let rec parse_upstream_version st epoch n bad hyphen =
+  match next st with
+    '0'..'9' ->
+      parse_upstream_version st epoch (n + 1) bad hyphen
+  | '-' ->
+      parse_upstream_version st epoch (n + 1) (bad || n = 0) n
+  | 'A'..'Z' | 'a'..'z' | '.' | '_' | '+' | '~' | ':' ->
+      parse_upstream_version st epoch (n + 1) (bad || n = 0) hyphen
+  | _ ->
+      parse_version_end st epoch n bad hyphen
+
+let rec parse_epoch st n =
+  match next st with
+    '0'..'9' ->
+      parse_epoch st (n + 1)
+  | ':' when n > 0 ->
+      let epoch = int_of_string (get_token st 1) in
+      start_token st;
+      parse_upstream_version st epoch 0 false (-1)
+  | 'A'..'Z' | 'a'..'z' | '.' | '_' | '+' | '~' | ':' ->
+      parse_upstream_version st 0 (n + 1) (n = 0) (-1)
+  | '-' ->
+      parse_upstream_version st 0 (n + 1) (n = 0) n
+  | _ ->
+      parse_version_end st 0 n false (-1)
+
+let parse_version st =
+  start_token st;
+  parse_epoch st 0
+
+let versions = Hashtbl.create 32768
+
+let parse_version st =
+  let v = parse_version st in
+  try Hashtbl.find versions v with Not_found -> Hashtbl.add versions v v; v
+
+let parse_relation st =
+  match next st with
+    '<' ->
+      begin match next st with
+        '<' -> SE
+      | '=' -> E
+      | _   -> unread st; E
+      end
+  | '=' ->
+      EQ
+  | '>' ->
+      begin match next st with
+        '>' -> SL
+      | '=' -> L
+      | _   -> unread st; L
+      end
+  | c ->
+      failwith (Format.sprintf "Bad relation '%c'" c)
+
+let parse_package_dep f vers st =
+  let name = parse_package st in
+  skip_whitespaces st;
+  if accept st '(' then begin
+    if not vers then
+      failwith (Format.sprintf "Package version not allowed in '%s'" f);
+    skip_whitespaces st;
+    let comp = parse_relation st in
+    skip_whitespaces st;
+    let version = parse_version st in
+    skip_whitespaces st;
+    if not (accept st ')') then assert false;
+    skip_whitespaces st;
+    (name, Some (comp, version))
+  end else
+    (name, None)
+
+let rec parse_package_disj f vers disj st =
+  let nm = parse_package_dep f vers st in
+  if not (accept st '|') then
+    [nm]
+  else begin
+    if not disj then begin
+      if f = "Enhances" then
+(*XXX Turn disjunction into conjunction? *)
+        Util.print_warning
+          (Format.sprintf "package disjunction not allowed in field '%s'" f)
+      else
+        failwith (Format.sprintf "Package disjunction not allowed in '%s'" f)
+    end;
+    skip_whitespaces st;
+    nm :: parse_package_disj f vers disj st
+  end
+
+let rec parse_package_conj f vers disj st =
+  let nm = parse_package_disj f vers disj st in
+  if accept st '\n' || at_eof st then
+    [nm]
+  else if accept st ',' then begin
+    skip_whitespaces st;
+    nm :: parse_package_conj f vers disj st
+  end else
+    failwith (Format.sprintf "Bad character '%c'" (next st))
+
+let parse_rel f vers disj st = parse_package_conj f vers disj st
+
+let parse_package_source st =
+  let name = parse_package st in
+  skip_whitespaces st;
+  if accept st '(' then begin
+    skip_whitespaces st;
+    let version = parse_version st in
+    skip_whitespaces st;
+    if not (accept st ')') then assert false;
+    skip_whitespaces st;
+    if not (accept st '\n' || at_eof st) then assert false;
+    (name, version)
+  end else begin
+    if not (accept st '\n' || at_eof st) then assert false;
+    (name, dummy_version)
+  end
+
+(****)
+
 let print_version ch v =
   let (epoch, upstream_version, debian_revision) = v in
   if epoch <> 0 then Format.fprintf ch "%d:" epoch;
@@ -282,43 +321,6 @@ let print_version ch v =
   match debian_revision with
     None   -> ()
   | Some r -> Format.fprintf ch "-%s" r
-
-let parse_fields p =
-  let q =
-    { num = 0; package = " "; version = dummy_version;
-      source = (" ", dummy_version);
-      depends = []; recommends = []; suggests = []; enhances = [];
-      pre_depends = []; provides = []; conflicts = []; breaks = [];
-      replaces = [] }
-  in
-  List.iter
-    (fun (f, l) ->
-       match f with
-         "Package"     -> q.package <- parse_package (single_line f l)
-       | "Version"     -> q.version <- parse_version (single_line f l)
-       | "Source"      -> q.source <- parse_package_source (single_line f l)
-       | "Depends"     -> q.depends <- parse_rel f true true (single_line f l)
-       | "Recommends"  -> q.recommends <-
-                              parse_rel f true true (single_line f l)
-       | "Suggests"    -> q.suggests <- parse_rel f true true (single_line f l)
-       | "Enhances"    -> q.enhances <-
-                              parse_rel f true false (single_line f l)
-       | "Pre-Depends" -> q.pre_depends <-
-                             parse_rel f true true (single_line f l)
-       | "Provides"    -> q.provides <-
-                             parse_rel f false false (single_line f l)
-       | "Conflicts"   -> q.conflicts <-
-                             parse_rel f true false (single_line f l)
-       | "Breaks"      -> q.breaks <-
-                             parse_rel f true false (single_line f l)
-       | "Replaces"    -> q.replaces <-
-                             parse_rel f true false (single_line f l)
-       | _         -> ())
-    p;
-  assert (q.package <> " "); assert (q.version <> dummy_version);
-  if fst q.source = " " then q.source <- (q.package, q.version);
-  if snd q.source = dummy_version then q.source <- (fst q.source, q.version);
-  q
 
 (****)
 
@@ -333,10 +335,10 @@ type pool = deb_pool
 
 let new_pool () =
   { size = 0;
-    packages = Hashtbl.create 101;
-    packages_by_name = Hashtbl.create 101;
-    packages_by_num = Hashtbl.create 101;
-    provided_packages = Hashtbl.create 101 }
+    packages = Hashtbl.create 32768;
+    packages_by_name = Hashtbl.create 32768;
+    packages_by_num = Hashtbl.create 32768;
+    provided_packages = Hashtbl.create 32768 }
 
 let get_package_list' h n =
   try
@@ -353,69 +355,81 @@ let add_to_package_list h n p =
 let get_package_list h n = try !(Hashtbl.find h n) with Not_found -> []
 
 let insert_package pool p =
-  pool.size <- pool.size + 1;
-  Hashtbl.add pool.packages (p.package, p.version) p;
-  Hashtbl.add pool.packages_by_num p.num p;
-  add_to_package_list pool.packages_by_name p.package p;
-  add_to_package_list pool.provided_packages p.package p;
-  List.iter
-    (fun l ->
-       match l with
-         [(n, None)] -> add_to_package_list pool.provided_packages n p
-       | _           -> assert false)
-    p.provides
-
-let rec parse_packages_rec ignored_packages pool st i =
-  match parse_paragraph i with
-    None -> ()
-  | Some p ->
-      Common.parsing_tick st;
-      let p = parse_fields p in
-      if
-        not (List.mem p.package ignored_packages)
-          &&
-        not (Hashtbl.mem pool.packages (p.package, p.version))
-      then begin
-        p.num <- pool.size;
-        insert_package pool p
-      end;
-      parse_packages_rec ignored_packages pool st i
+  if not (Hashtbl.mem pool.packages (p.package, p.version)) then begin
+    p.num <- pool.size;
+    pool.size <- pool.size + 1;
+    Hashtbl.add pool.packages (p.package, p.version) p;
+    Hashtbl.add pool.packages_by_num p.num p;
+    add_to_package_list pool.packages_by_name p.package p;
+    add_to_package_list pool.provided_packages p.package p;
+    List.iter
+      (fun l ->
+         match l with
+           [(n, None)] -> add_to_package_list pool.provided_packages n p
+         | _           -> assert false)
+      p.provides
+  end
 
 let parse_packages pool ignored_packages ch =
-  let i = start_from_channel ch in
-  let st = Common.start_parsing true ch in
-  parse_packages_rec ignored_packages pool st i;
-  Common.stop_parsing st
+  let info = Common.start_parsing true ch in
+  let st = from_channel ch in
+  let start () =
+    Common.parsing_tick info;
+    { num = 0; package = " "; version = dummy_version;
+      source = (" ", dummy_version);
+      depends = []; recommends = []; suggests = []; enhances = [];
+      pre_depends = []; provides = []; conflicts = []; breaks = [];
+      replaces = [] }
+  in
+  let finish q =
+    assert (q.package <> " "); assert (q.version <> dummy_version);
+    if fst q.source = " " then q.source <- (q.package, q.version);
+    if snd q.source = dummy_version then q.source <- (fst q.source, q.version);
+
+    if not (List.mem q.package ignored_packages) then insert_package pool q
+  in
+  let field q f st =
+    match f with
+      "Package"     -> q.package <- parse_package st; parse_field_end st; true
+    | "Version"     -> q.version <- parse_version st; parse_field_end st; true
+    | "Source"      -> q.source <- parse_package_source st; true
+    | "Depends"     -> q.depends <- parse_rel f true true st; true
+    | "Recommends"  -> q.recommends <- parse_rel f true true st; true
+    | "Suggests"    -> q.suggests <- parse_rel f true true st; true
+    | "Enhances"    -> q.enhances <- parse_rel f true false st; true
+    | "Pre-Depends" -> q.pre_depends <- parse_rel f true true st; true
+    | "Provides"    -> q.provides <- parse_rel f false false st; true
+    | "Conflicts"   -> q.conflicts <- parse_rel f true false st; true
+    | "Breaks"      -> q.breaks <- parse_rel f true false st; true
+    | "Replaces"    -> q.replaces <- parse_rel f true false st; true
+        | _         -> false
+  in
+  parse_stanzas ~start ~field ~finish st;
+  Common.stop_parsing info
 
 (****)
 
-let parse_src_fields p =
-  let name = ref " " in
-  let version = ref dummy_version in
-  List.iter
-    (fun (f, l) ->
-       match f with
-         "Package"     -> name := parse_package (single_line f l)
-       | "Version"     -> version := parse_version (single_line f l)
-       | _         -> ())
-    p;
-  assert (!name <> " "); assert (!version <> dummy_version);
-  (!name, !version)
-
-let rec parse_src_packages_rec pool st i =
-  match parse_paragraph i with
-    None -> ()
-  | Some p ->
-      Common.parsing_tick st;
-      let (name, version) = parse_src_fields p in
-      Hashtbl.add pool name version;
-      parse_src_packages_rec pool st i
+type s = { mutable s_name : string; mutable s_version : version }
 
 let parse_src_packages pool ch =
-  let i = start_from_channel ch in
-  let st = Common.start_parsing true ch in
-  parse_src_packages_rec pool st i;
-  Common.stop_parsing st
+  let info = Common.start_parsing true ch in
+  let st = from_channel ch in
+  let start () =
+    Common.parsing_tick info;
+    { s_name = " "; s_version = dummy_version }
+  in
+  let field q f st =
+    match f with
+      "Package" -> q.s_name <- parse_package st; parse_field_end st; true
+    | "Version" -> q.s_version <- parse_version st; parse_field_end st; true
+    | _         -> false
+  in
+  let finish q =
+    assert (q.s_name <> " "); assert (q.s_version <> dummy_version);
+    Hashtbl.add pool q.s_name q.s_version
+  in
+  parse_stanzas ~start ~field ~finish st;
+  Common.stop_parsing info
 
 (****)
 
@@ -667,14 +681,23 @@ let generate_rules pool =
 (****)
 
 let parse_package_dependency pool s =
-  let s = start_token_stream s in
-  let d = parse_package_dep "" true s in
-  if not (eof s) then
-    failwith (Format.sprintf "Bad token '%s'" (cur s));
+  let st = from_string s in
+  let d = parse_package_dep "" true st in
+  if not (at_eof st) then
+    failwith (Format.sprintf "Bad character '%c'" (next st));
   resolve_package_dep pool d
 
 let parse_package_name pool s =
   List.map (fun p -> p.num) (get_package_list pool.packages_by_name s)
+
+let parse_version s =
+  let st = from_string s in
+  skip_whitespaces st;
+  let v = parse_version st in
+  skip_whitespaces st;
+  if not (at_eof st) then
+    failwith (Format.sprintf "Bad character '%c'" (next st));
+  v
 
 (****)
 

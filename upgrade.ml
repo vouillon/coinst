@@ -29,6 +29,10 @@ let (file1,file2) =
 
 (****)
 
+let _ =
+Gc.set {(Gc.get ())
+        with Gc.space_overhead = 300; Gc.max_overhead = 1000000}
+
 let debug = false
 
 module M = Deb_lib
