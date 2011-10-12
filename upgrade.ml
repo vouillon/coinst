@@ -170,9 +170,10 @@ in
 let dist1 = read_data [] (File.open_in file1) in
 let dist2 = read_data [] (File.open_in file2) in
 
+let dist1_state = Upgrade_common.prepare_analyze dist1 in
 let (deps1, deps2, pred, st2,
      results, all_pkgs, all_conflicts, dep_src, graphs, _) =
-  Upgrade_common.analyze dist1 dist2
+  Upgrade_common.analyze dist1_state dist2
 in
 
 (****)

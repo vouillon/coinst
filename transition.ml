@@ -40,6 +40,8 @@ let ext = ".bz2"
 
 let atomic = true
 
+let verbose = false
+
 (****)
 
 let urgency_delay u =
@@ -96,6 +98,8 @@ module StringSet = Upgrade_common.StringSet
 let _ =
 Gc.set {(Gc.get ())
         with Gc.space_overhead = 300; Gc.max_overhead = 1000000}
+
+module Timer = Util.Timer
 
 (****)
 
@@ -237,7 +241,7 @@ let propagation_rules = Hashtbl.create 101
 let rec no_change pkg reason =
   let ((nm, version), arch) = pkg in
   if not (Hashtbl.mem unchanged (nm, arch)) then begin
-    if reason <> Unchanged then
+    if verbose && reason <> Unchanged then
       Format.eprintf "Skipping %s (%a / %s): %a@."
         nm M.print_version version arch print_reason reason;
     Hashtbl.replace unchanged (nm, arch) ();
@@ -357,6 +361,7 @@ let stats l =
 (****)
 
 let f() =
+  let load_t = Timer.start () in
   let (dates, urgencies, testing_bugs, unstable_bugs) = read_extra_info () in
   let files =
     List.flatten
@@ -376,7 +381,6 @@ let f() =
           load_bin_packages "unstable" arch))
       archs)
   in
-
   let files =
     src_package_files "testing" @ src_package_files "unstable" in
   let cache = Filename.concat dir "cache/Sources" in
@@ -384,7 +388,9 @@ let f() =
     cached files cache (fun () ->
       (load_src_packages "testing", load_src_packages "unstable"))
   in
+  Format.eprintf "Loading: %f@." (Timer.stop load_t);
 
+  let init_t = Timer.start () in
   let old_enough src =
     let d = try Hashtbl.find dates src with Not_found -> now in
     let u = try Hashtbl.find urgencies src with Not_found -> 10 in
@@ -452,37 +458,47 @@ let f() =
                 (Binary_not_propagated ((p.M.package, p.M.version), arch)))
          t'.M.packages_by_num)
     l;
+Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
   stats l;
 
+  let l' =
+    List.map
+      (fun (arch, t', u') -> (arch, Upgrade_common.prepare_analyze t', u'))
+      l
+  in
   while
     let changed = ref false in
     List.iter
       (fun (arch, t', u') ->
          Format.printf "==================== %s@." arch;
          while
+let step_t = Timer.start () in
            let s =
              Upgrade_common.find_problematic_packages
                ~check_new_packages:true t' u'
                (fun nm -> Hashtbl.mem unchanged (nm, arch))
            in
+let t = Timer.start () in
            StringSet.iter
              (fun nm ->
                 let p =
                   try
                     List.hd !(Hashtbl.find u'.M.packages_by_name nm)
                   with Not_found -> try
-                    List.hd !(Hashtbl.find t'.M.packages_by_name nm)
+                    List.hd !(Hashtbl.find t'.Upgrade_common.dist.M.packages_by_name nm)
                   with Not_found ->
                     assert false
                 in
                 no_change ((nm, p.M.version), arch) Conflict)
              s;
+Format.eprintf "  New constraints: %f@." (Timer.stop t);
+Format.eprintf "Step duration: %f@." (Timer.stop step_t);
            let non_empty = not (StringSet.is_empty s) in
            if non_empty then changed := true;
            non_empty
          do () done)
-      l;
+      l';
 stats l;
     !changed
   do () done;

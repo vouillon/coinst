@@ -43,3 +43,11 @@ let fail s =
 (****)
 
 let title s = Format.printf "%s@.%s@." s (String.make (String.length s) '=')
+
+(****)
+
+module Timer = struct
+  type t = float
+  let start () = Unix.gettimeofday ()
+  let stop t = Unix.gettimeofday () -. t
+end

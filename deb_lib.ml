@@ -8,7 +8,6 @@ type st =
     mutable eof : bool;
     input : string -> int -> int -> int }
 
-
 let at_eof st = st.eof
 
 let start_token st = st.start <- st.pos
@@ -553,7 +552,9 @@ let remove_duplicates l =
   | x :: r -> remove_duplicates_rec x r
 
 let normalize_set (l : int list) =
-  remove_duplicates (List.sort (fun x y -> compare x y) l)
+  match l with
+    [] | [_] -> l
+  | _        -> remove_duplicates (List.sort (fun x y -> compare x y) l)
 
 (****)
 
@@ -865,7 +866,7 @@ let compute_conflicts pool =
          (normalize_set
             (List.flatten
                (List.map (fun p -> resolve_package_dep pool (single p))
-                   (p.conflicts @ p.breaks)))))
+                   (p.breaks @ p.conflicts)))))
     pool.packages;
   Array.init pool.size (fun i -> get_package_list conflicts i)
 
@@ -874,10 +875,14 @@ let compute_deps dist =
     let p = Hashtbl.find dist.packages_by_num i in
     List.map
       (fun l ->
-         normalize_set
-           (List.flatten
-              (List.map (fun p -> resolve_package_dep dist p) l)))
-      (p.depends @ p.pre_depends))
+         match l with
+           [p] ->
+             normalize_set (resolve_package_dep dist p)
+         | _ ->
+             normalize_set
+               (List.flatten
+                  (List.map (fun p -> resolve_package_dep dist p) l)))
+      (p.pre_depends @ p.depends))
 
 (****)
 

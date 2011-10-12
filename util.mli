@@ -10,3 +10,9 @@ val print_warning : string -> unit
 val fail : string -> 'a
 
 val title : string -> unit
+
+module Timer : sig
+  type t
+  val start : unit -> t
+  val stop : t -> float
+end
