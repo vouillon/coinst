@@ -14,6 +14,7 @@ module type S = sig
 
   module PSet : Set.S with type elt = Package.t
   module PMap : Map.S with type key = Package.t
+  val pset_indices : PSet.t -> Util.IntSet.t
 
   module PTbl : sig
     type 'a t

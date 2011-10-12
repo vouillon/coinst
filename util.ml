@@ -51,3 +51,6 @@ module Timer = struct
   let start () = Unix.gettimeofday ()
   let stop t = Unix.gettimeofday () -. t
 end
+
+module IntSet =
+  Set.Make (struct type t = int let compare x (y : int) = compare x y end)

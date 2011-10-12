@@ -50,3 +50,5 @@ val compare_version : version -> version -> int
 val parse_src_packages : (string, version) Hashtbl.t -> in_channel -> unit
 val src_only_latest :
   (string, version) Hashtbl.t -> (string, version) Hashtbl.t
+
+val generate_rules_restricted : pool -> Util.IntSet.t -> Solver.state

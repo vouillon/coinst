@@ -16,3 +16,5 @@ module Timer : sig
   val start : unit -> t
   val stop : t -> float
 end
+
+module IntSet : Set.S with type elt = int

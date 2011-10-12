@@ -29,6 +29,11 @@
 
 - More constraints?
   ==> all release architectures are in sync
+
+
+- we can generate problems (Deb_lib.generate_rules) in a smart way
+  by starting from the set of packages we consider and following dependencies upwards
+
 *)
 
 let dir = Filename.concat (Sys.getenv "HOME") "debian-dists"

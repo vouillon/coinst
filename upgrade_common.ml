@@ -510,7 +510,10 @@ let t = Timer.start () in
 
   let graphs =
     if PSetSet.is_empty !results then [] else begin
-      let st2init = M.generate_rules dist2 in
+      let s = PSetSet.fold PSet.union !results PSet.empty in
+let t = Timer.start () in
+      let st2init = M.generate_rules_restricted dist2 (pset_indices s) in
+Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
       List.map
         (fun s ->
            let l = List.map Package.index (PSet.elements s) in

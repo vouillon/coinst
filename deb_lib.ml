@@ -679,6 +679,51 @@ let generate_rules pool =
   Solver.propagate pr;
   pr
 
+module IntSet = Util.IntSet
+
+let generate_rules_restricted pool s =
+  let pr = Solver.initialize_problem ~print_var:(print_pack pool) pool.size in
+  let visited = ref IntSet.empty in
+  let s = ref s in
+  while not (IntSet.is_empty !s) do
+    let n = IntSet.choose !s in
+    s := IntSet.remove n !s;
+    visited := IntSet.add n !visited;
+    let p = Hashtbl.find pool.packages_by_num n in
+    (* Dependences *)
+    let add_deps l =
+      let l' =
+        List.flatten
+          (List.map (fun p -> resolve_package_dep pool p) l)
+      in
+      List.iter
+        (fun n -> if not (IntSet.mem n !visited) then s := IntSet.add n !s) l';
+      add_depend pr l p.num l'
+    in
+    List.iter add_deps p.depends;
+    List.iter add_deps p.pre_depends;
+    (* Conflicts *)
+    let c = List.map (fun p -> single p) p.conflicts in
+    List.iter
+      (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
+      (normalize_set
+          (List.flatten
+             (List.map (fun p -> resolve_package_dep pool p) c)));
+    let c = List.map (fun p -> single p) p.breaks in
+    List.iter
+      (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
+      (normalize_set
+          (List.flatten
+             (List.map (fun p -> resolve_package_dep pool p) c)))
+  done;
+  (* Cannot install two packages with the same name *)
+  Hashtbl.iter
+    (fun _ l ->
+       add_conflict pr None (List.map (fun p -> p.num) !l))
+    pool.packages_by_name;
+  Solver.propagate pr;
+  pr
+
 (****)
 
 let parse_package_dependency pool s =

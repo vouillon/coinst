@@ -18,6 +18,7 @@ module type S = sig
 
   module PSet : Set.S with type elt = Package.t
   module PMap : Map.S with type key = Package.t
+  val pset_indices : PSet.t -> Util.IntSet.t
 
   module PTbl : sig
     type 'a t
@@ -105,10 +106,11 @@ module F (M : Api.S) = struct
     let of_index_list p = p
   end
 
-  module PSet = Set.Make (Package)
+  module PSet = Util.IntSet
   let print_set ch pr sep l = print_list ch pr sep (PSet.elements l)
   let pset_of_lst l = List.fold_left (fun s x -> PSet.add x s) PSet.empty l
   let pset_map f s = pset_of_lst (List.map f (PSet.elements s))
+  let pset_indices s = s
 
   module PMap = Map.Make (Package)
 
