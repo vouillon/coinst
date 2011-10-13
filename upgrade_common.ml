@@ -437,6 +437,18 @@ let t = Timer.start () in
   (* As a consequence, some new dependencies might not be relevant anymore. *)
   let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
 
+  (* Add self dependencies for packages with conflicts, as we want to
+     consider them as well to find possible problems. *)
+  let deps2 =
+    PTbl.mapi
+      (fun p f ->
+         if Conflict.has confl2' p && PTbl.get pred p <> -1 then
+           Formula.conj (Formula.lit p) f
+         else
+           f)
+      deps2
+  in
+
   (*
   Graph.output "/tmp/update.dot"
     ~package_weight:(fun p ->
@@ -446,13 +458,6 @@ let t = Timer.start () in
     (Quotient.trivial dist2) deps2 confl2';
   *)
 
-  (* Flattening may have added self dependencies for new packages,
-     which are not relevant. *)
-  let deps2 =
-    PTbl.mapi
-      (fun p f -> if PTbl.get pred p = -1 then Formula._true else f)
-      deps2
-  in
 Format.eprintf "  Init: %f@." (Timer.stop t);
 
   let check s =
