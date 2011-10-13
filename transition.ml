@@ -332,6 +332,84 @@ let same_bin_version t u nm =
 
 (****)
 
+let reduce_repository_pair (arch, t, u) =
+  let forward_deps = Hashtbl.create 32768 in
+  let backward_deps =  Hashtbl.create 32768 in
+  let add_dep h p q =
+    let s =
+      try
+        Hashtbl.find h p
+      with Not_found ->
+        let s = ref StringSet.empty in
+        Hashtbl.add h p s;
+        s
+    in
+    let is_new = not (StringSet.mem q !s) in
+    if is_new then s := StringSet.add q !s;
+    is_new
+  in
+  let add_deps dist p deps =
+    List.iter
+      (fun l ->
+         List.iter
+           (fun (n, _) ->
+              try
+                List.iter
+                  (fun q ->
+(*Format.eprintf "%s -> %s@." p.M.package q.M.package;*)
+                     if add_dep forward_deps p.M.package q.M.package then
+                       ignore (add_dep backward_deps q.M.package p.M.package))
+                  !(Hashtbl.find dist.M.provided_packages n)
+              with Not_found ->
+                ())
+           l)
+      deps
+  in
+  let compute_package_deps d1 d2 =
+    Hashtbl.iter
+      (fun _ p ->
+         add_deps d2 p p.M.depends;
+         add_deps d2 p p.M.pre_depends)
+      d1.M.packages_by_num
+  in
+  compute_package_deps t t; compute_package_deps t u;
+  compute_package_deps u t; compute_package_deps u u;
+  let pkgs = ref StringSet.empty in
+  let rec add_package p =
+    if not (StringSet.mem p !pkgs) then begin
+      pkgs := StringSet.add p !pkgs;
+      StringSet.iter add_package
+        (try !(Hashtbl.find forward_deps p) with Not_found -> StringSet.empty)
+    end
+  in
+  let consider_package _ p =
+    let nm = p.M.package in
+    if
+      not (same_bin_version t u nm ||
+           Hashtbl.mem unchanged (nm, arch))
+    then begin
+      add_package nm;
+      StringSet.iter add_package
+        (try !(Hashtbl.find backward_deps nm) with Not_found -> StringSet.empty)
+    end
+  in
+  Hashtbl.iter consider_package t.M.packages_by_num;
+  Hashtbl.iter consider_package u.M.packages_by_num;
+  let simplify_package _ p =
+    let nm = p.M.package in
+    if not (StringSet.mem nm !pkgs) then
+      p.M.depends <- []; p.M.pre_depends <- []
+  in
+  Hashtbl.iter simplify_package t.M.packages_by_num;
+  Hashtbl.iter simplify_package u.M.packages_by_num
+
+let reduce_repositories l =
+  let t = Timer.start () in
+  List.iter reduce_repository_pair l;
+  Format.eprintf "Reducing repositories: %f@." (Timer.stop t)
+
+
+
 let stats l =
   let n = ref 0 in
   List.iter
@@ -465,6 +543,7 @@ let f() =
     l;
 Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
+  reduce_repositories l;
   stats l;
 
   let l' =
