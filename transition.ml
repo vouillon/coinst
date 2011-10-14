@@ -10,10 +10,14 @@
   reduce the number of packages in each repository
 *)
 
-let dir = Filename.concat (Sys.getenv "HOME") "debian-dists"
+let dir = ref (Filename.concat (Sys.getenv "HOME") "debian-dists/britney")
 let archs = ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
 let sects = ["main"; "contrib"; "non-free"]
 let ext = ".bz2"
+
+(****)
+
+let hint_file = ref "-"
 
 (****)
 
@@ -113,7 +117,7 @@ let read_package_info file f =
 let read_dates file = read_package_info file int_of_string
 
 let read_urgencies file =
-  let cache = Filename.concat dir "cache/Urgencies" in
+  let cache = Filename.concat !dir "cache/Urgencies" in
   cached [file] cache (fun () -> read_package_info file urgency_delay)
 
 let read_bugs file =
@@ -210,7 +214,7 @@ let read_hints dir =
   hints
 
 let read_extra_info () =
-  let britney_file f = Filename.concat (Filename.concat dir "britney") f in
+  let britney_file f = Filename.concat !dir f in
   let dates = read_dates (britney_file "testing/Dates") in
   let urgencies = read_urgencies (britney_file "testing/Urgency") in
   let testing_bugs = read_bugs (britney_file "testing/BugsV") in
@@ -243,10 +247,10 @@ let src_package_files suite =
 *)
 
 let bin_package_files suite arch =
-  [Filename.concat dir (Format.sprintf "britney/%s/Packages_%s" suite arch)]
+  [Filename.concat !dir (Format.sprintf "%s/Packages_%s" suite arch)]
 
 let src_package_files suite =
-  [Filename.concat dir (Format.sprintf "britney/%s/Sources" suite)]
+  [Filename.concat !dir (Format.sprintf "%s/Sources" suite)]
 
 let load_bin_packages suite arch =
   let files = bin_package_files suite arch in
@@ -537,7 +541,7 @@ let f() =
             bin_package_files "unstable" arch)
          archs)
   in
-  let cache = Filename.concat dir "cache/Packages" in
+  let cache = Filename.concat !dir "cache/Packages" in
   let l =
     cached files cache (fun () ->
     List.map
@@ -549,7 +553,7 @@ let f() =
   in
   let files =
     src_package_files "testing" @ src_package_files "unstable" in
-  let cache = Filename.concat dir "cache/Sources" in
+  let cache = Filename.concat !dir "cache/Sources" in
   let (t, u) =
     cached files cache (fun () ->
       (load_src_packages "testing", load_src_packages "unstable"))
@@ -797,18 +801,37 @@ stats l;
             end)
          u'.M.packages_by_num)
     l;
-  Format.printf "easy";
-  ListTbl.iter
-    (fun nm l ->
-       let (_, v) = List.hd l in
-       if not (Hashtbl.mem unchanged (nm, "source")) then
-         Format.printf " %s/%a" nm M.print_version v
-       else
-         List.iter
-           (fun (arch, v) ->
-              Format.printf " %s/%s/%a" nm arch M.print_version v)
-           l)
-    changes;
-  Format.printf "@."
+  let print_hints f =
+    Format.fprintf f "easy";
+    ListTbl.iter
+      (fun nm l ->
+         let (_, v) = List.hd l in
+         if not (Hashtbl.mem unchanged (nm, "source")) then
+           Format.fprintf f " %s/%a" nm M.print_version v
+         else
+           List.iter
+             (fun (arch, v) ->
+                Format.fprintf f " %s/%s/%a" nm arch M.print_version v)
+             l)
+      changes;
+    Format.fprintf f "@."
+  in
+  print_hints Format.std_formatter;
+  if !hint_file <> "-" then begin
+    let ch = open_out !hint_file in
+    print_hints (Format.formatter_of_out_channel ch);
+    close_out ch
+  end
 
-let _ = f()
+let _ =
+Arg.parse
+  ["-input",
+   Arg.String (fun d -> dir := d),
+   "DIR       Select directory containing britney data";
+   "-hints",
+   Arg.String (fun f -> hint_file := f),
+   "FILE      Output hints to FILE"]
+  (fun p -> ())
+  ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS\n\
+    \n\
+    Options:");
