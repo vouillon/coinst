@@ -36,6 +36,8 @@ val package_name : pool -> int -> string
 
 val resolve_package_dep :
   pool -> string * (rel * (int * string * string option)) option -> int list
+val resolve_package_dep_raw :
+  pool -> string * (rel * (int * string * string option)) option -> p list
 
 val only_latest : pool -> pool
 

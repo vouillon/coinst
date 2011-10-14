@@ -620,15 +620,17 @@ let filter_rel rel c =
   | L  -> c >= 0
   | SL -> c > 0
 
-let resolve_package_dep pool (n, cstr) =
+let resolve_package_dep_raw pool (n, cstr) =
   match cstr with
     None ->
-      List.map (fun p -> p.num) (get_package_list pool.provided_packages n)
+      get_package_list pool.provided_packages n
   | Some (rel, vers) ->
-      List.map (fun p -> p.num)
-        (List.filter
-           (fun p -> filter_rel rel (compare_version p.version vers))
-           (get_package_list pool.packages_by_name n))
+      List.filter
+        (fun p -> filter_rel rel (compare_version p.version vers))
+        (get_package_list pool.packages_by_name n)
+
+let resolve_package_dep pool d =
+  List.map (fun p -> p.num) (resolve_package_dep_raw pool d)
 
 let single l =
   match l with

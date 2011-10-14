@@ -1,56 +1,66 @@
-./upgrade.cmo: upgrade_common.cmi quotient.cmi graph.cmi file.cmi deb_lib.cmi
-./upgrade.cmx: upgrade_common.cmx quotient.cmx graph.cmx file.cmx deb_lib.cmx
-./quotient.cmi: repository.cmi
-./common.cmo: util.cmi ./common.cmi
-./common.cmx: util.cmx ./common.cmi
-./upgrade_common.cmi: repository.cmi deb_lib.cmi
+./coinst_common.cmi: repository.cmi quotient.cmi api.cmi
+./conflicts.cmo: repository.cmi quotient.cmi
+./conflicts.cmx: repository.cmx quotient.cmx
 ./cudf_lib.cmi: api.cmi
+./rpm_lib.cmo: util.cmi solver.cmi common.cmi ./rpm_lib.cmi
+./rpm_lib.cmx: util.cmx solver.cmx common.cmx ./rpm_lib.cmi
+./task.cmo:
+./task.cmx:
+./update.cmo: repository.cmi quotient.cmi graph.cmi file.cmi deb_lib.cmi
+./update.cmx: repository.cmx quotient.cmx graph.cmx file.cmx deb_lib.cmx
 ./file.cmo: ./file.cmi
 ./file.cmx: ./file.cmi
-./coinst_common.cmi: repository.cmi quotient.cmi api.cmi
+./comp.cmo: deb_lib_old.cmo deb_lib.cmi
+./comp.cmx: deb_lib_old.cmx deb_lib.cmx
+./upgrade_common.cmi: repository.cmi deb_lib.cmi
+./solver.cmi:
+./dgraph.cmo: ./dgraph.cmi
+./dgraph.cmx: ./dgraph.cmi
+./file.cmi:
+./util.cmo: ./util.cmi
+./util.cmx: ./util.cmi
+./graph.cmo: repository.cmi quotient.cmi conflicts.cmo ./graph.cmi
+./graph.cmx: repository.cmx quotient.cmx conflicts.cmx ./graph.cmi
+./api.cmi: solver.cmi
+./deb_parser.cmo: util.cmi common.cmi
+./deb_parser.cmx: util.cmx common.cmx
+./quotient.cmi: repository.cmi
+./rpm_lib.cmi: api.cmi
+./util.cmi:
 ./main.cmo: util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi \
     file.cmi deb_lib.cmi api.cmi
 ./main.cmx: util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
     file.cmx deb_lib.cmx api.cmx
-./repository.cmi: api.cmi
-./deb_lib.cmo: util.cmi solver.cmi common.cmi ./deb_lib.cmi
-./deb_lib.cmx: util.cmx solver.cmx common.cmx ./deb_lib.cmi
-./rpm_lib.cmi: api.cmi
-./util.cmi:
-./dgraph.cmi:
-./solver.cmo: ./solver.cmi
-./solver.cmx: ./solver.cmi
-./rpm_lib.cmo: util.cmi solver.cmi common.cmi ./rpm_lib.cmi
-./rpm_lib.cmx: util.cmx solver.cmx common.cmx ./rpm_lib.cmi
-./quotient.cmo: util.cmi repository.cmi ./quotient.cmi
-./quotient.cmx: util.cmx repository.cmx ./quotient.cmi
-./file.cmi:
-./api.cmo: solver.cmi ./api.cmi
-./api.cmx: solver.cmx ./api.cmi
-./conflicts.cmo: repository.cmi quotient.cmi
-./conflicts.cmx: repository.cmx quotient.cmx
+./upgrade.cmo: upgrade_common.cmi quotient.cmi graph.cmi file.cmi deb_lib.cmi
+./upgrade.cmx: upgrade_common.cmx quotient.cmx graph.cmx file.cmx deb_lib.cmx
 ./coinst_common.cmo: repository.cmi quotient.cmi api.cmi ./coinst_common.cmi
 ./coinst_common.cmx: repository.cmx quotient.cmx api.cmx ./coinst_common.cmi
-./graph.cmi: repository.cmi quotient.cmi
+./quotient.cmo: util.cmi repository.cmi ./quotient.cmi
+./quotient.cmx: util.cmx repository.cmx ./quotient.cmi
+./api.cmo: solver.cmi ./api.cmi
+./api.cmx: solver.cmx ./api.cmi
+./upgrade_common.cmo: util.cmi graph.cmi deb_lib.cmi coinst_common.cmi \
+    ./upgrade_common.cmi
+./upgrade_common.cmx: util.cmx graph.cmx deb_lib.cmx coinst_common.cmx \
+    ./upgrade_common.cmi
+./deb_lib.cmo: util.cmi solver.cmi common.cmi ./deb_lib.cmi
+./deb_lib.cmx: util.cmx solver.cmx common.cmx ./deb_lib.cmi
+./common.cmi:
+./repository.cmo: util.cmi api.cmi ./repository.cmi
+./repository.cmx: util.cmx api.cmx ./repository.cmi
+./deb_lib_old.cmo: util.cmi solver.cmi common.cmi
+./deb_lib_old.cmx: util.cmx solver.cmx common.cmx
+./solver.cmo: ./solver.cmi
+./solver.cmx: ./solver.cmi
 ./cudf_lib.cmo: solver.cmi common.cmi ./cudf_lib.cmi
 ./cudf_lib.cmx: solver.cmx common.cmx ./cudf_lib.cmi
-./api.cmi: solver.cmi
-./upgrade_common.cmo: graph.cmi deb_lib.cmi coinst_common.cmi \
-    ./upgrade_common.cmi
-./upgrade_common.cmx: graph.cmx deb_lib.cmx coinst_common.cmx \
-    ./upgrade_common.cmi
-./task.cmo:
-./task.cmx:
-./deb_lib.cmi: api.cmi
-./repository.cmo: api.cmi ./repository.cmi
-./repository.cmx: api.cmx ./repository.cmi
-./dgraph.cmo: ./dgraph.cmi
-./dgraph.cmx: ./dgraph.cmi
-./util.cmo: ./util.cmi
-./util.cmx: ./util.cmi
-./common.cmi:
-./graph.cmo: repository.cmi quotient.cmi conflicts.cmo ./graph.cmi
-./graph.cmx: repository.cmx quotient.cmx conflicts.cmx ./graph.cmi
-./solver.cmi:
-./transition.cmo: upgrade_common.cmi repository.cmi file.cmi deb_lib.cmi
-./transition.cmx: upgrade_common.cmx repository.cmx file.cmx deb_lib.cmx
+./common.cmo: util.cmi ./common.cmi
+./common.cmx: util.cmx ./common.cmi
+./transition.cmo: util.cmi upgrade_common.cmi repository.cmi file.cmi \
+    deb_lib.cmi
+./transition.cmx: util.cmx upgrade_common.cmx repository.cmx file.cmx \
+    deb_lib.cmx
+./deb_lib.cmi: util.cmi solver.cmi api.cmi
+./graph.cmi: repository.cmi quotient.cmi
+./repository.cmi: util.cmi api.cmi
+./dgraph.cmi:

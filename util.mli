@@ -18,3 +18,10 @@ module Timer : sig
 end
 
 module IntSet : Set.S with type elt = int
+
+module ListTbl : sig
+  type ('a, 'b) t
+  val create : int -> ('a, 'b) t
+  val add : ('a, 'b) t -> 'a -> 'b -> unit
+  val iter : ('a -> 'b list -> unit) -> ('a, 'b) t -> unit
+end
