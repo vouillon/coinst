@@ -17,20 +17,6 @@ module PSetMap = Map.Make (PSet)
 
 module Timer = Util.Timer
 
-let get_list' h n =
-  try
-    Hashtbl.find h n
-  with Not_found ->
-    let r = ref [] in
-    Hashtbl.add h n r;
-    r
-
-let add_to_list h n p =
-  let l = get_list' h n in
-  l := p :: !l
-
-let get_list h n = try !(Hashtbl.find h n) with Not_found -> []
-
 (****)
 
 let new_deps pred deps1 dist2 deps2 =
@@ -73,10 +59,12 @@ let new_deps pred deps1 dist2 deps2 =
 
 (****)
 
+module ListTbl = Util.ListTbl
+
 type st =
   { dist : M.pool; deps : Formula.t PTbl.t; confl : Conflict.t;
     pieces : (int, Package.t * Disj.t) Hashtbl.t;
-    pieces_in_confl : (Package.t, int list ref) Hashtbl.t;
+    pieces_in_confl : (Package.t, int) ListTbl.t;
     set : PSet.t;
     installed : IntSet.t; not_installed : IntSet.t;
     check : PSet.t -> bool }
@@ -121,7 +109,7 @@ if debug then Format.printf "Try to add %a => %a@." (Package.print_name st.dist)
            PSet.exists
              (fun q ->
                 List.exists (fun i -> IntSet.mem i st.installed)
-                  (get_list st.pieces_in_confl q))
+                  (ListTbl.find st.pieces_in_confl q))
              (Conflict.of_package st.confl p)
          then
            cont st
@@ -130,7 +118,7 @@ if debug then Format.printf "Try to add %a => %a@." (Package.print_name st.dist)
              (PSet.fold
                 (fun q st -> 
                    List.fold_right (fun j st -> do_add_piece st j cont)
-                     (get_list st.pieces_in_confl q) st)
+                     (ListTbl.find st.pieces_in_confl q) st)
                 (Conflict.of_package st.confl p) st))
       d
       (fun st ->
@@ -141,7 +129,7 @@ i (Disj.print st.dist) d;
             PSet.fold
               (fun q cont ->
                  List.fold_right (fun j cont st -> maybe_add_piece st j cont)
-                   (get_list st.pieces_in_confl q) cont)
+                   (ListTbl.find st.pieces_in_confl q) cont)
               (Conflict.of_package st.confl p) cont)
            d cont st)
       st
@@ -168,7 +156,7 @@ and maybe_add_piece st i cont =
 let find_problems dist deps confl check =
   let pieces = Hashtbl.create 101 in
   let last_piece = ref (-1) in
-  let pieces_in_confl = Hashtbl.create 101 in
+  let pieces_in_confl = ListTbl.create 101 in
   PTbl.iteri
     (fun p f ->
       Formula.iter f
@@ -176,7 +164,7 @@ let find_problems dist deps confl check =
           incr last_piece;
           let i = !last_piece in
           Hashtbl.add pieces i (p, d);
-          Disj.iter d (fun p -> add_to_list pieces_in_confl p i)))
+          Disj.iter d (fun p -> ListTbl.add pieces_in_confl p i)))
     deps;
   let st =
     { dist = dist; deps = deps; confl = confl;

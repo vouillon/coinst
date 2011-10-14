@@ -23,5 +23,7 @@ module ListTbl : sig
   type ('a, 'b) t
   val create : int -> ('a, 'b) t
   val add : ('a, 'b) t -> 'a -> 'b -> unit
+  val find : ('a, 'b) t -> 'a -> 'b list
+  val mem : ('a, 'b) t -> 'a -> bool
   val iter : ('a -> 'b list -> unit) -> ('a, 'b) t -> unit
 end

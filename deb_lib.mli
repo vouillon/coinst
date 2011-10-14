@@ -26,9 +26,9 @@ type p =
 type deb_pool =
   { mutable size : int;
     packages : (string * version, p) Hashtbl.t;
-    packages_by_name : (string, p list ref) Hashtbl.t;
+    packages_by_name : (string, p) Util.ListTbl.t;
     packages_by_num : (int, p) Hashtbl.t;
-    provided_packages : (string, p list ref) Hashtbl.t }
+    provided_packages : (string, p) Util.ListTbl.t }
 
 include Api.S with type reason = deb_reason and type pool = deb_pool
 

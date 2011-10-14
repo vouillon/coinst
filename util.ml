@@ -62,19 +62,16 @@ module ListTbl = struct
 
   let create = Hashtbl.create
 
-  let find' h n =
-    try
-      Hashtbl.find h n
-    with Not_found ->
-      let r = ref [] in
-      Hashtbl.add h n r;
-      r
-
   let add h n p =
-    let l = find' h n in
-    l := p :: !l
+    try
+      let l = Hashtbl.find h n in
+      l := p :: !l
+    with Not_found ->
+      Hashtbl.add h n (ref [p])
 
   let find h n = try !(Hashtbl.find h n) with Not_found -> []
+
+  let mem = Hashtbl.mem
 
   let iter f h = Hashtbl.iter (fun k l -> f k !l) h
 end

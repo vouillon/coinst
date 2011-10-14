@@ -351,10 +351,9 @@ let no_new_source t u nm =
   | _               -> false
 
 let bin_version dist nm =
-  try
-    Some (List.hd !(Hashtbl.find dist.M.packages_by_name nm)).M.version
-  with Not_found ->
-    None
+  match ListTbl.find dist.M.packages_by_name nm with
+    p :: _ -> Some p.M.version
+  | []     -> None
 let same_bin_version t u nm =
   match bin_version t nm, bin_version u nm with
     None, None      -> true
@@ -389,17 +388,14 @@ let reduce_repository_pair (arch, t, u) =
       (fun l ->
          List.iter
            (fun cstr (*(n, _)*) ->
-              try
-                List.iter
-                  (fun q ->
+              List.iter
+                (fun q ->
 (*Format.eprintf "%s -> %s@." p.M.package q.M.package;*)
-                     if add_dep forward_deps p.M.package q.M.package then
-                       ignore (add_dep backward_deps q.M.package p.M.package))
-(*                  (M.resolve_package_dep_raw dist cstr)*)
-                  !(Hashtbl.find dist.M.provided_packages (fst cstr))
-                  (* It does not seem useful to be very precise here...*)
-              with Not_found ->
-                ())
+                   if add_dep forward_deps p.M.package q.M.package then
+                     ignore (add_dep backward_deps q.M.package p.M.package))
+(*              (M.resolve_package_dep_raw dist cstr)*)
+                (ListTbl.find dist.M.provided_packages (fst cstr)))
+                (* It does not seem useful to be very precise here...*)
            l)
       deps
   in
@@ -665,12 +661,18 @@ let t = Timer.start () in
            StringSet.iter
              (fun nm ->
                 let p =
-                  try
-                    List.hd !(Hashtbl.find u'.M.packages_by_name nm)
-                  with Not_found -> try
-                    List.hd !(Hashtbl.find t'.Upgrade_common.dist.M.packages_by_name nm)
-                  with Not_found ->
-                    assert false
+                  match ListTbl.find u'.M.packages_by_name nm with
+                    p :: _ ->
+                      p
+                  | [] ->
+                      match
+                        ListTbl.find
+                          t'.Upgrade_common.dist.M.packages_by_name nm
+                      with
+                        p :: _ ->
+                          p
+                      | [] ->
+                          assert false
                 in
                 no_change ((nm, p.M.version), arch) Conflict)
              s;
@@ -709,21 +711,19 @@ stats l;
             let nm = p.M.package in
             let v = p.M.version in
             if not (Hashtbl.mem unchanged (nm, arch)) then
-              try
-                let v' =
-                  (List.hd !(Hashtbl.find u'.M.packages_by_name nm)).M.version
-                in
-                Format.eprintf "Upgrade binary package %s/%s from %a to %a@."
-                  nm arch M.print_version v M.print_version v'
-              with Not_found ->
-                Format.eprintf "Remove binary package %s/%s@." nm arch)
+              match bin_version u' nm with
+                Some v' ->
+                  Format.eprintf "Upgrade binary package %s/%s from %a to %a@."
+                    nm arch M.print_version v M.print_version v'
+              | None ->
+                  Format.eprintf "Remove binary package %s/%s@." nm arch)
          t'.M.packages_by_num;
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
             if not (Hashtbl.mem unchanged (nm, arch)) then
-              if not (Hashtbl.mem t'.M.packages_by_name nm) then
-              Format.eprintf "Adding binary package %s/%s@." nm arch)
+              if not (ListTbl.mem t'.M.packages_by_name nm) then
+                Format.eprintf "Adding binary package %s/%s@." nm arch)
          u'.M.packages_by_num)
     l;
 

@@ -323,35 +323,23 @@ let print_version ch v =
 
 (****)
 
+module ListTbl = Util.ListTbl
+
 type deb_pool =
   { mutable size : int;
     packages : (string * version, p) Hashtbl.t;
-    packages_by_name : (string, p list ref) Hashtbl.t;
+    packages_by_name : (string, p) ListTbl.t;
     packages_by_num : (int, p) Hashtbl.t;
-    provided_packages : (string, p list ref) Hashtbl.t }
+    provided_packages : (string, p) ListTbl.t }
 
 type pool = deb_pool
 
 let new_pool () =
   { size = 0;
     packages = Hashtbl.create 32768;
-    packages_by_name = Hashtbl.create 32768;
+    packages_by_name = ListTbl.create 32768;
     packages_by_num = Hashtbl.create 32768;
-    provided_packages = Hashtbl.create 32768 }
-
-let get_package_list' h n =
-  try
-    Hashtbl.find h n
-  with Not_found ->
-    let r = ref [] in
-    Hashtbl.add h n r;
-    r
-
-let add_to_package_list h n p =
-  let l = get_package_list' h n in
-  l := p :: !l
-
-let get_package_list h n = try !(Hashtbl.find h n) with Not_found -> []
+    provided_packages = ListTbl.create 32768 }
 
 let insert_package pool p =
   if not (Hashtbl.mem pool.packages (p.package, p.version)) then begin
@@ -359,12 +347,12 @@ let insert_package pool p =
     pool.size <- pool.size + 1;
     Hashtbl.add pool.packages (p.package, p.version) p;
     Hashtbl.add pool.packages_by_num p.num p;
-    add_to_package_list pool.packages_by_name p.package p;
-    add_to_package_list pool.provided_packages p.package p;
+    ListTbl.add pool.packages_by_name p.package p;
+    ListTbl.add pool.provided_packages p.package p;
     List.iter
       (fun l ->
          match l with
-           [(n, None)] -> add_to_package_list pool.provided_packages n p
+           [(n, None)] -> ListTbl.add pool.provided_packages n p
          | _           -> assert false)
       p.provides
   end
@@ -623,11 +611,11 @@ let filter_rel rel c =
 let resolve_package_dep_raw pool (n, cstr) =
   match cstr with
     None ->
-      get_package_list pool.provided_packages n
+      ListTbl.find pool.provided_packages n
   | Some (rel, vers) ->
       List.filter
         (fun p -> filter_rel rel (compare_version p.version vers))
-        (get_package_list pool.packages_by_name n)
+        (ListTbl.find pool.packages_by_name n)
 
 let resolve_package_dep pool d =
   List.map (fun p -> p.num) (resolve_package_dep_raw pool d)
@@ -641,9 +629,9 @@ let generate_rules pool =
   let st = Common.start_generate (not !print_rules) pool.size in
   let pr = Solver.initialize_problem ~print_var:(print_pack pool) pool.size in
   (* Cannot install two packages with the same name *)
-  Hashtbl.iter
+  ListTbl.iter
     (fun _ l ->
-       add_conflict pr None (List.map (fun p -> p.num) !l))
+       add_conflict pr None (List.map (fun p -> p.num) l))
     pool.packages_by_name;
   Hashtbl.iter
     (fun _ p ->
@@ -719,9 +707,9 @@ let generate_rules_restricted pool s =
              (List.map (fun p -> resolve_package_dep pool p) c)))
   done;
   (* Cannot install two packages with the same name *)
-  Hashtbl.iter
+  ListTbl.iter
     (fun _ l ->
-       add_conflict pr None (List.map (fun p -> p.num) !l))
+       add_conflict pr None (List.map (fun p -> p.num) l))
     pool.packages_by_name;
   Solver.propagate pr;
   pr
@@ -736,7 +724,7 @@ let parse_package_dependency pool s =
   resolve_package_dep pool d
 
 let parse_package_name pool s =
-  List.map (fun p -> p.num) (get_package_list pool.packages_by_name s)
+  List.map (fun p -> p.num) (ListTbl.find pool.packages_by_name s)
 
 let parse_version s =
   let st = from_string s in
@@ -788,7 +776,7 @@ let check pool st =
                   (print_pack pool) p.num;
                 exit 1
               end)
-           !(Hashtbl.find pool.packages_by_name p.package);
+           (ListTbl.find pool.packages_by_name p.package);
          if p.depends <> [] then begin
            Format.printf "Depends: ";
            List.iter
@@ -899,7 +887,7 @@ let conflicts_in_reasons rl =
 (*XXX Build the array directly *)
 let compute_conflicts pool =
   let conflict_pairs = Hashtbl.create 1000 in
-  let conflicts = Hashtbl.create 1000 in
+  let conflicts = ListTbl.create 1000 in
   Hashtbl.iter
     (fun _ p ->
        List.iter
@@ -907,15 +895,15 @@ let compute_conflicts pool =
             let pair = (min n p.num, max n p.num) in
             if n <> p.num && not (Hashtbl.mem conflict_pairs pair) then begin
               Hashtbl.add conflict_pairs pair ();
-              add_to_package_list conflicts p.num n;
-              add_to_package_list conflicts n p.num
+              ListTbl.add conflicts p.num n;
+              ListTbl.add conflicts n p.num
             end)
          (normalize_set
             (List.flatten
                (List.map (fun p -> resolve_package_dep pool (single p))
                    (p.breaks @ p.conflicts)))))
     pool.packages;
-  Array.init pool.size (fun i -> get_package_list conflicts i)
+  Array.init pool.size (fun i -> ListTbl.find conflicts i)
 
 let compute_deps dist =
   Array.init dist.size (fun i ->
@@ -937,19 +925,10 @@ let pool_size p = p.size
 
 (****)
 
-(*
-type pool =
-  { mutable size : int;
-    packages : (string * version, p) Hashtbl.t;
-    packages_by_name : (string, p list ref) Hashtbl.t;
-    packages_by_num : (int, p) Hashtbl.t;
-    provided_packages : (string, p list ref) Hashtbl.t }
-*)
-
 let only_latest pool' =
   let pool = new_pool () in
-  Hashtbl.iter
-    (fun _ {contents = l} ->
+  ListTbl.iter
+    (fun _ l ->
        let l =
          List.sort (fun p1 p2 -> - compare_version p1.version p2.version) l in
        insert_package pool {(List.hd l) with num = pool.size})
