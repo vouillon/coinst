@@ -835,3 +835,4 @@ Arg.parse
   ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS\n\
     \n\
     Options:");
+f()
