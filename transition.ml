@@ -1,14 +1,5 @@
 (*
-Constraints
-===========
-* hints age-days/urgency
-* generate small easy hints
-==> Fixes:
-    - age and new packages?
-    - Do not propagate empty source files
-    - bin-NMU???
-* deal correctly with Urgency file
-
+- generate small easy hints
 
 - Different policies: conservative, greedy
   (behavior when disjunction: skip all/one)
@@ -45,7 +36,7 @@ let urgency_delay u =
   | "emergency" -> 0
   | _           -> assert false
 
-let default_urgency = "low"
+let default_urgency = urgency_delay "low"
 
 (****)
 
@@ -98,6 +89,7 @@ module ListTbl = Util.ListTbl
 
 let whitespaces = Str.regexp "[ \t]+"
 let comma = Str.regexp ","
+let slash = Str.regexp "/"
 
 let now = truncate ((Unix.time () /. 3600. -. 15.) /. 24.)
 
@@ -110,7 +102,7 @@ let read_package_info file f =
       match Str.split whitespaces l with
         [name; version; info] ->
           let version = Deb_lib.parse_version version in
-          Hashtbl.add h (name, version) (f info)
+          Hashtbl.add h name (version, f info)
       | _ ->
           assert false
     done;
@@ -151,12 +143,16 @@ type hint =
   { h_block : (string, unit) Hashtbl.t;
     h_block_udeb : (string, unit) Hashtbl.t;
 (*    unblock : (string, Deb_lib.version) Hashtbl.t;*)
+    h_urgent : (string, Deb_lib.version) Hashtbl.t;
+    h_age_days : (string, Deb_lib.version option * int) Hashtbl.t
   }
 
 let read_hints dir =
   let hints =
     { h_block = Hashtbl.create 16;
-      h_block_udeb = Hashtbl.create 16 }
+      h_block_udeb = Hashtbl.create 16;
+      h_urgent = Hashtbl.create 16;
+      h_age_days = Hashtbl.create 16 }
   in
   let files = Sys.readdir dir in
   Array.sort compare files;
@@ -182,6 +178,28 @@ let read_hints dir =
                List.iter (fun p -> Hashtbl.replace hints.h_block p ()) l
            | "block-udeb" :: l ->
                List.iter (fun p -> Hashtbl.replace hints.h_block_udeb p ()) l
+           | "urgent" :: l ->
+               List.iter
+                 (fun p ->
+                    match Str.split slash p with
+                      [nm; v] -> Hashtbl.replace hints.h_urgent
+                                   nm (Deb_lib.parse_version v)
+                    | _       -> ())
+                 l
+           | "age-days" :: n :: l ->
+               let n = int_of_string n in
+               List.iter
+                 (fun p ->
+                    match Str.split slash p with
+                      [nm; v] ->
+                        let v =
+                          if v = "-" then None else
+                          Some (Deb_lib.parse_version v)
+                        in
+                        Hashtbl.replace hints.h_age_days nm (v, n)
+                    | _ ->
+                       ())
+                 l
            | _ ->
                ()
          done
@@ -421,7 +439,8 @@ let reduce_repository_pair (arch, t, u) =
       (fun _ p ->
          add_deps d2 p p.M.depends;
          add_deps d2 p p.M.pre_depends;
-         add_conflicts d2 p p.M.conflicts)
+         add_conflicts d2 p p.M.conflicts;
+         add_conflicts d2 p p.M.breaks)
       d1.M.packages_by_num
   in
   compute_package_deps t t; compute_package_deps t u;
@@ -455,7 +474,8 @@ let m = ref 0 in
 incr m;
     let nm = p.M.package in
     if not (StringSet.mem nm !pkgs) then begin
-      p.M.depends <- []; p.M.pre_depends <- []
+      p.M.depends <- []; p.M.pre_depends <- [];
+      p.M.conflicts <- []; p.M.breaks <- []
     end
 else incr n
   in
@@ -537,13 +557,50 @@ let f() =
   Format.eprintf "Loading: %f@." (Timer.stop load_t);
 
   let init_t = Timer.start () in
-  let old_enough src =
-    let d = try Hashtbl.find dates src with Not_found -> now in
-    let u = try Hashtbl.find urgencies src with Not_found -> 10 in
+  let old_enough nm uv tv =
+    let d =
+      try
+        let (v, d) = Hashtbl.find dates nm in
+        if M.compare_version uv v = 0 then d else now
+      with Not_found ->
+        now
+    in
+    let u =
+      if
+        try
+          M.compare_version uv (Hashtbl.find hints.h_urgent nm) = 0
+        with Not_found ->
+          false
+      then
+        0
+      else
+        try
+          let (v, d) = Hashtbl.find hints.h_age_days nm in
+          if
+            match v with
+              Some v -> M.compare_version v uv <> 0
+            | None   -> false
+          then
+            raise Not_found;
+          d
+        with Not_found ->
+          match tv with
+            None ->
+              default_urgency
+          | Some v ->
+              let l =
+                List.filter
+                  (fun (v', d) ->
+                     M.compare_version v v' < 0 &&
+                     M.compare_version v' uv <= 0)
+                  (Hashtbl.find_all urgencies nm)
+              in
+              List.fold_left (fun u (_, u') -> min u u') default_urgency l
+    in
 (*
   Format.eprintf ">>> %s (= %a) => %d %d@." p.M.package M.print_version p.M.version (now - d) u;
 *)
-    2 + now >= d + u
+    now >= d + u
   in
   let get_bugs src bugs p =
     try Hashtbl.find bugs p with Not_found -> StringSet.empty
@@ -566,10 +623,11 @@ let f() =
          no_change ((nm, v), "source") Blocked
        else begin
          (* Do not propagate a source package if not old enough *)
-         if not (old_enough (nm, v)) then
+         let v' = source_version t nm in
+         if not (old_enough nm v v') then
            no_change ((nm, v), "source") Too_young;
          (* Do not propagate a source package if it has more bugs *)
-         let is_new = source_version t nm = None in
+         let is_new = v' = None in
          if
            not (no_new_bugs is_new nm && no_new_bugs is_new ("src:" ^ nm))
          then
