@@ -157,18 +157,11 @@ let read_bugs file =
   close_in ch;
   h
 
-(*
-block
-age-days
-urgent
-*)
 type hint =
   { h_block : (string, unit) Hashtbl.t;
     h_block_udeb : (string, unit) Hashtbl.t;
-(*    unblock : (string, Deb_lib.version) Hashtbl.t;*)
     h_urgent : (string, Deb_lib.version) Hashtbl.t;
-    h_age_days : (string, Deb_lib.version option * int) Hashtbl.t
-  }
+    h_age_days : (string, Deb_lib.version option * int) Hashtbl.t }
 
 let read_hints dir =
   let hints =
@@ -246,24 +239,6 @@ let read_extra_info () =
 module M = Deb_lib
 module Repository = Repository.F(M)
 open Repository
-
-(*
-let package_files suite arch sect =
-  [Filename.concat dir
-     (Format.sprintf "%s/%s/binary-%s/Packages%s" suite sect arch ext);
-   Filename.concat dir
-     (Format.sprintf "%s/%s/debian-installer/binary-%s/Packages%s"
-        suite sect arch ext)]
-
-let bin_package_files suite arch =
-  List.flatten (List.map (fun sect -> package_files suite arch sect) sects)
-
-let src_package_file suite sect =
-  Filename.concat dir (Format.sprintf "%s/%s/source/Sources%s" suite sect ext)
-
-let src_package_files suite =
-  List.map (fun sect -> src_package_file suite sect) sects
-*)
 
 let bin_package_files suite arch =
   [Filename.concat !dir (Format.sprintf "%s/Packages_%s" suite arch)]
@@ -369,12 +344,6 @@ let all_or_none pkgs reason =
             if p1 <> p2 then associates p1 p2 reason)
          pkgs)
     pkgs
-
-(*
-Expectation:
-   all binary packages have a corresponding source package of the same name
-   (if not, in unstable, not propagated)
-*)
 
 (****)
 
@@ -538,17 +507,6 @@ if print_stats then begin
            not (same_bin_version t' u' nm ||
                 Hashtbl.mem unchanged (nm, arch))
          then begin
-           if not (StringSet.mem nm !s) then begin
-(*
-             let pr_vers dist f nm =
-               match bin_version dist nm with
-                   None -> Format.fprintf f "ABSENT"
-                 | Some v -> M.print_version f v
-             in
-             Format.printf "Change: %s %a -> %a@."
-               nm (pr_vers t') nm (pr_vers u') nm
-*)
-           end;
            s := StringSet.add nm !s
          end
        in
