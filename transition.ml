@@ -690,7 +690,7 @@ let f() =
               if M.compare_version v v' <> 0 then
                 no_change pkg (Not_yet_built (nm, v, v'));
               (* Do not upgrade a package if it has more bugs *)
-              let is_new = bin_version t' nm = None in
+              let is_new = bin_version t' p.M.package = None in
               if not (no_new_bugs is_new p.M.package) then
                 no_change pkg More_bugs;
               if not (same_source_version t u (fst p.M.source)) then begin
