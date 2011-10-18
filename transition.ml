@@ -21,6 +21,10 @@ RULES
 - Generic solver
 - We may want to reduce the repositories several times, and possibly
   reduce the number of packages in each repository
+
+TESTS
+=====
+export TIMEFORMAT="%R"; for i in t/*; do echo -n "$i: "; time ~/Mancoosi/transition -input $i/var/data/ -heidi /tmp/foo >& /tmp/log`basename $i` && diff -u  $i/expected /tmp/foo; done
 *)
 
 let dir = ref (Filename.concat (Sys.getenv "HOME") "debian-dists/britney")
@@ -31,6 +35,7 @@ let ext = ".bz2"
 (****)
 
 let hint_file = ref "-"
+let heidi_file = ref ""
 let offset = ref 0
 
 (****)
@@ -728,6 +733,7 @@ let f() =
     l;
 Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
+  let l0 = l in
   let l = reduce_repositories l in
   stats l;
 
@@ -850,7 +856,47 @@ stats l;
     let ch = open_out !hint_file in
     print_hints (Format.formatter_of_out_channel ch);
     close_out ch
+  end;
+  let print_heidi ch =
+    let lines = ref [] in
+    let add_line nm vers arch =
+      let b = Buffer.create 80 in
+      Format.bprintf b "%s %a %s@." nm M.print_version vers arch;
+      lines := Buffer.contents b :: !lines
+    in
+    let output_lines ch =
+      List.iter (output_string ch) (List.sort compare !lines); lines := []
+    in
+    List.iter
+      (fun (arch, t, u) ->
+         let is_preserved nm = Hashtbl.mem unchanged (nm, arch) in
+         Hashtbl.iter
+           (fun _ p ->
+              let nm = p.M.package in
+              if is_preserved nm then add_line nm p.M.version arch)
+           t.M.packages_by_num;
+         Hashtbl.iter
+           (fun _ p ->
+              let nm = p.M.package in
+              if not (is_preserved nm) then add_line nm p.M.version arch)
+           u.M.packages_by_num;
+         output_lines ch)
+      (List.sort (fun (arch, _, _) (arch', _, _) -> compare arch arch') l0);
+    let is_preserved nm = Hashtbl.mem unchanged (nm, "source") in
+    Hashtbl.iter
+      (fun nm vers -> if is_preserved nm then add_line nm vers "source")
+      t;
+    Hashtbl.iter
+      (fun nm vers -> if not (is_preserved nm) then add_line nm vers "source")
+      u;
+    output_lines ch; flush ch
+  in
+  if !heidi_file <> "" then begin
+    let ch = open_out !heidi_file in
+    print_heidi ch;
+    close_out ch
   end
+    
 
 let _ =
 Arg.parse
@@ -860,6 +906,9 @@ Arg.parse
    "-hints",
    Arg.String (fun f -> hint_file := f),
    "FILE      Output hints to FILE";
+   "-heidi",
+   Arg.String (fun f -> heidi_file := f),
+   "FILE      Output Heidi results to FILE";
    "-offset",
    Arg.Int (fun n -> offset := n),
    "N      Move N days into the future"]
