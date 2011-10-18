@@ -548,6 +548,10 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
              r;
            all_pkgs := PSet.union !all_pkgs !pkgs;
            let ppkgs = problematic_packages dist1 deps1 confl1 dist2 pred r in
+(*
+PSet.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
+Format.printf "==> %a@." (Formula.print dist1) ppkgs;
+*)
            (s, nm, !pkgs, deps, confl, ppkgs))
         (PSetSet.elements !results)
     end

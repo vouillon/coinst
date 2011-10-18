@@ -1,5 +1,18 @@
 (*
 - generate small easy hints
+- when reducing the repositories, do not build intermediate tables (?)
+  except for conflicts
+
+RULES
+=====
+- old binary of libhunspell-1.2-0 still in unstable ==> what should we do?
+  (do as if it was not there?)
+- should be aware of arch:all packages (or not?)
+
+- report current problems
+  ==> what packages was not propagated just due to problems
+  ==> what packages will not be propagated
+
 
 - Different policies: conservative, greedy
   (behavior when disjunction: skip all/one)
@@ -18,6 +31,7 @@ let ext = ".bz2"
 (****)
 
 let hint_file = ref "-"
+let offset = ref 0
 
 (****)
 
@@ -390,108 +404,121 @@ let no_new_bin t u nm =
 (****)
 
 let reduce_repository_pair (arch, t, u) =
-  let forward_deps = Hashtbl.create 32768 in
-  let backward_deps =  Hashtbl.create 32768 in
-  let add_dep h p q =
-    let s =
-      try
-        Hashtbl.find h p
-      with Not_found ->
-        let s = ref StringSet.empty in
-        Hashtbl.add h p s;
-        s
-    in
-    let is_new = not (StringSet.mem q !s) in
-    if is_new then s := StringSet.add q !s;
-    is_new
-  in
-  let add_deps dist p deps =
-    List.iter
-      (fun l ->
-         List.iter
-           (fun cstr (*(n, _)*) ->
-              List.iter
-                (fun q ->
-(*Format.eprintf "%s -> %s@." p.M.package q.M.package;*)
-                   if add_dep forward_deps p.M.package q.M.package then
-                     ignore (add_dep backward_deps q.M.package p.M.package))
-(*              (M.resolve_package_dep_raw dist cstr)*)
-                (ListTbl.find dist.M.provided_packages (fst cstr)))
-                (* It does not seem useful to be very precise here...*)
-           l)
-      deps
-  in
+  let conflicts = ListTbl.create 101 in
   let add_conflicts dist p confls =
     List.iter
       (fun l ->
          List.iter
            (fun cstr ->
-              try
-                List.iter
-                  (fun q ->
-(*Format.eprintf "%s ## %s@." p.M.package q.M.package;*)
-                     ignore (add_dep forward_deps p.M.package q.M.package);
-                     ignore (add_dep forward_deps q.M.package p.M.package))
-                  (M.resolve_package_dep_raw dist cstr)
-              with Not_found ->
-                ())
+              List.iter
+                (fun q ->
+                   ListTbl.add conflicts p.M.package q.M.package;
+                   ListTbl.add conflicts q.M.package p.M.package)
+                (M.resolve_package_dep_raw dist cstr))
            l)
       confls
   in
-  let compute_package_deps d1 d2 =
+  let compute_package_conflicts d1 d2 =
     Hashtbl.iter
       (fun _ p ->
-         add_deps d2 p p.M.depends;
-         add_deps d2 p p.M.pre_depends;
          add_conflicts d2 p p.M.conflicts;
          add_conflicts d2 p p.M.breaks)
       d1.M.packages_by_num
   in
-  compute_package_deps t t; compute_package_deps t u;
-  compute_package_deps u t; compute_package_deps u u;
-  let pkgs = ref StringSet.empty in
-  let rec add_package p =
-    if not (StringSet.mem p !pkgs) then begin
-(*Format.eprintf "%s@." p;*)
-      pkgs := StringSet.add p !pkgs;
-      StringSet.iter add_package
-        (try !(Hashtbl.find forward_deps p) with Not_found -> StringSet.empty)
-    end
-  in
+  compute_package_conflicts t t; compute_package_conflicts t u;
+  compute_package_conflicts u t; compute_package_conflicts u u;
+
+  let changed_packages = Hashtbl.create 101 in
   let consider_package _ p =
     let nm = p.M.package in
-    if
-      not (same_bin_version t u nm ||
-           Hashtbl.mem unchanged (nm, arch))
-    then begin
-(*Format.eprintf "====@.";*)
-      add_package nm;
-      StringSet.iter add_package
-        (try !(Hashtbl.find backward_deps nm) with Not_found -> StringSet.empty)
-    end
+    if not (Hashtbl.mem unchanged (nm, arch)) then
+      Hashtbl.replace changed_packages nm ()
   in
   Hashtbl.iter consider_package t.M.packages_by_num;
   Hashtbl.iter consider_package u.M.packages_by_num;
-let n = ref 0 in
-let m = ref 0 in
-  let simplify_package _ p =
-incr m;
-    let nm = p.M.package in
-    if not (StringSet.mem nm !pkgs) then begin
-      p.M.depends <- []; p.M.pre_depends <- [];
-      p.M.conflicts <- []; p.M.breaks <- []
+
+  let pkgs = Hashtbl.create 1024 in
+  let rec add_package p =
+    if not (Hashtbl.mem pkgs p) then begin
+      Hashtbl.add pkgs p ();
+      List.iter add_package (ListTbl.find conflicts p);
+      List.iter follow_deps (ListTbl.find t.M.packages_by_name p);
+      if Hashtbl.mem changed_packages p then
+        List.iter follow_deps (ListTbl.find u.M.packages_by_name p)
     end
-else incr n
+  and follow_deps p =
+    follow_deps_2 t p; follow_deps_2 u p
+  and follow_deps_2 d p =
+    follow_deps_3 d p.M.depends; follow_deps_3 d p.M.pre_depends
+  and follow_deps_3 d deps =
+    List.iter
+      (fun l ->
+         List.iter
+           (fun (nm, _) ->
+              List.iter
+                (fun q -> add_package q.M.package)
+                (ListTbl.find d.M.provided_packages nm))
+           l)
+      deps
   in
-  Hashtbl.iter simplify_package t.M.packages_by_num;
-  Hashtbl.iter simplify_package u.M.packages_by_num
-;Format.eprintf "==> %d/%d@." !n !m
+
+  (* Changed packages should be kept. *)
+  Hashtbl.iter (fun p _ -> add_package p) changed_packages;
+
+  (* Packages unchanged but with stronger dependencies should be kept
+     as well *)
+  let stronger_deps l =
+    (* Check whether there is a package that satisfies the dependency,
+       that might not satisfy the dependency anymore. *)
+    List.exists
+      (fun d ->
+         List.exists
+           (fun cstr ->
+              List.exists
+                (fun p ->
+                   (* If the package is left unchanged, the dependency
+                      will remain satisfied *)
+                   Hashtbl.mem changed_packages p.M.package &&
+                   (* Otherwise, we check whether a replacement exists,
+                      that still satisfies the dependency *)
+                   List.for_all
+                     (fun cstr' ->
+                        List.for_all
+                          (fun p' -> p.M.package <> p'.M.package)
+                          (M.resolve_package_dep_raw u cstr'))
+                     d)
+                (M.resolve_package_dep_raw t cstr))
+           d)
+      l
+  in
+  Hashtbl.iter
+    (fun _ p ->
+       if not (Hashtbl.mem pkgs p.M.package) then
+         if stronger_deps p.M.depends || stronger_deps p.M.pre_depends then
+           add_package p.M.package)
+    t.M.packages_by_num;
+
+  let n = ref 0 in
+  let m = ref 0 in
+  let filter p =
+    incr m;
+    let nm = p.M.package in
+    let keep = Hashtbl.mem pkgs nm in
+    if keep then incr n;
+    keep
+  in
+  let t' = M.new_pool () in
+  M.merge2 t' filter t;
+  let u' = M.new_pool () in
+  M.merge2 u' filter u;
+  Format.eprintf "==> %d/%d@." !n !m;
+  (arch, t', u')
 
 let reduce_repositories l =
   let t = Timer.start () in
-  List.iter reduce_repository_pair l;
-  Format.eprintf "Reducing repositories: %f@." (Timer.stop t)
-
+  let l = List.map reduce_repository_pair l in
+  Format.eprintf "Reducing repositories: %f@." (Timer.stop t);
+  l
 
 
 let stats l =
@@ -604,7 +631,7 @@ let f() =
 (*
   Format.eprintf ">>> %s (= %a) => %d %d@." p.M.package M.print_version p.M.version (now - d) u;
 *)
-    now >= d + u
+    now + !offset >= d + u
   in
   let get_bugs src bugs p =
     try Hashtbl.find bugs p with Not_found -> StringSet.empty
@@ -685,9 +712,11 @@ let f() =
        Hashtbl.iter
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
+(*FIX: compare with package source version?*)
             if not (same_source_version t u (fst p.M.source)) then begin
               (* We cannot remove a source package if a corresponding
                  binary package still exists. *)
+ (*FIX: disable this only for libraries?*)
               associates
                 (p.M.source, "source") pkg (Binary_not_propagated pkg);
               (* We cannot remove a binary without removing its source *)
@@ -699,7 +728,7 @@ let f() =
     l;
 Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
-  reduce_repositories l;
+  let l = reduce_repositories l in
   stats l;
 
   let l' =
@@ -830,7 +859,10 @@ Arg.parse
    "DIR       Select directory containing britney data";
    "-hints",
    Arg.String (fun f -> hint_file := f),
-   "FILE      Output hints to FILE"]
+   "FILE      Output hints to FILE";
+   "-offset",
+   Arg.Int (fun n -> offset := n),
+   "N      Move N days into the future"]
   (fun p -> ())
   ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS\n\
     \n\
