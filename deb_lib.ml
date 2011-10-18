@@ -8,8 +8,6 @@ type st =
     mutable eof : bool;
     input : string -> int -> int -> int }
 
-let at_eof st = st.eof
-
 let start_token st = st.start <- st.pos
 
 let get_token st ofs =
@@ -84,7 +82,9 @@ let rec find st c =
     find st c
   end
 
-let at_eof st = st.eof
+let at_eof st =
+  if st.pos = st.last then refill st;
+  st.eof
 
 (****)
 
