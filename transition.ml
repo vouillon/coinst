@@ -21,16 +21,24 @@ RULES
 - Generic solver
 - We may want to reduce the repositories several times, and possibly
   reduce the number of packages in each repository
-
-TESTS
-=====
-export TIMEFORMAT="%R"; for i in t/*; do echo -n "$i: "; time ~/Mancoosi/transition -input $i/var/data/ -heidi /tmp/foo >& /tmp/log`basename $i` && diff -u  $i/expected /tmp/foo; done
 *)
 
 let dir = ref (Filename.concat (Sys.getenv "HOME") "debian-dists/britney")
 let archs = ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
 let sects = ["main"; "contrib"; "non-free"]
 let ext = ".bz2"
+
+let options = Hashtbl.create 17
+let get_option key def =
+  try
+    match Hashtbl.find options key with
+      [s] -> s
+    | _   -> assert false
+  with Not_found ->
+    def
+
+let testing () = get_option "TESTING" (Filename.concat !dir "testing")
+let unstable () = get_option "UNSTABLE" (Filename.concat !dir "unstable")
 
 (****)
 
@@ -44,7 +52,7 @@ let print_stats = false
 
 let atomic = true
 let atomic_bin_nmus = atomic
-let no_removal = true
+let no_removal = ref true
 
 let verbose = false
 
@@ -136,7 +144,7 @@ let read_package_info file f =
 let read_dates file = read_package_info file int_of_string
 
 let read_urgencies file =
-  let cache = Filename.concat !dir "cache/Urgencies" in
+  let cache = Filename.concat (unstable ()) ".cache/Urgencies" in
   cached [file] cache (fun () -> read_package_info file urgency_delay)
 
 let read_bugs file =
@@ -226,12 +234,11 @@ let read_hints dir =
   hints
 
 let read_extra_info () =
-  let britney_file f = Filename.concat !dir f in
-  let dates = read_dates (britney_file "testing/Dates") in
-  let urgencies = read_urgencies (britney_file "testing/Urgency") in
-  let testing_bugs = read_bugs (britney_file "testing/BugsV") in
-  let unstable_bugs = read_bugs (britney_file "unstable/BugsV") in
-  let hints = read_hints  (britney_file "unstable/Hints") in
+  let dates = read_dates (Filename.concat (testing ()) "Dates") in
+  let urgencies = read_urgencies (Filename.concat (testing ()) "Urgency") in
+  let testing_bugs = read_bugs (Filename.concat (testing ()) "BugsV") in
+  let unstable_bugs = read_bugs (Filename.concat (unstable ()) "BugsV") in
+  let hints = read_hints  (Filename.concat (unstable ()) "Hints") in
   (dates, urgencies, testing_bugs, unstable_bugs, hints)
 
 (****)
@@ -241,10 +248,9 @@ module Repository = Repository.F(M)
 open Repository
 
 let bin_package_files suite arch =
-  [Filename.concat !dir (Format.sprintf "%s/Packages_%s" suite arch)]
+  [Filename.concat suite (Format.sprintf "Packages_%s" arch)]
 
-let src_package_files suite =
-  [Filename.concat !dir (Format.sprintf "%s/Sources" suite)]
+let src_package_files suite = [Filename.concat suite "Sources"]
 
 let load_bin_packages suite arch =
   let files = bin_package_files suite arch in
@@ -519,7 +525,10 @@ end
 
 (****)
 
-let f() =
+let f () =
+  let archs =
+    try Hashtbl.find options "ARCHITECTURES" with Not_found -> archs in
+
   let load_t = Timer.start () in
   let (dates, urgencies, testing_bugs, unstable_bugs, hints) =
     read_extra_info () in
@@ -527,26 +536,26 @@ let f() =
     List.flatten
       (List.map
          (fun arch ->
-            bin_package_files "testing" arch @
-            bin_package_files "unstable" arch)
+            bin_package_files (testing ()) arch @
+            bin_package_files (unstable ()) arch)
          archs)
   in
-  let cache = Filename.concat !dir "cache/Packages" in
+  let cache = Filename.concat (unstable ()) ".cache/Packages" in
   let l =
     cached files cache (fun () ->
     List.map
       (fun arch ->
          (arch,
-          load_bin_packages "testing" arch,
-          load_bin_packages "unstable" arch))
+          load_bin_packages (testing ()) arch,
+          load_bin_packages (unstable ()) arch))
       archs)
   in
   let files =
-    src_package_files "testing" @ src_package_files "unstable" in
-  let cache = Filename.concat !dir "cache/Sources" in
+    src_package_files (testing ()) @ src_package_files (unstable ()) in
+  let cache = Filename.concat (unstable ()) ".cache/Sources" in
   let (t, u) =
     cached files cache (fun () ->
-      (load_src_packages "testing", load_src_packages "unstable"))
+      (load_src_packages (testing ()), load_src_packages (unstable ())))
   in
   Format.eprintf "Loading: %f@." (Timer.stop load_t);
 
@@ -628,7 +637,7 @@ let f() =
            no_change ((nm, v), "source") More_bugs
        end)
     u;
-  if no_removal then begin
+  if !no_removal then begin
     Hashtbl.iter
       (fun nm v ->
          if source_version u nm = None then
@@ -854,7 +863,27 @@ stats l;
     print_heidi ch;
     close_out ch
   end
-    
+
+let read_conf f =
+  let ch = open_in f in
+  begin try
+    while true do
+      let l = input_line ch in
+      let l = Str.split whitespaces l in
+      match l with
+        [] ->
+          ()
+      | s :: _ when s.[0] = '#' ->
+         ()
+      | k :: "=" :: l ->
+          Hashtbl.replace options k l
+      | _ ->
+          assert false
+    done
+  with End_of_file -> () end;
+  close_in ch;
+  heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
+  no_removal := false
 
 let _ =
 Arg.parse
@@ -867,6 +896,21 @@ Arg.parse
    "-heidi",
    Arg.String (fun f -> heidi_file := f),
    "FILE      Output Heidi results to FILE";
+   "-c",
+   Arg.String read_conf,
+   "FILE      Read britney config FILE";
+   "--control-files",
+   Arg.Unit (fun () -> ()),
+   "          Currently ignored";
+   "--auto-hinter",
+   Arg.Unit (fun () -> ()),
+   "          Currently ignored";
+   "-v",
+   Arg.Unit (fun () -> ()),
+   "          Currently ignored";
+   "--compatible",
+   Arg.Unit (fun () -> ()),
+   "          Currently ignored";
    "-offset",
    Arg.Int (fun n -> offset := n),
    "N      Move N days into the future"]
