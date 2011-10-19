@@ -55,6 +55,7 @@ module type S = sig
     val implies1 : Package.t -> t -> bool
     val to_lit : t -> Package.t option
     val to_lits : t -> PSet.t
+    val of_lits : PSet.t -> t
   end
 
   module Formula : sig
@@ -163,6 +164,7 @@ module F (M : Api.S) = struct
     let implies1 = PSet.mem
     let to_lit l = if PSet.cardinal l = 1 then Some (PSet.choose l) else None
     let to_lits l = l
+    let of_lits l = l
     let filter = PSet.filter
 
     let normalize d =  pset_map (fun i -> i) d

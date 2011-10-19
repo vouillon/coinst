@@ -51,6 +51,7 @@ module type S = sig
     val implies1 : Package.t -> t -> bool
     val to_lit : t -> Package.t option
     val to_lits : t -> PSet.t
+    val of_lits : PSet.t -> t
   end
 
   module Formula : sig

@@ -45,6 +45,7 @@ let unstable () = get_option "UNSTABLE" (Filename.concat !dir "unstable")
 let hint_file = ref "-"
 let heidi_file = ref ""
 let offset = ref 0
+let small_hints = ref false
 
 (****)
 
@@ -525,6 +526,200 @@ end
 
 (****)
 
+type easy_hint =
+  { mutable h_names : (string * string) list;
+    mutable h_pkgs : (string * string) list;
+    mutable h_live : bool }
+
+module Union_find = struct
+
+type 'a link =
+    Link of 'a t
+  | Value of 'a
+
+and 'a t =
+  { mutable state : 'a link }
+
+let rec repr t =
+  match t.state with
+    Link t' ->
+      let r = repr t' in
+      t.state <- Link r;
+      r
+  | Value _ ->
+      t
+
+let rec get t =
+  match (repr t).state with
+    Link _  -> assert false
+  | Value v -> v
+
+let merge t t' =
+  let t = repr t in
+  let t' = repr t' in
+  t'.state <- Link t
+
+let elt v = { state = Value v }
+
+end
+
+let generate_small_hints buckets l =
+  let to_consider = ref [] in
+  ListTbl.iter
+    (fun (src, arch) l ->
+       let info = {h_names = [(src, arch)]; h_pkgs = l; h_live = true} in
+       let elt = Union_find.elt info in
+       to_consider := (info, elt) :: !to_consider)
+    buckets;
+  let package_repr = Hashtbl.create 101 in
+  List.iter
+    (fun (info, elt) ->
+       List.iter (fun p -> Hashtbl.add package_repr p elt) info.h_pkgs)
+    !to_consider;
+
+  let l =
+    List.map
+      (fun (arch, t', u') -> (arch, Upgrade_common.prepare_analyze t', u'))
+      l
+  in
+  List.iter
+    (fun (info, elt) ->
+       while
+         info.h_live &&
+         List.exists
+           (fun (arch, t, u) ->
+              let h = Hashtbl.create 101 in
+              List.iter
+                (fun (p, arch') -> if arch' = arch then Hashtbl.add h p ())
+                info.h_pkgs;
+              let filter p =
+                let res =
+                  not (Hashtbl.mem h p)
+                in
+(*
+                if not res then begin
+                let v1 =
+                  (List.hd (ListTbl.find u.M.packages_by_name p)).M.version in
+                  try
+                let v2 = match ListTbl.find t.Upgrade_common.dist.M.packages_by_name p with [p] -> p.M.version | _ -> raise Not_found
+                in
+                Format.eprintf "%s %a %a@." p M.print_version v1 M.print_version v2
+                  with Not_found ->
+                Format.eprintf "%s %a@." p M.print_version v1
+
+                end;
+*)
+                res
+              in
+              let pkgs =
+                Upgrade_common.find_problematic_packages
+                  ~check_new_packages:true ~reversed:true ~policy:`Conservative
+                  t u filter
+              in
+              if not (StringSet.is_empty pkgs) then begin
+                Format.eprintf "BROKEN: ";
+                StringSet.iter (fun p -> Format.eprintf " %s" p) pkgs;
+                Format.eprintf "@."
+              end;
+              StringSet.iter
+                (fun nm ->
+                  let elt' = Hashtbl.find package_repr (nm, arch) in
+                  if Union_find.repr elt != Union_find.repr elt' then begin
+                    let info' = Union_find.get elt' in
+                    assert (info'.h_live);
+                    Union_find.merge elt elt';
+(*
+List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info.h_pkgs;
+Format.printf " /";
+List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info'.h_pkgs;
+Format.printf "@.";
+*)
+                    info.h_names <- info'.h_names @ info.h_names;
+                    info.h_pkgs <- info'.h_pkgs @ info.h_pkgs;
+                    info'.h_live <- false
+                  end)
+                pkgs;
+              not (StringSet.is_empty pkgs))
+           l
+       do () done)
+    !to_consider;
+  (*XXX Should iterate one more time to check that previous upgrade do
+    not break further ones... *)
+
+  let l = List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
+  List.map (fun info -> info.h_names) l
+
+let generate_hints l =
+  let l =
+    List.map
+      (fun (arch, t, u) ->
+         let filter p = Hashtbl.mem unchanged (p.M.package, arch) in
+         let u' = M.new_pool () in
+         M.merge2 u' (fun p -> not (filter p)) u;
+         M.merge2 u' filter t;
+         (arch, t, u'))
+      l
+  in
+  let l = reduce_repositories l in
+  let changes = ListTbl.create 101 in
+  List.iter
+    (fun (arch, t, u) ->
+       Hashtbl.iter
+         (fun _ p ->
+            let nm = p.M.package in
+            if not (Hashtbl.mem unchanged (nm, arch)) then begin
+              let (src, v) = p.M.source in
+              ListTbl.add changes src (arch, nm, v)
+            end)
+         u.M.packages_by_num)
+    l;
+  let buckets = ListTbl.create 101 in
+  let versions = Hashtbl.create 101 in
+  ListTbl.iter
+    (fun src l ->
+       if not (Hashtbl.mem unchanged (src, "source")) then
+         List.iter
+           (fun (arch, nm, v) ->
+              Hashtbl.replace versions (src, "source") v;
+              ListTbl.add buckets (src, "source") (nm, arch))
+           l
+       else
+         List.iter
+           (fun (arch, nm, v) ->
+              Hashtbl.replace versions (src, arch) v;
+              ListTbl.add buckets (src, arch) (nm, arch))
+           l)
+    changes;
+  let l = if !small_hints then generate_small_hints buckets l else [] in
+  let print_pkg f src arch =
+    let vers = Hashtbl.find versions (src, arch) in
+    if arch = "source" then
+      Format.fprintf f " %s/%a" src M.print_version vers
+    else
+      Format.fprintf f " %s/%s/%a" src arch M.print_version vers
+  in
+  let print_hint f l =
+    Format.fprintf f "easy";
+    List.iter (fun (src, arch) -> print_pkg f src arch) l;
+    Format.fprintf f "@."
+  in
+  let print_hints f =
+    if not !small_hints then begin
+      Format.fprintf f "easy";
+      ListTbl.iter (fun (src, arch) _ -> print_pkg f src arch) buckets;
+      Format.fprintf f "@."
+    end;
+    List.iter (fun names -> print_hint f names) l
+  in
+  print_hints Format.std_formatter;
+  if !hint_file <> "-" then begin
+    let ch = open_out !hint_file in
+    print_hints (Format.formatter_of_out_channel ch);
+    close_out ch
+  end
+
+(****)
+
 let f () =
   let archs =
     try Hashtbl.find options "ARCHITECTURES" with Not_found -> archs in
@@ -718,7 +913,7 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 let step_t = Timer.start () in
            let s =
              Upgrade_common.find_problematic_packages
-               ~check_new_packages:true t' u'
+               ~check_new_packages:true ~policy:`Greedy t' u'
                (fun nm -> Hashtbl.mem unchanged (nm, arch))
            in
 let t = Timer.start () in
@@ -791,39 +986,8 @@ stats l;
          u'.M.packages_by_num)
     l;
 
-  let changes = ListTbl.create 101 in
-  List.iter
-    (fun (arch, t', u') ->
-       Hashtbl.iter
-         (fun _ p ->
-            let nm = p.M.package in
-            if not (Hashtbl.mem unchanged (nm, arch)) then begin
-              let (src, v) = p.M.source in
-              ListTbl.add changes src (arch, v)
-            end)
-         u'.M.packages_by_num)
-    l;
-  let print_hints f =
-    Format.fprintf f "easy";
-    ListTbl.iter
-      (fun nm l ->
-         let (_, v) = List.hd l in
-         if not (Hashtbl.mem unchanged (nm, "source")) then
-           Format.fprintf f " %s/%a" nm M.print_version v
-         else
-           List.iter
-             (fun (arch, v) ->
-                Format.fprintf f " %s/%s/%a" nm arch M.print_version v)
-             l)
-      changes;
-    Format.fprintf f "@."
-  in
-  print_hints Format.std_formatter;
-  if !hint_file <> "-" then begin
-    let ch = open_out !hint_file in
-    print_hints (Format.formatter_of_out_channel ch);
-    close_out ch
-  end;
+  generate_hints l;
+
   let print_heidi ch =
     let lines = ref [] in
     let add_line nm vers arch =
@@ -911,9 +1075,12 @@ Arg.parse
    "--compatible",
    Arg.Unit (fun () -> ()),
    "          Currently ignored";
+   "-small",
+   Arg.Unit (fun () -> small_hints := true),
+   "          Generate small hints";
    "-offset",
    Arg.Int (fun n -> offset := n),
-   "N      Move N days into the future"]
+   "N         Move N days into the future"]
   (fun p -> ())
   ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS\n\
     \n\

@@ -17,17 +17,15 @@ val prepare_analyze : pool -> state
 
 val analyze :
   ?check_new_packages:bool ->
-  state ->
-  pool ->
-  Formula.t PTbl.t *
-  Formula.t PTbl.t *
+  ?reference:(pool * Formula.t PTbl.t * Conflict.t) ->
+  state -> pool ->
+  Formula.t PTbl.t * Formula.t PTbl.t *
   Deb_lib.Solver.var PTbl.t * Deb_lib.Solver.state * PSetSet.t *
-  PSet.t * Conflict.t *
-  PSet.t PTbl.t *
-  (PSet.t * string * PSet.t *
-   Formula.t PTbl.t * Conflict.t *
-   Formula.t)
-  list * PSet.t
+  PSet.t * Conflict.t * PSet.t PTbl.t *
+  (PSet.t * string * PSet.t * Formula.t PTbl.t * Conflict.t * Disj.t) list *
+  (Package.t * Repository.Disj.t) list
 
 val find_problematic_packages :
-  ?check_new_packages:bool -> state -> pool -> (string -> bool) -> StringSet.t
+  ?check_new_packages:bool -> ?reversed:bool ->
+  policy:[`Conservative | `Greedy] ->
+  state -> pool -> (string -> bool) -> StringSet.t

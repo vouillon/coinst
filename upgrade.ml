@@ -263,7 +263,7 @@ let graphs =
          PSetMap.add s'
            (Formula.conj
               (try PSetMap.find s' !prob_pkgs with Not_found -> Formula._true)
-              ppkgs)
+              (Formula.of_disj ppkgs))
            !prob_pkgs;
        PSet.for_all
          (fun p -> try Hashtbl.find repr p = p with Not_found -> false) s)
