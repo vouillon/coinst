@@ -644,9 +644,9 @@ let t = Timer.start () in
   Format.printf ">>> %a@." (Formula.print ~compact:true ref_dist) problems;
   Format.printf ">>>";
   List.iter (fun (p, d) ->
-    Format.printf " %a" (Package.print dist2) p;
+    Format.printf " %a" (Package.print_name dist2) p;
     if not (PSet.is_empty (Disj.to_lits d)) then
-      Format.printf " | %a" (Disj.print dist1) d)
+      Format.printf " | %a" (Disj.print ~compact:true ref_dist) d)
     broken_new_packages;
   Format.printf "@.";
 

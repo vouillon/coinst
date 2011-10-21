@@ -1,4 +1,16 @@
 (*
+- Generate explanations
+
+- Find what it takes to install a package
+  ==> iterative: relax the problem until we can install the package
+  ==> with clause learning
+
+- parallelise the program: one process per architecture
+
+
+XXX What if some bin packages are removed and there are no bin packages
+to replace them?
+
 - generate small easy hints
 - when reducing the repositories, do not build intermediate tables (?)
   except for conflicts
@@ -582,64 +594,78 @@ let generate_small_hints buckets l =
       (fun (arch, t', u') -> (arch, Upgrade_common.prepare_analyze t', u'))
       l
   in
+  let n = List.length !to_consider in
+  let i = ref 0 in
   List.iter
     (fun (info, elt) ->
+incr i;
+if info.h_live then begin
+Format.eprintf "%d/%d:" !i n;
+List.iter (fun (p, arch) -> Format.eprintf " %s/%s" p arch) info.h_names;
+Format.eprintf "@."
+end;
        while
          info.h_live &&
          List.exists
            (fun (arch, t, u) ->
               let h = Hashtbl.create 101 in
+              let empty = ref true in
               List.iter
-                (fun (p, arch') -> if arch' = arch then Hashtbl.add h p ())
+                (fun (p, arch') ->
+                   if arch' = arch then begin
+                     Hashtbl.add h p (); empty := false
+                   end)
                 info.h_pkgs;
-              let filter p =
-                let res =
-                  not (Hashtbl.mem h p)
-                in
-(*
-                if not res then begin
-                let v1 =
-                  (List.hd (ListTbl.find u.M.packages_by_name p)).M.version in
-                  try
-                let v2 = match ListTbl.find t.Upgrade_common.dist.M.packages_by_name p with [p] -> p.M.version | _ -> raise Not_found
-                in
-                Format.eprintf "%s %a %a@." p M.print_version v1 M.print_version v2
-                  with Not_found ->
-                Format.eprintf "%s %a@." p M.print_version v1
+              if !empty then false else begin
+                let filter p =
+                  let res =
+                    not (Hashtbl.mem h p)
+                  in
+  (*
+                  if not res then begin
+                  let v1 =
+                    (List.hd (ListTbl.find u.M.packages_by_name p)).M.version in
+                    try
+                  let v2 = match ListTbl.find t.Upgrade_common.dist.M.packages_by_name p with [p] -> p.M.version | _ -> raise Not_found
+                  in
+                  Format.eprintf "%s %a %a@." p M.print_version v1 M.print_version v2
+                    with Not_found ->
+                  Format.eprintf "%s %a@." p M.print_version v1
 
+                  end;
+  *)
+                  res
+                in
+                let pkgs =
+                  Upgrade_common.find_problematic_packages
+                    ~check_new_packages:true ~reversed:true ~policy:`Conservative
+                    t u filter
+                in
+                if not (StringSet.is_empty pkgs) then begin
+                  Format.eprintf "BROKEN: ";
+                  StringSet.iter (fun p -> Format.eprintf " %s" p) pkgs;
+                  Format.eprintf "@."
                 end;
-*)
-                res
-              in
-              let pkgs =
-                Upgrade_common.find_problematic_packages
-                  ~check_new_packages:true ~reversed:true ~policy:`Conservative
-                  t u filter
-              in
-              if not (StringSet.is_empty pkgs) then begin
-                Format.eprintf "BROKEN: ";
-                StringSet.iter (fun p -> Format.eprintf " %s" p) pkgs;
-                Format.eprintf "@."
-              end;
-              StringSet.iter
-                (fun nm ->
-                  let elt' = Hashtbl.find package_repr (nm, arch) in
-                  if Union_find.repr elt != Union_find.repr elt' then begin
-                    let info' = Union_find.get elt' in
-                    assert (info'.h_live);
-                    Union_find.merge elt elt';
-(*
-List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info.h_pkgs;
-Format.printf " /";
-List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info'.h_pkgs;
-Format.printf "@.";
-*)
-                    info.h_names <- info'.h_names @ info.h_names;
-                    info.h_pkgs <- info'.h_pkgs @ info.h_pkgs;
-                    info'.h_live <- false
-                  end)
-                pkgs;
-              not (StringSet.is_empty pkgs))
+                StringSet.iter
+                  (fun nm ->
+                    let elt' = Hashtbl.find package_repr (nm, arch) in
+                    if Union_find.repr elt != Union_find.repr elt' then begin
+                      let info' = Union_find.get elt' in
+                      assert (info'.h_live);
+                      Union_find.merge elt elt';
+  (*
+  List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info.h_pkgs;
+  Format.printf " /";
+  List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info'.h_pkgs;
+  Format.printf "@.";
+  *)
+                      info.h_names <- info'.h_names @ info.h_names;
+                      info.h_pkgs <- info'.h_pkgs @ info.h_pkgs;
+                      info'.h_live <- false
+                    end)
+                  pkgs;
+                not (StringSet.is_empty pkgs)
+              end)
            l
        do () done)
     !to_consider;
@@ -669,9 +695,21 @@ let generate_hints l =
             let nm = p.M.package in
             if not (Hashtbl.mem unchanged (nm, arch)) then begin
               let (src, v) = p.M.source in
-              ListTbl.add changes src (arch, nm, v)
+              ListTbl.add changes src (arch, nm, Some v)
             end)
-         u.M.packages_by_num)
+         u.M.packages_by_num;
+       Hashtbl.iter
+         (fun _ p ->
+            let nm = p.M.package in
+            if
+              not (Hashtbl.mem unchanged (nm, arch))
+                &&
+              not (ListTbl.mem u.M.packages_by_name nm)
+            then begin
+              let (src, v) = p.M.source in
+              ListTbl.add changes src (arch, nm, None)
+            end)
+         t.M.packages_by_num)
     l;
   let buckets = ListTbl.create 101 in
   let versions = Hashtbl.create 101 in
@@ -680,23 +718,32 @@ let generate_hints l =
        if not (Hashtbl.mem unchanged (src, "source")) then
          List.iter
            (fun (arch, nm, v) ->
-              Hashtbl.replace versions (src, "source") v;
+              begin match v with
+                Some v -> Hashtbl.replace versions (src, "source") v
+              | None   -> ()
+              end;
               ListTbl.add buckets (src, "source") (nm, arch))
            l
        else
          List.iter
            (fun (arch, nm, v) ->
-              Hashtbl.replace versions (src, arch) v;
+              begin match v with
+                Some v -> Hashtbl.replace versions (src, arch) v
+              | None   -> ()
+              end;
               ListTbl.add buckets (src, arch) (nm, arch))
            l)
     changes;
   let l = if !small_hints then generate_small_hints buckets l else [] in
   let print_pkg f src arch =
+try
     let vers = Hashtbl.find versions (src, arch) in
     if arch = "source" then
       Format.fprintf f " %s/%a" src M.print_version vers
     else
       Format.fprintf f " %s/%s/%a" src arch M.print_version vers
+with Not_found ->
+Format.fprintf f " ***%s/%s***" src arch
   in
   let print_hint f l =
     Format.fprintf f "easy";
