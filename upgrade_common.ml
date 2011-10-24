@@ -178,14 +178,20 @@ let find_problems dist deps confl check =
 
 (****)
 
-let problematic_packages ?reference dist1 deps1 confl1 dist2 pred reasons =
-  let (dist1, deps1, confl1) =
-    match reference with Some st -> st | None -> (dist1, deps1, confl1) in
-  let get_pred = if reference = None then (fun p -> PTbl.get pred p) else
-   fun p ->
-    let nm =
-      (Hashtbl.find dist2.M.packages_by_num (Package.index p)).M.package in
-    match ListTbl.find dist1.M.packages_by_name nm with
+type state =
+  { dist : M.deb_pool;
+    deps : Formula.t PTbl.t;
+    confl : Conflict.t;
+    deps' : Formula.t PTbl.t;
+    confl' : Conflict.t;
+    st : M.Solver.state }
+
+(****)
+
+let problematic_packages dist1_state dist2 reasons =
+  let get_pred p =
+    let nm = M.package_name dist2 (Package.index p) in
+    match ListTbl.find dist1_state.dist.M.packages_by_name nm with
       [p] -> p.M.num
     | _   -> -1
   in
@@ -199,7 +205,7 @@ let problematic_packages ?reference dist1 deps1 confl1 dist2 pred reasons =
                (List.map Package.of_index
                   (List.flatten (List.map (M.resolve_package_dep dist) l)))
            in
-           let d1 = resolve_dep dist1 l in
+           let d1 = resolve_dep dist1_state.dist l in
            let d2 = resolve_dep dist2 l in
            let s2 =
              Disj.fold
@@ -208,25 +214,27 @@ let problematic_packages ?reference dist1 deps1 confl1 dist2 pred reasons =
                   if i = -1 then s else PSet.add (Package.of_index i) s)
                d2 PSet.empty
            in
-           let delta = PSet.diff (Disj.to_lits d1) s2 in
+           let i1 = get_pred p in
            let is_new d =
-             let i1 = get_pred p in
-             i1 <> -1 &&
              not (Formula.implies1
-                    (PTbl.get deps1 (Package.of_index i1)) d)
+                    (PTbl.get dist1_state.deps (Package.of_index i1)) d)
            in
-           if is_new (Disj.lit_disj (PSet.elements s2)) then begin
+           if i1 <> -1 && is_new (Disj.lit_disj (PSet.elements s2)) then begin
 (*
 Format.eprintf "NEW %a %d %b %a %a@." (Package.print dist2) p (PSet.cardinal delta) (is_new d1);
 *)
              let s =
                if is_new d1 then
-                 Disj.disj s
-                   (Disj.lit (Package.of_index (get_pred p)))
+                 StringSet.add (M.package_name dist1_state.dist i1) s
                else
                  s
              in
-             Disj.disj s (Disj.of_lits delta)
+             let delta = PSet.diff (Disj.to_lits d1) s2 in
+             PSet.fold
+               (fun p s ->
+                  StringSet.add
+                    (M.package_name dist1_state.dist (Package.index p)) s)
+               delta s
            end else
              s
        | M.R_conflict (i2, j2, Some (k2, l)) ->
@@ -236,38 +244,31 @@ Format.eprintf "NEW %a %d %b %a %a@." (Package.print dist2) p (PSet.cardinal del
            let j1 = get_pred q2 in
            if
              i1 <> -1 && j1 <> -1 &&
-             not (Conflict.check confl1
+             not (Conflict.check dist1_state.confl
                     (Package.of_index i1) (Package.of_index j1))
            then begin
              (* If the conflict did already exist, we should not upgrade k;
                 otherwise, we should not upgrade l *)
              let confls =
-               List.flatten (List.map (M.resolve_package_dep dist1) l) in
+               List.flatten
+                 (List.map (M.resolve_package_dep dist1_state.dist) l) in
              let p = (min i1 j1, max i1 j1) in
              let k1 = get_pred (Package.of_index k2) in
              if
                List.exists (fun k1' -> p = (min k1 k1', max k1 k1')) confls
              then begin
-               Disj.disj s (Disj.lit (Package.of_index k1))
+               StringSet.add (M.package_name dist1_state.dist k1) s
              end else begin
                let k1' = if i1 = k1 then j1 else i1 in
-               Disj.disj s (Disj.lit (Package.of_index k1'))
+               StringSet.add (M.package_name dist1_state.dist k1') s
              end
            end else
              s
        | M.R_conflict (_, _, None) ->
            s)
-    Disj._false reasons
+    StringSet.empty reasons
 
 (****)
-
-type state =
-  { dist : M.deb_pool;
-    deps : Formula.t PTbl.t;
-    confl : Conflict.t;
-    deps' : Formula.t PTbl.t;
-    confl' : Conflict.t;
-    st : M.Solver.state }
 
 let prepare_analyze dist =
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
@@ -322,9 +323,6 @@ let t = Timer.start () in
              (Package.print_name dist1) q1;
   end;
            new_conflicts := (p2, q2) :: !new_conflicts;
-  (*XXXXX????
-           Conflict.remove confl2 p2 q2
-  *)
          end
        end);
 
@@ -581,13 +579,17 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
                           (Formula.of_disj (Disj.lit_disj l))))
               r;
             all_pkgs := PSet.union !all_pkgs !pkgs;
-            let ppkgs =
-              problematic_packages ?reference dist1 deps1 confl1 dist2 pred r in
+            let pos = problematic_packages dist1_state dist2 r in
+            let neg =
+              match reference with
+                Some st -> problematic_packages st dist2 r
+              | None    -> StringSet.empty
+            in
  (*
  PSet.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
  Format.printf "==> %a@." (Formula.print dist1) ppkgs;
  *)
-            (s, nm, !pkgs, deps, confl, ppkgs))
+            (s, nm, !pkgs, deps, confl, (pos, neg)))
          (PSetSet.elements !results),
        PSet.fold
          (fun p s ->
@@ -596,10 +598,15 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
             assert (not res);
             let r = M.Solver.collect_reasons st2init i in
             M.Solver.reset st2init;
-            let ppkgs =
-              problematic_packages ?reference dist1 deps1 confl1 dist2 pred r
+            let pos = problematic_packages dist1_state dist2 r in
+            let neg =
+              match reference with
+                Some st -> problematic_packages st dist2 r
+              | None    -> StringSet.empty
             in
-            (p, ppkgs) :: s)
+            (p,
+             (StringSet.add (M.package_name dist2 (Package.index p)) pos, neg))
+            :: s)
          !broken_new_packages [])
     end
   in
@@ -612,70 +619,53 @@ Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
 (****)
 
 let rec find_problematic_packages
-          ?(check_new_packages = false) ?(reversed = false) ~policy
-          dist1_state dist2' is_preserved =
-  let {dist = dist1} = dist1_state in
+          ?(check_new_packages = false)
+          dist1_state dist2_state is_preserved =
 let t = Timer.start () in
   let dist2 = M.new_pool () in
-  M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2';
-  M.merge2 dist2 (fun p -> is_preserved p.M.package) dist1;
+  M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
+  M.merge2 dist2 (fun p -> is_preserved p.M.package) dist1_state.dist;
 Format.eprintf "  Building target dist: %f@." (Timer.stop t);
 
-  let reference =
-    if reversed then
-      let (deps2, confl2) = 
-      Coinst.compute_dependencies_and_conflicts dist2' in
-      Some (dist2', deps2, confl2)
-    else
-      None
-  in
   let (deps1, deps2, pred, st2,
        results, all_pkgs, all_conflicts,
        dep_src, graphs, broken_new_packages) =
-    analyze ~check_new_packages ?reference dist1_state dist2
+    analyze ~check_new_packages ~reference:dist2_state dist1_state dist2
   in
 let t = Timer.start () in
   let problems =
     List.fold_left
-      (fun f (s, _, _, _, _, ppkgs) -> Formula.conj f (Formula.of_disj ppkgs))
-      Formula._true graphs
+      (fun f (s, _, _, _, _, ppkgs) -> ppkgs :: f)
+      [] graphs
   in
-  let ref_dist = if reversed then dist2' else dist1 in
-  Format.printf ">>> %a@." (Formula.print ~compact:true ref_dist) problems;
-  Format.printf ">>>";
-  List.iter (fun (p, d) ->
-    Format.printf " %a" (Package.print_name dist2) p;
-    if not (PSet.is_empty (Disj.to_lits d)) then
-      Format.printf " | %a" (Disj.print ~compact:true ref_dist) d)
-    broken_new_packages;
-  Format.printf "@.";
-
-let res =
-  Formula.fold
-    (fun d s ->
-       if policy = `Conservative then
-         Disj.fold
-           (fun p s ->
-              StringSet.add (M.package_name ref_dist (Package.index p)) s)
-           d s
-       else
-         StringSet.add
-           (M.package_name ref_dist
-              (Package.index (PSet.choose (Disj.to_lits d))))
-           s)
-    problems
-    (List.fold_left
-       (fun s (p, d) ->
-          StringSet.add (M.package_name dist2 (Package.index p))
-            (if policy = `Conservative then
-               Disj.fold
-                 (fun p s ->
-                    StringSet.add
-                      (M.package_name ref_dist (Package.index p)) s)
-                 d s
-             else
-               s))
-       StringSet.empty broken_new_packages)
-in
+  let problems =
+    List.fold_left (fun f (_, ppkgs) -> ppkgs :: f)
+      problems broken_new_packages
+  in
+  Format.printf ">>> %a@."
+    (Util.print_list
+       (fun ch (pos, neg) ->
+          Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
+            (StringSet.elements neg);
+          if not (StringSet.is_empty pos || StringSet.is_empty neg) then
+            Format.fprintf ch " | ";
+          Util.print_list (fun f -> Format.fprintf f "%s") " | " ch
+            (StringSet.elements pos))
+       ", ")
+    problems;
+(*
+  if policy = `Conservative then
+    List.fold_left
+      (fun d (s, _) -> StringSet.union s d) StringSet.empty problems
+  else
+    let has_singletons =
+      List.exists (fun (s, _) -> StringSet.cardinal s = 1) problems
+    in
+    List.fold_left
+      (fun d (s, _) ->
+         if has_singletons && StringSet.cardinal s > 1 then d else
+         StringSet.add (StringSet.choose s) d)
+    StringSet.empty problems
+*)
 Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
-res
+  problems

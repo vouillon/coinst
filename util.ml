@@ -75,3 +75,22 @@ module ListTbl = struct
 
   let iter f h = Hashtbl.iter (fun k l -> f k !l) h
 end
+
+(****)
+
+let print_list pr sep ch l =
+  match l with
+    []     -> ()
+  | x :: r -> pr ch x; List.iter (fun x -> Format.fprintf ch "%s%a" sep pr x) r
+
+(****)
+
+let rec make_directories f =
+  let f = Filename.dirname f in
+  if not (Sys.file_exists f) then begin
+    try
+      Unix.mkdir f (0o755)
+    with Unix.Unix_error (Unix.ENOENT, _, _) ->
+      make_directories f;
+      Unix.mkdir f (0o755)
+  end

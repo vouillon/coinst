@@ -27,3 +27,11 @@ module ListTbl : sig
   val mem : ('a, 'b) t -> 'a -> bool
   val iter : ('a -> 'b list -> unit) -> ('a, 'b) t -> unit
 end
+
+val print_list :
+  (Format.formatter -> 'a -> unit) -> string ->
+  Format.formatter -> 'a list -> unit
+
+val make_directories : string -> unit
+(* Make sure that the directory containing the file given in argument
+   exists. *)

@@ -67,7 +67,7 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = false
+let verbose = true
 
 (****)
 
@@ -84,16 +84,6 @@ let default_urgency = urgency_delay "low"
 
 (****)
 
-let rec make_directories f =
-  let f = Filename.dirname f in
-  if not (Sys.file_exists f) then begin
-    try
-      Unix.mkdir f (0o755)
-    with Unix.Unix_error (Unix.ENOENT, _, _) ->
-      make_directories f;
-      Unix.mkdir f (0o755)
-  end
-
 let cached files cache f =
   let should_compute =
     try
@@ -107,7 +97,7 @@ let cached files cache f =
   if should_compute then begin
     let res = f () in
     let tmp = cache ^ ".tmp" in
-    make_directories tmp;
+    Util.make_directories tmp;
     let ch = open_out tmp in
     Marshal.to_channel ch res [];
     close_out ch;
@@ -147,6 +137,8 @@ let read_package_info file f =
         [name; version; info] ->
           let version = Deb_lib.parse_version version in
           Hashtbl.add h name (version, f info)
+      | [] ->
+          ()
       | _ ->
           assert false
     done;
@@ -294,7 +286,7 @@ type reason =
   | Blocked
   | Too_young
   | More_bugs
-  | Conflict
+  | Conflict of StringSet.t
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated of (string * M.version)
   | Binary_not_propagated of ((string * M.version) * string)
@@ -311,8 +303,13 @@ let print_reason f reason =
       Format.fprintf f "not old enough"
   | More_bugs ->
       Format.fprintf f "has more bugs"
-  | Conflict ->
-      Format.fprintf f "add conflicts"
+  | Conflict s ->
+      if StringSet.is_empty s then
+        Format.fprintf f "cannot be installed"
+      else begin
+        Format.fprintf f "relies propagation of binary packages";
+        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s
+      end
   | Not_yet_built (src, v1, v2) ->
       Format.fprintf f "not yet rebuilt (source %s %a rather than %a)"
         src M.print_version v1 M.print_version v2
@@ -591,7 +588,10 @@ let generate_small_hints buckets l =
 
   let l =
     List.map
-      (fun (arch, t', u') -> (arch, Upgrade_common.prepare_analyze t', u'))
+      (fun (arch, t', u') ->
+         (arch,
+          Upgrade_common.prepare_analyze t',
+          Upgrade_common.prepare_analyze u'))
       l
   in
   let n = List.length !to_consider in
@@ -636,10 +636,14 @@ end;
   *)
                   res
                 in
-                let pkgs =
+                let problems =
                   Upgrade_common.find_problematic_packages
-                    ~check_new_packages:true ~reversed:true ~policy:`Conservative
-                    t u filter
+                    ~check_new_packages:true t u filter
+                in
+                let pkgs =
+                  List.fold_left
+                    (fun s (s', _) -> StringSet.union s s')
+                    StringSet.empty problems
                 in
                 if not (StringSet.is_empty pkgs) then begin
                   Format.eprintf "BROKEN: ";
@@ -686,7 +690,6 @@ let generate_hints l =
          (arch, t, u'))
       l
   in
-  let l = reduce_repositories l in
   let changes = ListTbl.create 101 in
   List.iter
     (fun (arch, t, u) ->
@@ -734,7 +737,12 @@ let generate_hints l =
               ListTbl.add buckets (src, arch) (nm, arch))
            l)
     changes;
-  let l = if !small_hints then generate_small_hints buckets l else [] in
+  let hints =
+    if !small_hints then
+      generate_small_hints buckets (reduce_repositories l)
+    else
+      []
+  in
   let print_pkg f src arch =
 try
     let vers = Hashtbl.find versions (src, arch) in
@@ -756,7 +764,7 @@ Format.fprintf f " ***%s/%s***" src arch
       ListTbl.iter (fun (src, arch) _ -> print_pkg f src arch) buckets;
       Format.fprintf f "@."
     end;
-    List.iter (fun names -> print_hint f names) l
+    List.iter (fun names -> print_hint f names) hints
   in
   print_hints Format.std_formatter;
   if !hint_file <> "-" then begin
@@ -948,7 +956,10 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
   let l' =
     List.map
-      (fun (arch, t', u') -> (arch, Upgrade_common.prepare_analyze t', u'))
+      (fun (arch, t', u') ->
+         (arch,
+          Upgrade_common.prepare_analyze t',
+          Upgrade_common.prepare_analyze u'))
       l
   in
   while
@@ -958,36 +969,47 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
          Format.printf "==================== %s@." arch;
          while
 let step_t = Timer.start () in
-           let s =
+           let problems =
              Upgrade_common.find_problematic_packages
-               ~check_new_packages:true ~policy:`Greedy t' u'
+               ~check_new_packages:true t' u'
                (fun nm -> Hashtbl.mem unchanged (nm, arch))
            in
 let t = Timer.start () in
-           StringSet.iter
-             (fun nm ->
-                let p =
-                  match ListTbl.find u'.M.packages_by_name nm with
-                    p :: _ ->
-                      p
-                  | [] ->
-                      match
-                        ListTbl.find
-                          t'.Upgrade_common.dist.M.packages_by_name nm
-                      with
-                        p :: _ ->
-                          p
-                      | [] ->
-                          assert false
-                in
-                no_change ((nm, p.M.version), arch) Conflict)
-             s;
+           let has_singletons =
+             List.exists (fun (s, _) -> StringSet.cardinal s = 1) problems
+           in
+           let arch_changed = ref false in
+           List.iter
+             (fun (pos, neg) ->
+                if
+                  not (has_singletons && StringSet.cardinal pos > 1)
+                then begin
+                  let nm = StringSet.choose pos in
+                  let p =
+                    match
+                      ListTbl.find u'.Upgrade_common.dist.M.packages_by_name nm
+                    with
+                      p :: _ ->
+                        p
+                    | [] ->
+                        match
+                          ListTbl.find
+                            t'.Upgrade_common.dist.M.packages_by_name nm
+                        with
+                          p :: _ ->
+                            p
+                        | [] ->
+                            assert false
+                  in
+                  arch_changed := true;
+                  no_change ((nm, p.M.version), arch) (Conflict neg)
+                end)
+             problems;
 Format.eprintf "  New constraints: %f@." (Timer.stop t);
 Format.eprintf "Step duration: %f@." (Timer.stop step_t);
-           let non_empty = not (StringSet.is_empty s) in
-           if non_empty then changed := true;
+           if !arch_changed then changed := true;
 stats l;
-           non_empty
+           !arch_changed
          do () done)
       l';
 stats l;
@@ -1097,19 +1119,26 @@ let read_conf f =
   no_removal := false
 
 let _ =
-Arg.parse
+let spec =
+  Arg.align
   ["-input",
    Arg.String (fun d -> dir := d),
    "DIR       Select directory containing britney data";
-   "-hints",
-   Arg.String (fun f -> hint_file := f),
-   "FILE      Output hints to FILE";
-   "-heidi",
-   Arg.String (fun f -> heidi_file := f),
-   "FILE      Output Heidi results to FILE";
    "-c",
    Arg.String read_conf,
    "FILE      Read britney config FILE";
+   "-hints",
+   Arg.String (fun f -> hint_file := f),
+   "FILE      Output hints to FILE";
+   "-small",
+   Arg.Unit (fun () -> small_hints := true),
+   "          Generate small hints";
+   "-heidi",
+   Arg.String (fun f -> heidi_file := f),
+   "FILE      Output Heidi results to FILE";
+   "-offset",
+   Arg.Int (fun n -> offset := n),
+   "N         Move N days into the future";
    "--control-files",
    Arg.Unit (fun () -> ()),
    "          Currently ignored";
@@ -1121,15 +1150,13 @@ Arg.parse
    "          Currently ignored";
    "--compatible",
    Arg.Unit (fun () -> ()),
-   "          Currently ignored";
-   "-small",
-   Arg.Unit (fun () -> small_hints := true),
-   "          Generate small hints";
-   "-offset",
-   Arg.Int (fun n -> offset := n),
-   "N         Move N days into the future"]
-  (fun p -> ())
+   "          Currently ignored"]
+in
+Arg.parse spec (fun p -> ())
   ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS\n\
+    Computes which packages can migrate from sid to testing.\n\
+    Takes as input either a britney data directory (option -input)\n\
+    or a britney config file (option -c).\n\
     \n\
     Options:");
 f()

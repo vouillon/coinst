@@ -119,6 +119,7 @@ let parse_stanza ~start ~field ~finish st =
   end
 
 let parse_stanzas ~start ~field ~finish st =
+  skip_blank_lines st;
   while not (at_eof st) do
     parse_stanza ~start ~field ~finish st
   done

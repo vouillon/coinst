@@ -51,9 +51,12 @@ let pipe cmd ic =
 let has_magic ch s =
   let l = String.length s in
   let buf = String.create l in
-  really_input ch buf 0 l;
-  seek_in ch (pos_in ch - l);
-  buf = s
+  let i = ref 0 in
+  while
+    !i < l && (let n = input ch buf !i (l - !i) in i := !i + n; n > 0)
+  do () done;
+  if !i > 0 then seek_in ch (pos_in ch - !i);
+  !i = l && buf = s
 
 let filter ch =
   if has_magic ch "\031\139" then pipe "exec gzip -cd" ch else

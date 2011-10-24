@@ -1,4 +1,5 @@
 (*
+XXXX List broken new packages!
 
 - Does it make sense to consider new packages as previously
   installable, and report issues for them in a uniform way?
@@ -157,16 +158,70 @@ let output_conflicts filename dist2 results =
 
 (****)
 
+module StringSet = Upgrade_common.StringSet
+
+module F = struct
+
+  let overlaps s s' = StringSet.exists (fun nm -> StringSet.mem nm s) s'
+
+  let _true = (StringSet.empty, [])
+
+  let is_true (s, l) = StringSet.is_empty s && l = []
+
+  let conj1 (s, l) s' =
+    if StringSet.cardinal s' = 1 then begin
+      let nm = StringSet.choose s' in
+      if StringSet.mem nm s then
+        (s, l)
+      else
+        (StringSet.add nm s,
+         List.filter (fun s -> not (StringSet.mem nm s)) l)
+    end else begin
+      if
+        overlaps s s'
+          ||
+        List.exists (fun s -> StringSet.subset s s') l
+      then
+        (s, l)
+      else
+        (s, s' :: List.filter (fun s -> not (StringSet.subset s' s)) l)
+    end
+
+  let conj (s1, l1) (s2, l2) =
+    let l1 = List.filter (fun s -> not (overlaps s2 s)) l1 in
+    let l2 = List.filter (fun s -> not (overlaps s1 s)) l2 in
+    let l1 =
+      List.filter
+        (fun s1 -> not (List.exists (fun s2 -> StringSet.subset s2 s1) l2)) l1
+    in
+    let l2 =
+      List.filter
+        (fun s2 -> not (List.exists (fun s1 -> StringSet.subset s1 s2) l1)) l2
+    in
+    (StringSet.union s1 s2, l1 @ l2)
+
+  let print ch (s, l) =
+    if is_true (s, l) then Format.fprintf ch "TRUE" else begin
+      Util.print_list (fun ch nm -> Format.fprintf ch "%s" nm) ", " ch
+        (StringSet.elements s);
+      if not (StringSet.is_empty s) && l <> [] then Format.fprintf ch ", ";
+      Util.print_list
+        (fun ch s ->
+           Util.print_list (fun ch nm -> Format.fprintf ch "%s" nm) " | " ch
+             (StringSet.elements s))
+        ", " ch l
+    end
+
+end
+
+(****)
+
 let read_data ignored_packages ic =
   let dist = M.new_pool () in
   M.parse_packages dist ignored_packages ic;
   M.only_latest dist
 
-let _ =
-let (file1, file2) =
-  if Array.length Sys.argv >= 3 then (Sys.argv.(1), Sys.argv.(2)) else
-  (file1, file2)
-in
+let f file1 file2 output_dir =
 let dist1 = read_data [] (File.open_in file1) in
 let dist2 = read_data [] (File.open_in file2) in
 
@@ -180,15 +235,16 @@ in
 
 Format.eprintf "Outputting results...@.";
 
-let ch = open_out "/tmp/index.html" in
+Util.make_directories (Filename.concat output_dir "index.html");
+let ch = open_out (Filename.concat output_dir "index.html") in
 let f = Format.formatter_of_out_channel ch in
 
 (****)
 
 Format.fprintf f "<h1>Upgrade issues</h1>@.";
 Format.fprintf f "<h2>Graph of new conflicts</h2>@.";
-output_conflicts "/tmp/conflicts.dot" dist2 results;
-let basename = "/tmp/conflicts" in
+output_conflicts (Filename.concat output_dir "conflicts.dot") dist2 results;
+let basename = Filename.concat output_dir "conflicts" in
 ignore
   (Sys.command
      (Format.sprintf "dot %s.dot -Tpng -o %s.png" basename basename));
@@ -255,15 +311,15 @@ List.iter
 let prob_pkgs = ref PSetMap.empty in
 let graphs =
   List.filter
-    (fun (s, _, _, _, _, ppkgs) ->
+    (fun (s, _, _, _, _, (pos, _)) ->
        let s' =
          PSet.fold (fun p s' -> PSet.add (Hashtbl.find repr p) s') s PSet.empty
        in
        prob_pkgs :=
          PSetMap.add s'
-           (Formula.conj
-              (try PSetMap.find s' !prob_pkgs with Not_found -> Formula._true)
-              (Formula.of_disj ppkgs))
+           (F.conj1
+              (try PSetMap.find s' !prob_pkgs with Not_found -> F._true)
+              pos)
            !prob_pkgs;
        PSet.for_all
          (fun p -> try Hashtbl.find repr p = p with Not_found -> false) s)
@@ -280,7 +336,7 @@ List.iter
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
-     let basename = "/tmp/" ^ nm in
+     let basename = Filename.concat output_dir nm in
      let edge_color p2 _ d2 =
        let i1 = PTbl.get pred p2 in
        let is_new =
@@ -330,9 +386,9 @@ List.iter
        "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>@." nm;
 *)
      let ppkgs = PSetMap.find s !prob_pkgs in
-     if not (Formula.implies Formula._true ppkgs) then begin
+     if not (F.is_true ppkgs) then begin
        Format.fprintf f "<p><b>Problematic packages:</b> %a</p>@."
-         (Formula.print ~compact:true dist1) ppkgs
+         F.print ppkgs
      end)
   (List.sort
      (fun (s, _, _, _, _, _) (s', _, _, _, _, _) ->
@@ -340,15 +396,44 @@ List.iter
      graphs);
 
 let ppkgs =
-  PSetMap.fold (fun _ s s' -> Formula.conj s s') !prob_pkgs Formula._true
+  PSetMap.fold (fun _ s s' -> F.conj s s') !prob_pkgs F._true
 in
 Format.fprintf f "<p><b>Full list of problematic packages:</b> %a</p>@."
-  (Formula.print ~compact:true dist1) ppkgs;
+  F.print ppkgs;
 
 close_out ch;
-Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t);
+Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t)
 
 (****)
+
+let _ =
+let output_dir = ref "/tmp/upgrade" in
+let l = ref [] in
+let spec =
+  Arg.align
+  ["-o",
+   Arg.String (fun d -> output_dir := d),
+   "DIR       Write output to directory DIR"]
+in
+Arg.parse spec (fun f -> l := f :: !l)
+  ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS FILE1 FILE2\n\
+    Takes two Debian binary package control files as input and computes\n\
+    a core set of packages that were co-installable but are not anymore\n\
+    after upgrade.\n\
+    \n\
+    Options:");
+let (file1, file2) =
+  match List.rev !l with
+    [] -> (file1, file2)
+  | [file1; file2] -> (file1, file2)
+  | _ ->
+    Format.eprintf
+      "Exactly two Debian binary package control files \
+       should be provided as input.@.";
+    exit 1
+in
+f file1 file2 !output_dir
+
 
 (*
 libjpeg8-dev "replaces" libjpeg62-dev, so why does the tools do not

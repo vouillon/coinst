@@ -1,8 +1,3 @@
-let print_list ch pr sep l =
-  match l with
-    []     -> ()
-  | x :: r -> pr ch x; List.iter (fun x -> Format.fprintf ch "%s%a" sep pr x) r
-
 module type S = sig
   type pool
 
@@ -108,7 +103,7 @@ module F (M : Api.S) = struct
   end
 
   module PSet = Util.IntSet
-  let print_set ch pr sep l = print_list ch pr sep (PSet.elements l)
+  let print_set ch pr sep l = Util.print_list ch pr sep (PSet.elements l)
   let pset_of_lst l = List.fold_left (fun s x -> PSet.add x s) PSet.empty l
   let pset_map f s = pset_of_lst (List.map f (PSet.elements s))
   let pset_indices s = s
@@ -146,9 +141,9 @@ module F (M : Api.S) = struct
       if PSet.is_empty l then
         Format.fprintf ch "MISSING"
       else
-        print_set ch
+        print_set
           (if compact then Package.print_name pool else Package.print pool)
-          " | " l
+          " | " ch l
     let implies = PSet.subset
     let equiv = PSet.equal
     let lit = PSet.singleton
@@ -173,7 +168,8 @@ module F (M : Api.S) = struct
 
   module Formula  = struct
     type t = Disj.t list
-    let print ?compact pool ch = print_list ch (Disj.print ?compact pool) ", "
+    let print ?compact pool ch d =
+      Util.print_list (Disj.print ?compact pool) ", " ch d
 
     let of_disj d = [d]
     let lit p = of_disj (Disj.lit p)
