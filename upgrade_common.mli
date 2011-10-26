@@ -15,6 +15,15 @@ type state =
 
 val prepare_analyze : pool -> state
 
+type clause = { pos : StringSet.t; neg : StringSet.t }
+type issue =
+  { i_issue : PSet.t;
+    i_clause : clause;
+    (* FIX: compute this information at a later stage? *)
+    i_nodes : PSet.t;
+    i_deps : Formula.t PTbl.t;
+    i_confl : Conflict.t }
+
 val analyze :
   ?check_new_packages:bool ->
   ?reference:state ->
@@ -22,10 +31,8 @@ val analyze :
   Formula.t PTbl.t * Formula.t PTbl.t *
   Deb_lib.Solver.var PTbl.t * Deb_lib.Solver.state * PSetSet.t *
   PSet.t * Conflict.t * PSet.t PTbl.t *
-  (PSet.t * string * PSet.t * Formula.t PTbl.t * Conflict.t *
-   (StringSet.t * StringSet.t)) list *
-  (Package.t * (StringSet.t * StringSet.t)) list
+  issue list * (Package.t * clause) list
 
 val find_problematic_packages :
   ?check_new_packages:bool ->
-  state -> state -> (string -> bool) -> (StringSet.t * StringSet.t) list
+  state -> state -> (string -> bool) -> clause list

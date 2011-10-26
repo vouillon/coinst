@@ -311,7 +311,7 @@ List.iter
 let prob_pkgs = ref PSetMap.empty in
 let graphs =
   List.filter
-    (fun (s, _, _, _, _, (pos, _)) ->
+    (fun {Upgrade_common.i_issue = s; i_clause  = {Upgrade_common.pos = pos}} ->
        let s' =
          PSet.fold (fun p s' -> PSet.add (Hashtbl.find repr p) s') s PSet.empty
        in
@@ -331,11 +331,17 @@ let t = Unix.gettimeofday () in
 Format.printf "Generating explanations...@.";
 Format.fprintf f "<h2>Explanations of conflicts</h2>@.";
 List.iter
-  (fun (s, nm, pkgs, deps, confl, ppkgs) ->
+  (fun { Upgrade_common.i_issue = s;
+         i_nodes = pkgs; i_deps = deps; i_confl = confl } ->
 (*Task.async (fun () ->*)
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
+     let nm =
+       String.concat ","
+         (List.map (fun p -> M.package_name dist2 (Package.index p))
+            (PSet.elements s))
+     in
      let basename = Filename.concat output_dir nm in
      let edge_color p2 _ d2 =
        let i1 = PTbl.get pred p2 in
@@ -391,7 +397,7 @@ List.iter
          F.print ppkgs
      end)
   (List.sort
-     (fun (s, _, _, _, _, _) (s', _, _, _, _, _) ->
+     (fun {Upgrade_common.i_issue = s} {Upgrade_common.i_issue = s'} ->
         - compare (PSet.cardinal s) (PSet.cardinal s'))
      graphs);
 

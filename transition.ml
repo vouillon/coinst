@@ -4,6 +4,7 @@
 - Find what it takes to install a package
   ==> iterative: relax the problem until we can install the package
   ==> with clause learning
+  ==> we could save learnt rules...
 
 - parallelise the program: one process per architecture
 
@@ -14,6 +15,12 @@ to replace them?
 - generate small easy hints
 - when reducing the repositories, do not build intermediate tables (?)
   except for conflicts
+
+REPORTS
+=======
+- when printing a report, put constraints such as bugs and age last,
+  to get more details
+- report core reasons for each packages (recursively follow reasons)
 
 RULES
 =====
@@ -283,15 +290,18 @@ let load_src_packages suite =
 
 type reason =
   | Unchanged
+    (* Source *)
   | Blocked
   | Too_young
+  | Binary_not_propagated of ((string * M.version) * string)
+  | No_removal
+  (* Both *)
   | More_bugs
+  (* Binaries *)
   | Conflict of StringSet.t
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated of (string * M.version)
-  | Binary_not_propagated of ((string * M.version) * string)
   | Atomic of ((string * M.version) * string) list
-  | No_removal
 
 let print_reason f reason =
   match reason with
@@ -302,7 +312,7 @@ let print_reason f reason =
   | Too_young ->
       Format.fprintf f "not old enough"
   | More_bugs ->
-      Format.fprintf f "has more bugs"
+      Format.fprintf f "has new bugs"
   | Conflict s ->
       if StringSet.is_empty s then
         Format.fprintf f "cannot be installed"
@@ -316,9 +326,9 @@ let print_reason f reason =
   | Source_not_propagated (src, v) ->
       Format.fprintf f "source package %s (%a) cannot be propagated"
         src M.print_version v
-  | Binary_not_propagated ((src, v), arch) ->
+  | Binary_not_propagated ((bin, v), arch) ->
       Format.fprintf f "binary package %s (%a / %s) cannot be propagated"
-        src M.print_version v arch
+        bin M.print_version v arch
   | Atomic l ->
       Format.fprintf f "binary packages";
       List.iter
@@ -329,17 +339,18 @@ let print_reason f reason =
   | No_removal ->
       Format.fprintf f "would be removed"
 
-let unchanged = Hashtbl.create 101
+let unchanged = ListTbl.create 101
 
 let propagation_rules = Hashtbl.create 101
 
 let rec no_change pkg reason =
   let ((nm, version), arch) = pkg in
-  if not (Hashtbl.mem unchanged (nm, arch)) then begin
+  let already = ListTbl.mem unchanged (nm, arch) in
+  ListTbl.add unchanged (nm, arch) reason;
+  if not already then begin
     if verbose && reason <> Unchanged then
       Format.eprintf "Skipping %s (%a / %s): %a@."
         nm M.print_version version arch print_reason reason;
-    Hashtbl.replace unchanged (nm, arch) ();
     let l = Hashtbl.find_all propagation_rules (nm, arch) in
     List.iter (fun (pkg', reason') -> no_change pkg' reason') l
   end
@@ -347,7 +358,7 @@ let rec no_change pkg reason =
 (* if pkg2 is unchanged, then pkg1 should be unchanged as well. *)
 let associates pkg1 pkg2 reason =
   let ((nm, version), arch) = pkg2 in
-  if Hashtbl.mem unchanged (nm, arch) then
+  if ListTbl.mem unchanged (nm, arch) then
     no_change pkg1 reason
   else
     Hashtbl.add propagation_rules (nm, arch) (pkg1, reason)
@@ -360,6 +371,120 @@ let all_or_none pkgs reason =
             if p1 <> p2 then associates p1 p2 reason)
          pkgs)
     pkgs
+
+(****)
+
+(* XXXX Output explanations
+
+Group explanations per source file
+
+*)
+let ignored_reason reason =
+  match reason with
+    Unchanged | Source_not_propagated _ | Binary_not_propagated _ | Atomic _ ->
+      true
+  | _ ->
+      false
+
+let rec interesting_reason r =
+  match r with
+    Unchanged ->
+      false
+  | Binary_not_propagated ((bin, _), arch) ->
+      List.exists interesting_reason (ListTbl.find unchanged (bin, arch))
+  | Source_not_propagated _ ->
+      false
+  | _ ->
+      true
+
+let sort_and_uniq compare l =
+  let rec uniq v l =
+    match l with
+      []      -> [v]
+    | v' :: r -> if compare v v' = 0 then uniq v r else v :: uniq v' r
+  in
+  match List.sort compare l with
+    []     -> []
+  | v :: r -> uniq v r
+
+let output_reasons () =
+  let ch = open_out "/tmp/reasons.html" in
+  let f = Format.formatter_of_out_channel ch in
+
+  let sources = ref [] in
+(* XXX Some sources are missing (bin-NMU)... *)
+  ListTbl.iter
+    (fun (nm, arch) reasons ->
+       if arch = "source" && List.exists interesting_reason reasons then
+         sources := (nm, reasons) :: !sources)
+    unchanged;
+
+  if !sources <> [] then begin
+    Format.fprintf f "<ul>@.";
+    List.iter
+      (fun (nm, reasons) ->
+         Format.fprintf f "<li>%s@." nm;
+         Format.fprintf f "<ul>@.";
+         let binaries = ref [] in
+         List.iter
+           (fun r ->
+              if interesting_reason r then
+              match r with
+                Blocked ->
+                  Format.fprintf f "<li>Left unchanged due to block request@."
+              | Too_young ->
+                  Format.fprintf f "<li>Too young@."
+              | Binary_not_propagated ((bin, v), arch) ->
+                  binaries := (bin, arch) :: !binaries
+              | No_removal ->
+                  Format.fprintf f "<li>Would have to be removed@."
+              | More_bugs ->
+                  Format.fprintf f "<li>Has new bugs@."
+              | _ ->
+                  assert false)
+           reasons;
+         List.iter
+           (fun (nm, arch) ->
+              Format.fprintf f "<li>Binary package %s/%s not propagated@."
+                nm arch;
+             Format.fprintf f "<ul>@.";
+             List.iter
+               (fun r ->
+                  if interesting_reason r then
+                  match r with
+                    Conflict s ->
+                      if StringSet.is_empty s then
+                        Format.fprintf f "<li>Dependency not satisfied@."
+                      else begin
+                        Format.fprintf f "<li>Needs binary packages";
+                        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s;
+                        Format.fprintf f "@."
+                      end
+                  | More_bugs ->
+                      Format.fprintf f "<li>Has new bugs@."
+                  | Not_yet_built _ ->
+                      Format.fprintf f "<li>Not yet built@."
+                  | Atomic _ ->
+                      Format.fprintf f "<li>Other binary not migrated@."
+                  | _ ->
+                      assert false)
+               (ListTbl.find unchanged (nm, arch));
+             Format.fprintf f "</ul>@.")
+           (sort_and_uniq compare !binaries);
+         Format.fprintf f "</ul>@.")
+      (List.sort (fun (nm1, _) (nm2, _) -> compare nm1 nm2) !sources);
+
+
+(*
+  | Conflict of StringSet.t
+  | Not_yet_built of string * M.version * M.version
+  | Source_not_propagated of (string * M.version)
+  | Atomic of ((string * M.version) * string) list
+*)
+
+    Format.fprintf f "</ul>@."
+  end;
+  close_out ch
 
 (****)
 
@@ -421,7 +546,7 @@ let reduce_repository_pair (arch, t, u) =
   let changed_packages = Hashtbl.create 101 in
   let consider_package _ p =
     let nm = p.M.package in
-    if not (Hashtbl.mem unchanged (nm, arch)) then
+    if not (ListTbl.mem unchanged (nm, arch)) then
       Hashtbl.replace changed_packages nm ()
   in
   Hashtbl.iter consider_package t.M.packages_by_num;
@@ -521,7 +646,7 @@ if print_stats then begin
          let nm = p.M.package in
          if
            not (same_bin_version t' u' nm ||
-                Hashtbl.mem unchanged (nm, arch))
+                ListTbl.mem unchanged (nm, arch))
          then begin
            s := StringSet.add nm !s
          end
@@ -642,7 +767,7 @@ end;
                 in
                 let pkgs =
                   List.fold_left
-                    (fun s (s', _) -> StringSet.union s s')
+                    (fun s i -> StringSet.union s i.Upgrade_common.pos)
                     StringSet.empty problems
                 in
                 if not (StringSet.is_empty pkgs) then begin
@@ -683,7 +808,7 @@ let generate_hints l =
   let l =
     List.map
       (fun (arch, t, u) ->
-         let filter p = Hashtbl.mem unchanged (p.M.package, arch) in
+         let filter p = ListTbl.mem unchanged (p.M.package, arch) in
          let u' = M.new_pool () in
          M.merge2 u' (fun p -> not (filter p)) u;
          M.merge2 u' filter t;
@@ -696,7 +821,7 @@ let generate_hints l =
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
-            if not (Hashtbl.mem unchanged (nm, arch)) then begin
+            if not (ListTbl.mem unchanged (nm, arch)) then begin
               let (src, v) = p.M.source in
               ListTbl.add changes src (arch, nm, Some v)
             end)
@@ -705,7 +830,7 @@ let generate_hints l =
          (fun _ p ->
             let nm = p.M.package in
             if
-              not (Hashtbl.mem unchanged (nm, arch))
+              not (ListTbl.mem unchanged (nm, arch))
                 &&
               not (ListTbl.mem u.M.packages_by_name nm)
             then begin
@@ -718,7 +843,7 @@ let generate_hints l =
   let versions = Hashtbl.create 101 in
   ListTbl.iter
     (fun src l ->
-       if not (Hashtbl.mem unchanged (src, "source")) then
+       if not (ListTbl.mem unchanged (src, "source")) then
          List.iter
            (fun (arch, nm, v) ->
               begin match v with
@@ -879,7 +1004,7 @@ let f () =
          let v' = source_version t nm in
          if not (old_enough nm v v') then
            no_change ((nm, v), "source") Too_young;
-         (* Do not propagate a source package if it has more bugs *)
+         (* Do not propagate a source package if it has new bugs *)
          let is_new = v' = None in
          if
            not (no_new_bugs is_new nm && no_new_bugs is_new ("src:" ^ nm))
@@ -911,7 +1036,7 @@ let f () =
                  the most up to date source file. *)
               if M.compare_version v v' <> 0 then
                 no_change pkg (Not_yet_built (nm, v, v'));
-              (* Do not upgrade a package if it has more bugs *)
+              (* Do not upgrade a package if it has new bugs *)
               let is_new = bin_version t' p.M.package = None in
               if not (no_new_bugs is_new p.M.package) then
                 no_change pkg More_bugs;
@@ -972,15 +1097,17 @@ let step_t = Timer.start () in
            let problems =
              Upgrade_common.find_problematic_packages
                ~check_new_packages:true t' u'
-               (fun nm -> Hashtbl.mem unchanged (nm, arch))
+               (fun nm -> ListTbl.mem unchanged (nm, arch))
            in
 let t = Timer.start () in
            let has_singletons =
-             List.exists (fun (s, _) -> StringSet.cardinal s = 1) problems
+             List.exists
+               (fun cl -> StringSet.cardinal cl.Upgrade_common.pos = 1)
+               problems
            in
            let arch_changed = ref false in
            List.iter
-             (fun (pos, neg) ->
+             (fun {Upgrade_common.pos = pos;  neg = neg} ->
                 if
                   not (has_singletons && StringSet.cardinal pos > 1)
                 then begin
@@ -1019,7 +1146,7 @@ stats l;
 
   Hashtbl.iter
     (fun nm v ->
-       if not (Hashtbl.mem unchanged (nm, "source")) then
+       if not (ListTbl.mem unchanged (nm, "source")) then
          try
            let v' = Hashtbl.find u nm in
            Format.eprintf "Upgrade source package %s from %a to %a@." nm
@@ -1029,7 +1156,7 @@ stats l;
     t;
   Hashtbl.iter
     (fun nm v ->
-       if not (Hashtbl.mem t nm || Hashtbl.mem unchanged (nm, "source")) then
+       if not (Hashtbl.mem t nm || ListTbl.mem unchanged (nm, "source")) then
          Format.eprintf "Adding source package %s@." nm)
     u;
   List.iter
@@ -1038,7 +1165,7 @@ stats l;
          (fun _ p ->
             let nm = p.M.package in
             let v = p.M.version in
-            if not (Hashtbl.mem unchanged (nm, arch)) then
+            if not (ListTbl.mem unchanged (nm, arch)) then
               match bin_version u' nm with
                 Some v' ->
                   Format.eprintf "Upgrade binary package %s/%s from %a to %a@."
@@ -1049,7 +1176,7 @@ stats l;
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
-            if not (Hashtbl.mem unchanged (nm, arch)) then
+            if not (ListTbl.mem unchanged (nm, arch)) then
               if not (ListTbl.mem t'.M.packages_by_name nm) then
                 Format.eprintf "Adding binary package %s/%s@." nm arch)
          u'.M.packages_by_num)
@@ -1069,7 +1196,7 @@ stats l;
     in
     List.iter
       (fun (arch, t, u) ->
-         let is_preserved nm = Hashtbl.mem unchanged (nm, arch) in
+         let is_preserved nm = ListTbl.mem unchanged (nm, arch) in
          Hashtbl.iter
            (fun _ p ->
               let nm = p.M.package in
@@ -1082,7 +1209,7 @@ stats l;
            u.M.packages_by_num;
          output_lines ch)
       (List.sort (fun (arch, _, _) (arch', _, _) -> compare arch arch') l0);
-    let is_preserved nm = Hashtbl.mem unchanged (nm, "source") in
+    let is_preserved nm = ListTbl.mem unchanged (nm, "source") in
     Hashtbl.iter
       (fun nm vers -> if is_preserved nm then add_line nm vers "source")
       t;
@@ -1159,4 +1286,5 @@ Arg.parse spec (fun p -> ())
     or a britney config file (option -c).\n\
     \n\
     Options:");
-f()
+f();
+output_reasons ()

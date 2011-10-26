@@ -270,6 +270,15 @@ Format.eprintf "NEW %a %d %b %a %a@." (Package.print dist2) p (PSet.cardinal del
 
 (****)
 
+type clause = { pos : StringSet.t; neg : StringSet.t }
+type issue =
+  { i_issue : PSet.t;
+    i_clause : clause;
+    (* FIX: the information below should be computed at a later stage. *)
+    i_nodes : PSet.t;
+    i_deps : Formula.t PTbl.t;
+    i_confl : Conflict.t }
+
 let prepare_analyze dist =
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
   let (deps', confl') = Coinst.flatten_and_simplify dist deps confl in
@@ -542,11 +551,6 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
       (List.map
          (fun s ->
             let l = List.map Package.index (PSet.elements s) in
-            let nm =
-              String.concat ","
-                (List.map (fun p -> M.package_name dist2 (Package.index p))
-                   (PSet.elements s))
-            in
             let res = M.Solver.solve_lst st2init l in
             assert (not res);
             let r = M.Solver.collect_reasons_lst st2init l in
@@ -589,7 +593,8 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
  PSet.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
  Format.printf "==> %a@." (Formula.print dist1) ppkgs;
  *)
-            (s, nm, !pkgs, deps, confl, (pos, neg)))
+            { i_issue = s; i_clause = { pos = pos; neg = neg };
+              i_nodes = !pkgs; i_deps = deps; i_confl = confl })
          (PSetSet.elements !results),
        PSet.fold
          (fun p s ->
@@ -605,7 +610,9 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
               | None    -> StringSet.empty
             in
             (p,
-             (StringSet.add (M.package_name dist2 (Package.index p)) pos, neg))
+             { pos =
+                 StringSet.add (M.package_name dist2 (Package.index p)) pos;
+               neg = neg })
             :: s)
          !broken_new_packages [])
     end
@@ -635,7 +642,7 @@ Format.eprintf "  Building target dist: %f@." (Timer.stop t);
 let t = Timer.start () in
   let problems =
     List.fold_left
-      (fun f (s, _, _, _, _, ppkgs) -> ppkgs :: f)
+      (fun f { i_clause = clause } -> clause :: f)
       [] graphs
   in
   let problems =
@@ -644,7 +651,7 @@ let t = Timer.start () in
   in
   Format.printf ">>> %a@."
     (Util.print_list
-       (fun ch (pos, neg) ->
+       (fun ch {pos = pos; neg = neg} ->
           Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
             (StringSet.elements neg);
           if not (StringSet.is_empty pos || StringSet.is_empty neg) then
