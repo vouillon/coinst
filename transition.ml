@@ -767,7 +767,7 @@ end;
                 in
                 let pkgs =
                   List.fold_left
-                    (fun s i -> StringSet.union s i.Upgrade_common.pos)
+                    (fun s i -> StringSet.union s i.Upgrade_common.neg)
                     StringSet.empty problems
                 in
                 if not (StringSet.is_empty pkgs) then begin
