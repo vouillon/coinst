@@ -63,6 +63,7 @@ let unstable () = get_option "UNSTABLE" (Filename.concat !dir "unstable")
 
 let hint_file = ref "-"
 let heidi_file = ref ""
+let excuse_file = ref ""
 let offset = ref 0
 let small_hints = ref false
 
@@ -74,7 +75,7 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = false
+let verbose = true
 
 (****)
 
@@ -377,32 +378,6 @@ let all_or_none pkgs reason =
 
 (****)
 
-(* XXXX Output explanations
-
-Group explanations per source file
-
-*)
-let ignored_reason reason =
-  match reason with
-    Unchanged | Source_not_propagated _ | Binary_not_propagated _ | Atomic _ ->
-      true
-  | _ ->
-      false
-
-let rec interesting_reason nm nm' r =
-  match r with
-    Unchanged ->
-      false
-  | Binary_not_propagated ((bin, _), arch) ->
-      List.exists (interesting_reason nm bin)
-        (ListTbl.find unchanged (bin, arch))
-  | Source_not_propagated _ ->
-      false
-  | More_bugs when nm = nm' ->
-      false
-  | _ ->
-      true
-
 let sort_and_uniq compare l =
   let rec uniq v l =
     match l with
@@ -413,89 +388,198 @@ let sort_and_uniq compare l =
     []     -> []
   | v :: r -> uniq v r
 
-let output_reasons filename =
+let compare_pair compare1 compare2 (a1, a2) (b1, b2) =
+  let c = compare a1 b1 in
+  if c = 0 then compare a2 b2 else c
+
+let group compare l =
+  match l with
+    [] ->
+      []
+  | (a, b) :: r ->
+      let rec group_rec a bl l =
+        match l with
+          [] ->
+            [(a, List.rev bl)]
+        | (a', b) :: r ->
+            if compare a a' = 0 then
+              group_rec a (b :: bl) r
+            else
+              (a, List.rev bl) :: group_rec a' [b] r
+      in
+      group_rec a [b] r
+
+(****)
+
+let rec interesting_reason r =
+  match r with
+    Unchanged ->
+      false
+  | Binary_not_propagated ((bin, _), arch) ->
+      List.exists interesting_reason (ListTbl.find unchanged (bin, arch))
+  | Source_not_propagated _ ->
+      false
+  | Atomic _ ->
+      false
+  | _ ->
+      true
+
+let output_reasons l filename =
   let ch = open_out filename in
   let f = Format.formatter_of_out_channel ch in
 
   let sources = ref [] in
-(* XXX Some sources are missing (bin-NMU)... *)
   ListTbl.iter
     (fun (nm, arch) reasons ->
-       if arch = "source" && List.exists (interesting_reason nm "") reasons then
+       if arch = "source" && List.exists interesting_reason reasons then
          sources := (nm, reasons) :: !sources)
     unchanged;
+
+  let print_binary f (nm, (arch : string)) =
+    let (t, u) = List.assoc arch l in
+    let source =
+      match ListTbl.find u.M.packages_by_name nm with
+        p :: _ ->
+          fst p.M.source
+      | [] ->
+          match ListTbl.find t.M.packages_by_name nm with
+            p :: _ -> fst p.M.source
+          | []     -> assert false
+    in
+    if not (List.mem_assoc source !sources) then begin
+      if source = nm then
+        Format.fprintf f "%s" nm
+      else
+        Format.fprintf f "%s (from %s)" nm source
+    end else begin
+      if source = nm then
+        Format.fprintf f "<a href=\"#%s\">%s</a>" source nm
+      else
+        Format.fprintf f "<a href=\"#%s\">%s (from %s)</a>" source nm source
+    end
+  in
 
   if !sources <> [] then begin
     Format.fprintf f "<ul>@.";
     List.iter
       (fun (nm, reasons) ->
-         Format.fprintf f "<li>%s@." nm;
+         Format.fprintf f "<li><a id=\"%s\">%s</a>@." nm nm;
          Format.fprintf f "<ul>@.";
          let binaries = ref [] in
          List.iter
            (fun r ->
-              if interesting_reason nm "" r then
+              if interesting_reason r then
               match r with
                 Blocked ->
-                  Format.fprintf f "<li>Left unchanged due to block request@."
+                  Format.fprintf f "<li>Left unchanged due to block request.@."
               | Too_young (cur_ag, req_ag) ->
                   Format.fprintf f
-                    "<li>Only %d days old.  Must be %d days old to go in@."
+                    "<li>Only %d days old.  Must be %d days old to go in.@."
                     cur_ag req_ag
               | Binary_not_propagated ((bin, v), arch) ->
                   binaries := (bin, arch) :: !binaries
               | No_removal ->
-                  Format.fprintf f "<li>Would have to be removed@."
+                  Format.fprintf f "<li>Would have to be removed.@."
               | More_bugs ->
-                  Format.fprintf f "<li>Has new bugs@."
+                  Format.fprintf f "<li>Has new bugs.@."
               | _ ->
                   assert false)
            reasons;
+         let binaries =
+           sort_and_uniq (compare_pair compare compare) !binaries in
+         let not_yet_built =
+           group compare
+             (List.filter
+                (fun bin ->
+                  List.exists
+                    (fun r -> match r with Not_yet_built _ -> true | _ -> false)
+                    (ListTbl.find unchanged bin))
+                binaries)
+         in
+         List.iter
+           (fun (nm', l) ->
+              Format.fprintf f "<li>Binary package %s not yet built on %a.@."
+                nm'
+                (Util.print_list
+                   (fun f arch -> Format.fprintf f " %s" arch) ", ")
+                l)
+           not_yet_built;
+         let has_new_bugs =
+           group compare
+             (List.filter
+                (fun bin ->
+                  List.exists
+                    (fun r -> match r with More_bugs -> true | _ -> false)
+                    (ListTbl.find unchanged bin))
+                binaries)
+         in
+         List.iter
+           (fun (nm', _) ->
+              if nm' <> nm then
+                Format.fprintf f "<li>Binary package %s has new bugs.@." nm')
+           has_new_bugs;
+         let binaries =
+           List.filter
+             (fun bin ->
+                List.exists
+                  (fun r ->
+                     interesting_reason r &&
+                     match r with
+                       Not_yet_built _ | More_bugs -> false
+                     | _                           -> true)
+                  (ListTbl.find unchanged bin))
+                binaries
+         in
          List.iter
            (fun (nm', arch) ->
-              Format.fprintf f "<li>Binary package %s/%s not propagated@."
+              Format.fprintf f "<li>Binary package %s/%s not propagated:@."
                 nm' arch;
              Format.fprintf f "<ul>@.";
              List.iter
                (fun r ->
-                  if interesting_reason nm nm' r then
+                  if interesting_reason r then
                   match r with
                     Conflict (s, s') ->
-                      if StringSet.is_empty s then
-                        Format.fprintf f "<li>Dependency not satisfied"
-                      else begin
-                        Format.fprintf f "<li>Needs binary packages";
-                        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s
+                      begin match StringSet.cardinal s with
+                        0 ->
+                          Format.fprintf f "<li>Dependency not satisfied"
+                      | 1 ->
+                          Format.fprintf f "<li>Needs binary package %a"
+                            print_binary (StringSet.choose s, arch)
+                      | _ ->
+                          Format.fprintf f "<li>Needs binary packages";
+                          StringSet.iter
+                            (fun nm ->
+                               Format.fprintf f " %a" print_binary (nm, arch))
+                            s
                       end;
-                      if StringSet.cardinal s' = 1 && StringSet.mem nm' s' then
-                        Format.fprintf f "@."
-                      else begin
-                        Format.fprintf f " (would break binary packages";
-                        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s';
-                        Format.fprintf f ")@."
+                      if StringSet.cardinal s' = 1 then begin
+                        if StringSet.mem nm' s' then
+                          Format.fprintf f ".@."
+                        else begin
+                          Format.fprintf f
+                            ": would break binary package %a.@."
+                            print_binary (StringSet.choose s', arch)
+                        end
+                     end else begin
+                        Format.fprintf f ": would break binary packages";
+                        StringSet.iter
+                          (fun nm ->
+                             Format.fprintf f " %a" print_binary (nm, arch))
+                          s';
+                        Format.fprintf f ".@."
                       end
                   | More_bugs ->
-                      Format.fprintf f "<li>Has new bugs@."
+                      ()
                   | Not_yet_built _ ->
-                      Format.fprintf f "<li>Not yet built@."
-                  | Atomic _ ->
-                      Format.fprintf f "<li>Other binary not migrated@."
+                      ()
                   | _ ->
                       assert false)
                (ListTbl.find unchanged (nm', arch));
              Format.fprintf f "</ul>@.")
-           (sort_and_uniq compare !binaries);
+           binaries;
          Format.fprintf f "</ul>@.")
       (List.sort (fun (nm1, _) (nm2, _) -> compare nm1 nm2) !sources);
-
-
-(*
-  | Conflict of StringSet.t
-  | Not_yet_built of string * M.version * M.version
-  | Source_not_propagated of (string * M.version)
-  | Atomic of ((string * M.version) * string) list
-*)
-
     Format.fprintf f "</ul>@."
   end;
   close_out ch
@@ -532,7 +616,7 @@ let no_new_bin t u nm =
 
 (****)
 
-let reduce_repository_pair (arch, t, u) =
+let reduce_repository_pair (arch, (t, u)) =
   let conflicts = ListTbl.create 101 in
   let add_conflicts dist p confls =
     List.iter
@@ -641,7 +725,7 @@ let reduce_repository_pair (arch, t, u) =
   let u' = M.new_pool () in
   M.merge2 u' filter u;
   Format.eprintf "==> %d/%d@." !n !m;
-  (arch, t', u')
+  (arch, (t', u'))
 
 let reduce_repositories l =
   let t = Timer.start () in
@@ -654,7 +738,7 @@ let stats l =
 if print_stats then begin
   let n = ref 0 in
   List.iter
-    (fun (arch, t', u') ->
+    (fun (arch, (t', u')) ->
        let s = ref StringSet.empty in
        let consider_package _ p =
          let nm = p.M.package in
@@ -727,7 +811,7 @@ let generate_small_hints buckets l =
 
   let l =
     List.map
-      (fun (arch, t', u') ->
+      (fun (arch, (t', u')) ->
          (arch,
           Upgrade_common.prepare_analyze t',
           Upgrade_common.prepare_analyze u'))
@@ -821,17 +905,17 @@ end;
 let generate_hints l =
   let l =
     List.map
-      (fun (arch, t, u) ->
+      (fun (arch, (t, u)) ->
          let filter p = ListTbl.mem unchanged (p.M.package, arch) in
          let u' = M.new_pool () in
          M.merge2 u' (fun p -> not (filter p)) u;
          M.merge2 u' filter t;
-         (arch, t, u'))
+         (arch, (t, u')))
       l
   in
   let changes = ListTbl.create 101 in
   List.iter
-    (fun (arch, t, u) ->
+    (fun (arch, (t, u)) ->
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
@@ -935,8 +1019,8 @@ let f () =
     List.map
       (fun arch ->
          (arch,
-          load_bin_packages (testing ()) arch,
-          load_bin_packages (unstable ()) arch))
+          (load_bin_packages (testing ()) arch,
+           load_bin_packages (unstable ()) arch)))
       archs)
   in
   let files =
@@ -1006,25 +1090,37 @@ let f () =
   let is_blocked nm =
     Hashtbl.mem hints.h_block nm || Hashtbl.mem hints.h_block_udeb nm
   in
+  let deferred_constraints = ref [] in
+  let no_change_deferred pkg reason =
+    if !excuse_file <> "" then
+      deferred_constraints := (pkg, reason) :: !deferred_constraints
+    else
+      no_change pkg reason
+  in
+  let perform_deferred () =
+    List.iter
+      (fun (pkg, reason) -> no_change pkg reason) !deferred_constraints;
+    deferred_constraints := []
+  in
   Hashtbl.iter
     (fun nm v ->
        (* We only propagate source packages with a larger version *)
        if no_new_source t u nm then
          no_change ((nm, v), "source") Unchanged
        else if is_blocked nm then
-         no_change ((nm, v), "source") Blocked
+         no_change_deferred ((nm, v), "source") Blocked
        else begin
          (* Do not propagate a source package if not old enough *)
          let v' = source_version t nm in
          let (cur_ag, req_ag) = compute_ages nm v v' in
          if cur_ag < req_ag then
-           no_change ((nm, v), "source") (Too_young (cur_ag, req_ag));
+           no_change_deferred ((nm, v), "source") (Too_young (cur_ag, req_ag));
          (* Do not propagate a source package if it has new bugs *)
          let is_new = v' = None in
          if
            not (no_new_bugs is_new nm && no_new_bugs is_new ("src:" ^ nm))
          then
-           no_change ((nm, v), "source") More_bugs
+           no_change_deferred ((nm, v), "source") More_bugs
        end)
     u;
   if !no_removal then begin
@@ -1035,7 +1131,7 @@ let f () =
       t
   end;
   List.iter
-    (fun (arch, t', u') ->
+    (fun (arch, (t', u')) ->
        let bin_nmus = ListTbl.create 101 in
        Hashtbl.iter
          (fun _ p ->
@@ -1043,30 +1139,31 @@ let f () =
             let (nm, v) = p.M.source in
             assert (Hashtbl.mem u nm);
             let v' = Hashtbl.find u nm in
+            (* Do not add a binary package if its source is not
+               the most up to date source file. *)
+            if M.compare_version v v' <> 0 then
+              no_change pkg (Not_yet_built (nm, v, v'));
             (* We only propagate binary packages with a larger version *)
             if no_new_bin t' u' p.M.package then
               no_change pkg Unchanged
             else begin
-              (* Do not add a binary package if its source is not
-                 the most up to date source file. *)
-              if M.compare_version v v' <> 0 then
-                no_change pkg (Not_yet_built (nm, v, v'));
               (* Do not upgrade a package if it has new bugs *)
               let is_new = bin_version t' p.M.package = None in
               if not (no_new_bugs is_new p.M.package) then
-                no_change pkg More_bugs;
+                no_change_deferred pkg More_bugs;
               if not (same_source_version t u (fst p.M.source)) then begin
                 (* We cannot add a binary package without also adding
                    its source. *)
                 associates pkg (p.M.source, "source")
                   (Source_not_propagated p.M.source);
-                (* If a source if propagated, all its binaries should
-                   be propagated as well *)
-                if atomic then
-                  associates (p.M.source, "source") pkg
-                    (Binary_not_propagated pkg);
               end else if atomic_bin_nmus then
-                ListTbl.add bin_nmus p.M.source pkg
+                ListTbl.add bin_nmus p.M.source pkg;
+              (* If a source is propagated, all its binaries should
+                 be propagated as well *)
+              if atomic then
+                associates (p.M.source, "source") pkg
+                  (Binary_not_propagated pkg)
+
             end)
          u'.M.packages_by_num;
        ListTbl.iter
@@ -1074,13 +1171,11 @@ let f () =
        Hashtbl.iter
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
-(*FIX: compare with package source version?*)
+            (* We cannot remove a source package if a corresponding
+               binary package still exists. *)
+            associates
+              (p.M.source, "source") pkg (Binary_not_propagated pkg);
             if not (same_source_version t u (fst p.M.source)) then begin
-              (* We cannot remove a source package if a corresponding
-                 binary package still exists. *)
- (*FIX: disable this only for libraries?*)
-              associates
-                (p.M.source, "source") pkg (Binary_not_propagated pkg);
               (* We cannot remove a binary without removing its source *)
               if atomic then
                 associates pkg (p.M.source, "source")
@@ -1096,68 +1191,76 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
   let l' =
     List.map
-      (fun (arch, t', u') ->
+      (fun (arch, (t', u')) ->
          (arch,
           Upgrade_common.prepare_analyze t',
           Upgrade_common.prepare_analyze u'))
       l
   in
-  while
-    let changed = ref false in
-    List.iter
-      (fun (arch, t', u') ->
-         Format.printf "==================== %s@." arch;
-         while
-let step_t = Timer.start () in
-           let problems =
-             Upgrade_common.find_problematic_packages
-               ~check_new_packages:true t' u'
-               (fun nm -> ListTbl.mem unchanged (nm, arch))
-           in
-let t = Timer.start () in
-           let has_singletons =
-             List.exists
-               (fun (cl, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
-               problems
-           in
-           let arch_changed = ref false in
-           List.iter
-             (fun ({Upgrade_common.pos = pos;  neg = neg}, s) ->
-                if
-                  not (has_singletons && StringSet.cardinal pos > 1)
-                then begin
-                  let nm = StringSet.choose pos in
-                  let p =
-                    match
-                      ListTbl.find u'.Upgrade_common.dist.M.packages_by_name nm
-                    with
-                      p :: _ ->
-                        p
-                    | [] ->
-                        match
-                          ListTbl.find
-                            t'.Upgrade_common.dist.M.packages_by_name nm
-                        with
-                          p :: _ ->
-                            p
-                        | [] ->
-                            assert false
-                  in
-                  arch_changed := true;
-                  no_change ((nm, p.M.version), arch) (Conflict (neg, s))
-                end)
-             problems;
-Format.eprintf "  New constraints: %f@." (Timer.stop t);
-Format.eprintf "Step duration: %f@." (Timer.stop step_t);
-           if !arch_changed then changed := true;
-stats l;
-           !arch_changed
-         do () done)
-      l';
-stats l;
-    !changed
-  do () done;
 
+  let find_coinst_constraints () =
+    while
+      let changed = ref false in
+      List.iter
+        (fun (arch, t', u') ->
+           Format.printf "==================== %s@." arch;
+           while
+  let step_t = Timer.start () in
+             let problems =
+               Upgrade_common.find_problematic_packages
+                 ~check_new_packages:true t' u'
+                 (fun nm -> ListTbl.mem unchanged (nm, arch))
+             in
+  let t = Timer.start () in
+             let has_singletons =
+               List.exists
+                 (fun (cl, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
+                 problems
+             in
+             let arch_changed = ref false in
+             List.iter
+               (fun ({Upgrade_common.pos = pos;  neg = neg}, s) ->
+                  if
+                    not (has_singletons && StringSet.cardinal pos > 1)
+                  then begin
+                    let nm = StringSet.choose pos in
+                    let p =
+                      match
+                        ListTbl.find u'.Upgrade_common.dist.M.packages_by_name nm
+                      with
+                        p :: _ ->
+                          p
+                      | [] ->
+                          match
+                            ListTbl.find
+                              t'.Upgrade_common.dist.M.packages_by_name nm
+                          with
+                            p :: _ ->
+                              p
+                          | [] ->
+                              assert false
+                    in
+                    arch_changed := true;
+                    no_change ((nm, p.M.version), arch) (Conflict (neg, s))
+                  end)
+               problems;
+  Format.eprintf "  New constraints: %f@." (Timer.stop t);
+  Format.eprintf "Step duration: %f@." (Timer.stop step_t);
+             if !arch_changed then changed := true;
+  stats l;
+             !arch_changed
+           do () done)
+        l';
+  stats l;
+      !changed
+    do () done
+  in
+
+  find_coinst_constraints ();
+  if !deferred_constraints <> [] then begin
+    perform_deferred ();
+    find_coinst_constraints ()
+  end;
 
   Hashtbl.iter
     (fun nm v ->
@@ -1175,7 +1278,7 @@ stats l;
          Format.eprintf "Adding source package %s@." nm)
     u;
   List.iter
-    (fun (arch, t', u') ->
+    (fun (arch, (t', u')) ->
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
@@ -1210,7 +1313,7 @@ stats l;
       List.iter (output_string ch) (List.sort compare !lines); lines := []
     in
     List.iter
-      (fun (arch, t, u) ->
+      (fun (arch, (t, u)) ->
          let is_preserved nm = ListTbl.mem unchanged (nm, arch) in
          Hashtbl.iter
            (fun _ p ->
@@ -1223,7 +1326,7 @@ stats l;
               if not (is_preserved nm) then add_line nm p.M.version arch)
            u.M.packages_by_num;
          output_lines ch)
-      (List.sort (fun (arch, _, _) (arch', _, _) -> compare arch arch') l0);
+      (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l0);
     let is_preserved nm = ListTbl.mem unchanged (nm, "source") in
     Hashtbl.iter
       (fun nm vers -> if is_preserved nm then add_line nm vers "source")
@@ -1237,7 +1340,11 @@ stats l;
     let ch = open_out !heidi_file in
     print_heidi ch;
     close_out ch
-  end
+  end;
+
+  if !excuse_file <> "" then output_reasons l0 !excuse_file
+
+(****)
 
 let read_conf f =
   let ch = open_in f in
@@ -1261,7 +1368,6 @@ let read_conf f =
   no_removal := false
 
 let _ =
-let excuse_file = ref "" in
 let spec =
   Arg.align
   ["--input",
@@ -1305,5 +1411,4 @@ Arg.parse spec (fun p -> ())
     or a britney config file (option -c).\n\
     \n\
     Options:");
-f();
-if !excuse_file <> "" then output_reasons !excuse_file
+f ()

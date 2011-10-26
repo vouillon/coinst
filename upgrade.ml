@@ -332,7 +332,9 @@ Format.printf "Generating explanations...@.";
 Format.fprintf f "<h2>Explanations of conflicts</h2>@.";
 List.iter
   (fun { Upgrade_common.i_issue = s;
-         i_nodes = pkgs; i_deps = deps; i_confl = confl } ->
+         Upgrade_common.i_graph =
+           { Upgrade_common.g_nodes = pkgs;
+             g_deps = deps; g_confl = confl }} ->
 (*Task.async (fun () ->*)
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in

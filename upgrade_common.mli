@@ -16,13 +16,9 @@ type state =
 val prepare_analyze : pool -> state
 
 type clause = { pos : StringSet.t; neg : StringSet.t }
-type issue =
-  { i_issue : PSet.t;
-    i_clause : clause;
-    (* FIX: compute this information at a later stage? *)
-    i_nodes : PSet.t;
-    i_deps : Formula.t PTbl.t;
-    i_confl : Conflict.t }
+type graph =
+  { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
+type issue = { i_issue : PSet.t; i_clause : clause; i_graph : graph }
 
 val analyze :
   ?check_new_packages:bool ->

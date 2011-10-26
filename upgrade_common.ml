@@ -271,13 +271,9 @@ Format.eprintf "NEW %a %d %b %a %a@." (Package.print dist2) p (PSet.cardinal del
 (****)
 
 type clause = { pos : StringSet.t; neg : StringSet.t }
-type issue =
-  { i_issue : PSet.t;
-    i_clause : clause;
-    (* FIX: the information below should be computed at a later stage. *)
-    i_nodes : PSet.t;
-    i_deps : Formula.t PTbl.t;
-    i_confl : Conflict.t }
+type graph =
+  { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
+type issue = { i_issue : PSet.t; i_clause : clause; i_graph : graph }
 
 let prepare_analyze dist =
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
@@ -594,7 +590,7 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
  Format.printf "==> %a@." (Formula.print dist1) ppkgs;
  *)
             { i_issue = s; i_clause = { pos = pos; neg = neg };
-              i_nodes = !pkgs; i_deps = deps; i_confl = confl })
+              i_graph = { g_nodes = !pkgs; g_deps = deps; g_confl = confl }})
          (PSetSet.elements !results),
        PSet.fold
          (fun p s ->
