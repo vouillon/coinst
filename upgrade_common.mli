@@ -35,4 +35,4 @@ val analyze :
 
 val find_problematic_packages :
   ?check_new_packages:bool ->
-  state -> state -> (string -> bool) -> clause list
+  state -> state -> (string -> bool) -> (clause * StringSet.t) list

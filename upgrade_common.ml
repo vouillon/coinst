@@ -642,16 +642,24 @@ Format.eprintf "  Building target dist: %f@." (Timer.stop t);
 let t = Timer.start () in
   let problems =
     List.fold_left
-      (fun f { i_clause = clause } -> clause :: f)
+      (fun f { i_issue = s; i_clause = clause } ->
+        (clause,
+         PSet.fold
+           (fun p s ->
+             StringSet.add (M.package_name dist2 (Package.index p)) s)
+           s StringSet.empty) :: f)
       [] graphs
   in
   let problems =
-    List.fold_left (fun f (_, ppkgs) -> ppkgs :: f)
+    List.fold_left
+      (fun f (p, ppkgs) ->
+         (ppkgs,
+          StringSet.singleton (M.package_name dist2 (Package.index p))) :: f)
       problems broken_new_packages
   in
   Format.printf ">>> %a@."
     (Util.print_list
-       (fun ch {pos = pos; neg = neg} ->
+       (fun ch ({pos = pos; neg = neg}, _) ->
           Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
             (StringSet.elements neg);
           if not (StringSet.is_empty pos || StringSet.is_empty neg) then

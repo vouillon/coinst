@@ -74,7 +74,7 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = true
+let verbose = false
 
 (****)
 
@@ -292,13 +292,13 @@ type reason =
   | Unchanged
     (* Source *)
   | Blocked
-  | Too_young
+  | Too_young of int * int
   | Binary_not_propagated of ((string * M.version) * string)
   | No_removal
   (* Both *)
   | More_bugs
   (* Binaries *)
-  | Conflict of StringSet.t
+  | Conflict of StringSet.t * StringSet.t
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated of (string * M.version)
   | Atomic of ((string * M.version) * string) list
@@ -309,17 +309,20 @@ let print_reason f reason =
       Format.fprintf f "no update"
   | Blocked ->
       Format.fprintf f "blocked"
-  | Too_young ->
+  | Too_young _ ->
       Format.fprintf f "not old enough"
   | More_bugs ->
       Format.fprintf f "has new bugs"
-  | Conflict s ->
+  | Conflict (s, s') ->
       if StringSet.is_empty s then
         Format.fprintf f "cannot be installed"
       else begin
         Format.fprintf f "relies propagation of binary packages";
         StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s
-      end
+      end;
+      Format.fprintf f " (would break";
+      StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s';
+      Format.fprintf f ")"
   | Not_yet_built (src, v1, v2) ->
       Format.fprintf f "not yet rebuilt (source %s %a rather than %a)"
         src M.print_version v1 M.print_version v2
@@ -386,13 +389,16 @@ let ignored_reason reason =
   | _ ->
       false
 
-let rec interesting_reason r =
+let rec interesting_reason nm nm' r =
   match r with
     Unchanged ->
       false
   | Binary_not_propagated ((bin, _), arch) ->
-      List.exists interesting_reason (ListTbl.find unchanged (bin, arch))
+      List.exists (interesting_reason nm bin)
+        (ListTbl.find unchanged (bin, arch))
   | Source_not_propagated _ ->
+      false
+  | More_bugs when nm = nm' ->
       false
   | _ ->
       true
@@ -407,15 +413,15 @@ let sort_and_uniq compare l =
     []     -> []
   | v :: r -> uniq v r
 
-let output_reasons () =
-  let ch = open_out "/tmp/reasons.html" in
+let output_reasons filename =
+  let ch = open_out filename in
   let f = Format.formatter_of_out_channel ch in
 
   let sources = ref [] in
 (* XXX Some sources are missing (bin-NMU)... *)
   ListTbl.iter
     (fun (nm, arch) reasons ->
-       if arch = "source" && List.exists interesting_reason reasons then
+       if arch = "source" && List.exists (interesting_reason nm "") reasons then
          sources := (nm, reasons) :: !sources)
     unchanged;
 
@@ -428,12 +434,14 @@ let output_reasons () =
          let binaries = ref [] in
          List.iter
            (fun r ->
-              if interesting_reason r then
+              if interesting_reason nm "" r then
               match r with
                 Blocked ->
                   Format.fprintf f "<li>Left unchanged due to block request@."
-              | Too_young ->
-                  Format.fprintf f "<li>Too young@."
+              | Too_young (cur_ag, req_ag) ->
+                  Format.fprintf f
+                    "<li>Only %d days old.  Must be %d days old to go in@."
+                    cur_ag req_ag
               | Binary_not_propagated ((bin, v), arch) ->
                   binaries := (bin, arch) :: !binaries
               | No_removal ->
@@ -444,21 +452,27 @@ let output_reasons () =
                   assert false)
            reasons;
          List.iter
-           (fun (nm, arch) ->
+           (fun (nm', arch) ->
               Format.fprintf f "<li>Binary package %s/%s not propagated@."
-                nm arch;
+                nm' arch;
              Format.fprintf f "<ul>@.";
              List.iter
                (fun r ->
-                  if interesting_reason r then
+                  if interesting_reason nm nm' r then
                   match r with
-                    Conflict s ->
+                    Conflict (s, s') ->
                       if StringSet.is_empty s then
-                        Format.fprintf f "<li>Dependency not satisfied@."
+                        Format.fprintf f "<li>Dependency not satisfied"
                       else begin
                         Format.fprintf f "<li>Needs binary packages";
-                        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s;
+                        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s
+                      end;
+                      if StringSet.cardinal s' = 1 && StringSet.mem nm' s' then
                         Format.fprintf f "@."
+                      else begin
+                        Format.fprintf f " (would break binary packages";
+                        StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s';
+                        Format.fprintf f ")@."
                       end
                   | More_bugs ->
                       Format.fprintf f "<li>Has new bugs@."
@@ -468,7 +482,7 @@ let output_reasons () =
                       Format.fprintf f "<li>Other binary not migrated@."
                   | _ ->
                       assert false)
-               (ListTbl.find unchanged (nm, arch));
+               (ListTbl.find unchanged (nm', arch));
              Format.fprintf f "</ul>@.")
            (sort_and_uniq compare !binaries);
          Format.fprintf f "</ul>@.")
@@ -767,7 +781,7 @@ end;
                 in
                 let pkgs =
                   List.fold_left
-                    (fun s i -> StringSet.union s i.Upgrade_common.neg)
+                    (fun s (cl, _) -> StringSet.union s cl.Upgrade_common.neg)
                     StringSet.empty problems
                 in
                 if not (StringSet.is_empty pkgs) then begin
@@ -935,7 +949,7 @@ let f () =
   Format.eprintf "Loading: %f@." (Timer.stop load_t);
 
   let init_t = Timer.start () in
-  let old_enough nm uv tv =
+  let compute_ages nm uv tv =
     let d =
       try
         let (v, d) = Hashtbl.find dates nm in
@@ -978,7 +992,7 @@ let f () =
 (*
   Format.eprintf ">>> %s (= %a) => %d %d@." p.M.package M.print_version p.M.version (now - d) u;
 *)
-    now + !offset >= d + u
+    (now + !offset - d, u)
   in
   let get_bugs src bugs p =
     try Hashtbl.find bugs p with Not_found -> StringSet.empty
@@ -1002,8 +1016,9 @@ let f () =
        else begin
          (* Do not propagate a source package if not old enough *)
          let v' = source_version t nm in
-         if not (old_enough nm v v') then
-           no_change ((nm, v), "source") Too_young;
+         let (cur_ag, req_ag) = compute_ages nm v v' in
+         if cur_ag < req_ag then
+           no_change ((nm, v), "source") (Too_young (cur_ag, req_ag));
          (* Do not propagate a source package if it has new bugs *)
          let is_new = v' = None in
          if
@@ -1102,12 +1117,12 @@ let step_t = Timer.start () in
 let t = Timer.start () in
            let has_singletons =
              List.exists
-               (fun cl -> StringSet.cardinal cl.Upgrade_common.pos = 1)
+               (fun (cl, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
                problems
            in
            let arch_changed = ref false in
            List.iter
-             (fun {Upgrade_common.pos = pos;  neg = neg} ->
+             (fun ({Upgrade_common.pos = pos;  neg = neg}, s) ->
                 if
                   not (has_singletons && StringSet.cardinal pos > 1)
                 then begin
@@ -1129,7 +1144,7 @@ let t = Timer.start () in
                             assert false
                   in
                   arch_changed := true;
-                  no_change ((nm, p.M.version), arch) (Conflict neg)
+                  no_change ((nm, p.M.version), arch) (Conflict (neg, s))
                 end)
              problems;
 Format.eprintf "  New constraints: %f@." (Timer.stop t);
@@ -1246,24 +1261,28 @@ let read_conf f =
   no_removal := false
 
 let _ =
+let excuse_file = ref "" in
 let spec =
   Arg.align
-  ["-input",
+  ["--input",
    Arg.String (fun d -> dir := d),
    "DIR       Select directory containing britney data";
    "-c",
    Arg.String read_conf,
    "FILE      Read britney config FILE";
-   "-hints",
+   "--hints",
    Arg.String (fun f -> hint_file := f),
    "FILE      Output hints to FILE";
-   "-small",
+   "--small",
    Arg.Unit (fun () -> small_hints := true),
    "          Generate small hints";
-   "-heidi",
+   "--heidi",
    Arg.String (fun f -> heidi_file := f),
    "FILE      Output Heidi results to FILE";
-   "-offset",
+   "--excuses",
+   Arg.String (fun f -> excuse_file := f),
+   "FILE      Output excuses to FILE";
+   "--offset",
    Arg.Int (fun n -> offset := n),
    "N         Move N days into the future";
    "--control-files",
@@ -1287,4 +1306,4 @@ Arg.parse spec (fun p -> ())
     \n\
     Options:");
 f();
-output_reasons ()
+if !excuse_file <> "" then output_reasons !excuse_file

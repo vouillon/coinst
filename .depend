@@ -6,8 +6,6 @@
 ./rpm_lib.cmx: util.cmx solver.cmx common.cmx ./rpm_lib.cmi
 ./task.cmo:
 ./task.cmx:
-./update.cmo: repository.cmi quotient.cmi graph.cmi file.cmi deb_lib.cmi
-./update.cmx: repository.cmx quotient.cmx graph.cmx file.cmx deb_lib.cmx
 ./file.cmo: ./file.cmi
 ./file.cmx: ./file.cmi
 ./comp.cmo: deb_lib_old.cmo deb_lib.cmi
@@ -31,8 +29,10 @@
     file.cmi deb_lib.cmi api.cmi
 ./main.cmx: util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
     file.cmx deb_lib.cmx api.cmx
-./upgrade.cmo: upgrade_common.cmi quotient.cmi graph.cmi file.cmi deb_lib.cmi
-./upgrade.cmx: upgrade_common.cmx quotient.cmx graph.cmx file.cmx deb_lib.cmx
+./upgrade.cmo: util.cmi upgrade_common.cmi quotient.cmi graph.cmi file.cmi \
+    deb_lib.cmi
+./upgrade.cmx: util.cmx upgrade_common.cmx quotient.cmx graph.cmx file.cmx \
+    deb_lib.cmx
 ./coinst_common.cmo: repository.cmi quotient.cmi api.cmi ./coinst_common.cmi
 ./coinst_common.cmx: repository.cmx quotient.cmx api.cmx ./coinst_common.cmi
 ./quotient.cmo: util.cmi repository.cmi ./quotient.cmi
