@@ -17,6 +17,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
+let debug_coinst =
+  Debug.make "coinst" "Debug co-installability issue analyse" []
+let debug_time = Debug.make "time" "Print execution times" []
+
 let debug = false
 
 module StringSet = Set.Make (String)
@@ -317,19 +321,22 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
   let
     { dist = dist1; deps = deps1; confl = confl1;
       deps' = deps1'; confl' = confl1'; st = st1 }
-  = dist1_state
+    = dist1_state
   in
-let t = Timer.start () in
-let t' = Timer.start () in
+  let t = Timer.start () in
+  let t' = Timer.start () in
   let (deps2, confl2) = Coinst.compute_dependencies_and_conflicts dist2 in
-Format.eprintf "    Deps and confls: %f@." (Timer.stop t');
+  if debug_time () then
+    Format.eprintf "    Deps and confls: %f@." (Timer.stop t');
   let (deps2', confl2') = Coinst.flatten_and_simplify dist2 deps2 confl2 in
-let t' = Timer.start () in
+  let t' = Timer.start () in
   let st2 = Coinst.generate_rules (Quotient.trivial dist2) deps2' confl2' in
-Format.eprintf "    Rules: %f@." (Timer.stop t');
-Format.eprintf "  Target dist: %f@." (Timer.stop t);
+  if debug_time () then begin
+    Format.eprintf "    Rules: %f@." (Timer.stop t');
+    Format.eprintf "  Target dist: %f@." (Timer.stop t)
+  end;
 
-let t = Timer.start () in
+  let t = Timer.start () in
   let pred = compute_predecessors dist1 dist2 in
 
   let new_conflicts = ref [] in
@@ -341,11 +348,11 @@ let t = Timer.start () in
          let p1 = Package.of_index i in
          let q1 = Package.of_index j in
          if not (Conflict.check confl1 p1 q1) then begin
-  if true (*debug*) then begin
-           Format.printf "possible new conflict: %a %a@."
-             (Package.print_name dist1) p1
-             (Package.print_name dist1) q1;
-  end;
+           if debug_coinst () then begin
+             Format.eprintf "possible new conflict: %a %a@."
+               (Package.print_name dist1) p1
+               (Package.print_name dist1) q1;
+           end;
            new_conflicts := (p2, q2) :: !new_conflicts;
          end
        end);
@@ -353,9 +360,12 @@ let t = Timer.start () in
   let results = ref PSetSet.empty in
   let add_result s =
     if not (PSetSet.mem s !results) then begin
-  Format.printf "==>";
-  PSet.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
-  Format.printf "@.";
+      if debug_coinst () then begin
+        Format.eprintf "==>";
+        PSet.iter
+          (fun p -> Format.eprintf " %a" (Package.print_name dist2) p) s;
+        Format.eprintf "@."
+      end;
       results := PSetSet.add s !results
     end
   in
@@ -482,7 +492,7 @@ let t = Timer.start () in
     (Quotient.trivial dist2) deps2 confl2';
   *)
 
-Format.eprintf "  Init: %f@." (Timer.stop t);
+  if debug_time () then Format.eprintf "  Init: %f@." (Timer.stop t);
 
   let check s =
     let now_installable s =
@@ -525,12 +535,14 @@ Format.eprintf "  Init: %f@." (Timer.stop t);
       false
     end
   in
-let t = Timer.start () in
+  let t = Timer.start () in
   find_problems dist2 deps2 confl2' check;
-Format.eprintf "  Enumerating problems: %f@." (Timer.stop t);
+  if debug_time () then
+    Format.eprintf "  Enumerating problems: %f@." (Timer.stop t);
+
   (****)
 
-let t = Timer.start () in
+  let t = Timer.start () in
   let all_pkgs = ref PSet.empty in
   let all_conflicts = Conflict.create dist2 in
   let dep_src = PTbl.create dist2 PSet.empty in
@@ -560,9 +572,10 @@ let t = Timer.start () in
       ([], [])
     else begin
       let s = PSetSet.fold PSet.union !results !broken_new_packages in
-let t = Timer.start () in
+      let t = Timer.start () in
       let st2init = M.generate_rules_restricted dist2 (pset_indices s) in
-Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
+      if debug_time () then
+        Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
       (List.map
          (fun s ->
             let l = List.map Package.index (PSet.elements s) in
@@ -633,7 +646,8 @@ Format.eprintf "    Generating constraints: %f@." (Timer.stop t);
     end
   in
 
-Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
+  if debug_time () then
+    Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
 
   (deps1, deps2, pred, st2,
    !results, !all_pkgs, all_conflicts, dep_src, graphs, broken_new_packages)
@@ -642,11 +656,12 @@ Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
 
 let rec find_problematic_packages
           ?(check_new_packages = false) dist1_state dist2_state is_preserved =
-let t = Timer.start () in
+  let t = Timer.start () in
   let dist2 = M.new_pool () in
   M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
   M.merge2 dist2 (fun p -> is_preserved p.M.package) dist1_state.dist;
-Format.eprintf "  Building target dist: %f@." (Timer.stop t);
+  if debug_time () then
+    Format.eprintf "  Building target dist: %f@." (Timer.stop t);
 
   let (deps1, deps2, pred, st2,
        results, all_pkgs, all_conflicts,
@@ -671,18 +686,20 @@ let t = Timer.start () in
           StringSet.singleton (M.package_name dist2 (Package.index p))) :: f)
       problems broken_new_packages
   in
-  Format.printf ">>> %a@."
-    (Util.print_list
-       (fun ch ({pos = pos; neg = neg}, _) ->
-          Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
-            (StringSet.elements neg);
-          if not (StringSet.is_empty pos || StringSet.is_empty neg) then
-            Format.fprintf ch " | ";
-          Util.print_list (fun f -> Format.fprintf f "%s") " | " ch
-            (StringSet.elements pos))
-       ", ")
-    problems;
-Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
+  if debug_coinst () then
+    Format.eprintf ">>> %a@."
+      (Util.print_list
+         (fun ch ({pos = pos; neg = neg}, _) ->
+            Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
+              (StringSet.elements neg);
+            if not (StringSet.is_empty pos || StringSet.is_empty neg) then
+              Format.fprintf ch " | ";
+            Util.print_list (fun f -> Format.fprintf f "%s") " | " ch
+              (StringSet.elements pos))
+         ", ")
+      problems;
+  if debug_time () then
+    Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
   problems
 
 (****)
@@ -921,11 +938,11 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
          let p1 = Package.of_index i in
          let q1 = Package.of_index j in
          if not (Conflict.check confl1 p1 q1) then begin
-  if debug then begin
-           Format.printf "possible new conflict: %a %a@."
-             (Package.print_name dist1_state.dist) p1
-             (Package.print_name dist1_state.dist) q1;
-  end;
+           if debug_coinst () then begin
+             Format.eprintf "possible new conflict: %a %a@."
+               (Package.print_name dist1_state.dist) p1
+               (Package.print_name dist1_state.dist) q1;
+           end;
            new_conflicts := (p2, q2) :: !new_conflicts;
          end
        end);

@@ -17,6 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
+let debug_time = Debug.make "time" "Print execution times" []
+
 module F (M : Api.S) = struct
 
 module Repository = Repository.F(M)
@@ -265,7 +267,8 @@ true)
 
   let deps = remove_deps deps in
 
-Format.eprintf "Flattening: %fs@." (Unix.gettimeofday () -. t);
+  if debug_time () then
+    Format.eprintf "Flattening: %fs@." (Unix.gettimeofday () -. t);
   (deps, confl)
 
 end

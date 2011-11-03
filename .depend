@@ -8,8 +8,10 @@
 ./task.cmx:
 ./file.cmo: ./file.cmi
 ./file.cmx: ./file.cmi
-./comp.cmo: deb_lib_old.cmo deb_lib.cmi
-./comp.cmx: deb_lib_old.cmx deb_lib.cmx
+./debug.cmo: ./debug.cmi
+./debug.cmx: ./debug.cmi
+./comp.cmo: deb_lib.cmi
+./comp.cmx: deb_lib.cmx
 ./upgrade_common.cmi: repository.cmi deb_lib.cmi
 ./solver.cmi:
 ./dgraph.cmo: ./dgraph.cmi
@@ -17,11 +19,10 @@
 ./file.cmi:
 ./util.cmo: ./util.cmi
 ./util.cmx: ./util.cmi
+./debug.cmi:
 ./graph.cmo: repository.cmi quotient.cmi conflicts.cmo ./graph.cmi
 ./graph.cmx: repository.cmx quotient.cmx conflicts.cmx ./graph.cmi
 ./api.cmi: solver.cmi
-./deb_parser.cmo: util.cmi common.cmi
-./deb_parser.cmx: util.cmx common.cmx
 ./quotient.cmi: repository.cmi
 ./rpm_lib.cmi: api.cmi
 ./util.cmi:
@@ -48,8 +49,6 @@
 ./common.cmi:
 ./repository.cmo: util.cmi api.cmi ./repository.cmi
 ./repository.cmx: util.cmx api.cmx ./repository.cmi
-./deb_lib_old.cmo: util.cmi solver.cmi common.cmi
-./deb_lib_old.cmx: util.cmx solver.cmx common.cmx
 ./solver.cmo: ./solver.cmi
 ./solver.cmx: ./solver.cmi
 ./cudf_lib.cmo: solver.cmi common.cmi ./cudf_lib.cmi
@@ -57,9 +56,9 @@
 ./common.cmo: util.cmi ./common.cmi
 ./common.cmx: util.cmx ./common.cmi
 ./transition.cmo: util.cmi upgrade_common.cmi repository.cmi file.cmi \
-    deb_lib.cmi
+    debug.cmi deb_lib.cmi
 ./transition.cmx: util.cmx upgrade_common.cmx repository.cmx file.cmx \
-    deb_lib.cmx
+    debug.cmx deb_lib.cmx
 ./deb_lib.cmi: util.cmi solver.cmi api.cmi
 ./graph.cmi: repository.cmi quotient.cmi
 ./repository.cmi: util.cmi api.cmi

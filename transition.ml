@@ -95,7 +95,18 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = true
+let debug = Debug.make "normal" "Set normal debug output level." []
+let verbose =
+  Debug.make "explain" "Explain why packages are not propagated." ["normal"]
+let debug_time = Debug.make "time" "Print execution times" ["normal"]
+let debug_reduction =
+  Debug.make "reduction" "Debug repository size reduction" ["normal"]
+let debug_coinst =
+  Debug.make "coinst" "Debug co-installability issue analyse" ["normal"]
+let debug_outcome =
+  Debug.make "outcome" "Print the possible changes" ["normal"]
+let debug_hints =
+  Debug.make "hints" "Output suggested hints to standard output" ["normal"]
 
 (****)
 
@@ -225,6 +236,8 @@ type hint =
     h_urgent : (string, Deb_lib.version) Hashtbl.t;
     h_age_days : (string, Deb_lib.version option * int) Hashtbl.t }
 
+let debug_read_hints = Debug.make "read_hints" "Show input hints." ["normal"]
+
 let read_hints dir =
   let hints =
     { h_block = Hashtbl.create 16;
@@ -249,7 +262,8 @@ let read_hints dir =
            | "finished" :: _ ->
                raise End_of_file
            | _ ->
-               Format.eprintf "# %s@." (String.concat " " l)
+               if debug_read_hints () then
+                 Format.eprintf "# %s@." (String.concat " " l)
            end;
            match l with
            | "block" :: l ->
@@ -393,7 +407,7 @@ let rec no_change pkg reason =
   let already = ListTbl.mem unchanged (nm, arch) in
   ListTbl.add unchanged (nm, arch) reason;
   if not already then begin
-    if verbose && reason <> Unchanged then
+    if reason <> Unchanged && verbose () then
       Format.eprintf "Skipping %s (%a / %s): %a@."
         nm M.print_version version arch print_reason reason;
     let l = Hashtbl.find_all propagation_rules (nm, arch) in
@@ -769,13 +783,14 @@ let reduce_repository_pair (arch, (t, u)) =
   M.merge2 t' filter t;
   let u' = M.new_pool () in
   M.merge2 u' filter u;
-  Format.eprintf "==> %d/%d@." !n !m;
+  if debug_reduction () then Format.eprintf "==> %d/%d@." !n !m;
   (arch, (t', u'))
 
 let reduce_repositories l =
   let t = Timer.start () in
   let l = List.map reduce_repository_pair l in
-  Format.eprintf "Reducing repositories: %f@." (Timer.stop t);
+  if debug_time () then
+    Format.eprintf "Reducing repositories: %f@." (Timer.stop t);
   l
 
 (****)
@@ -943,7 +958,7 @@ Format.fprintf f " ***%s/%s***" src arch
     end;
     List.iter (fun names -> print_hint f names) hints
   in
-  print_hints Format.std_formatter;
+  if debug_hints () then print_hints Format.std_formatter;
   if !hint_file <> "-" then begin
     let ch = open_out !hint_file in
     print_hints (Format.formatter_of_out_channel ch);
@@ -984,7 +999,7 @@ let f () =
     cached files cache "version 1" (fun () ->
       (load_src_packages (testing ()), load_src_packages (unstable ())))
   in
-  Format.eprintf "Loading: %f@." (Timer.stop load_t);
+  if debug_time () then Format.eprintf "Loading: %f@." (Timer.stop load_t);
 
   let init_t = Timer.start () in
   let compute_ages nm uv tv =
@@ -1149,7 +1164,8 @@ end;
             end)
          t'.M.packages_by_num)
     l;
-Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
+  if debug_time () then
+    Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
   let l0 = l in
   let l = reduce_repositories l in
@@ -1168,15 +1184,16 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
       let changed = ref false in
       List.iter
         (fun (arch, t', u') ->
-           Format.printf "==================== %s@." arch;
+           if debug_coinst () then
+             Format.eprintf "==================== %s@." arch;
            while
-  let step_t = Timer.start () in
+             let step_t = Timer.start () in
              let problems =
                Upgrade_common.find_problematic_packages
                  ~check_new_packages:true t' u'
                  (fun nm -> ListTbl.mem unchanged (nm, arch))
              in
-  let t = Timer.start () in
+             let t = Timer.start () in
              let has_singletons =
                List.exists
                  (fun (cl, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
@@ -1210,8 +1227,10 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
                     no_change ((nm, p.M.version), arch) (Conflict (neg, s))
                   end)
                problems;
-  Format.eprintf "  New constraints: %f@." (Timer.stop t);
-  Format.eprintf "Step duration: %f@." (Timer.stop step_t);
+             if debug_time () then begin
+               Format.eprintf "  New constraints: %f@." (Timer.stop t);
+               Format.eprintf "Step duration: %f@." (Timer.stop step_t)
+             end;
              if !arch_changed then changed := true;
              !arch_changed
            do () done)
@@ -1226,43 +1245,46 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
     find_coinst_constraints ()
   end;
 
-  Hashtbl.iter
-    (fun nm v ->
-       if not (ListTbl.mem unchanged (nm, "source")) then
-         try
-           let v' = Hashtbl.find u nm in
-           Format.eprintf "Upgrade source package %s from %a to %a@." nm
-             M.print_version v M.print_version v'
-         with Not_found ->
-           Format.eprintf "Remove source package %s@." nm)
-    t;
-  Hashtbl.iter
-    (fun nm v ->
-       if not (Hashtbl.mem t nm || ListTbl.mem unchanged (nm, "source")) then
-         Format.eprintf "Adding source package %s@." nm)
-    u;
-  List.iter
-    (fun (arch, (t', u')) ->
-       Hashtbl.iter
-         (fun _ p ->
-            let nm = p.M.package in
-            let v = p.M.version in
-            if not (ListTbl.mem unchanged (nm, arch)) then
-              match bin_version u' nm with
-                Some v' ->
-                  Format.eprintf "Upgrade binary package %s/%s from %a to %a@."
-                    nm arch M.print_version v M.print_version v'
-              | None ->
-                  Format.eprintf "Remove binary package %s/%s@." nm arch)
-         t'.M.packages_by_num;
-       Hashtbl.iter
-         (fun _ p ->
-            let nm = p.M.package in
-            if not (ListTbl.mem unchanged (nm, arch)) then
-              if not (ListTbl.mem t'.M.packages_by_name nm) then
-                Format.eprintf "Adding binary package %s/%s@." nm arch)
-         u'.M.packages_by_num)
-    l;
+  if debug_outcome () then begin
+    Hashtbl.iter
+      (fun nm v ->
+         if not (ListTbl.mem unchanged (nm, "source")) then
+           try
+             let v' = Hashtbl.find u nm in
+             Format.eprintf "Upgrade source package %s from %a to %a@." nm
+               M.print_version v M.print_version v'
+           with Not_found ->
+             Format.eprintf "Remove source package %s@." nm)
+      t;
+    Hashtbl.iter
+      (fun nm v ->
+         if not (Hashtbl.mem t nm || ListTbl.mem unchanged (nm, "source")) then
+           Format.eprintf "Adding source package %s@." nm)
+      u;
+    List.iter
+      (fun (arch, (t', u')) ->
+         Hashtbl.iter
+           (fun _ p ->
+              let nm = p.M.package in
+              let v = p.M.version in
+              if not (ListTbl.mem unchanged (nm, arch)) then
+                match bin_version u' nm with
+                  Some v' ->
+                    Format.eprintf
+                      "Upgrade binary package %s/%s from %a to %a@."
+                      nm arch M.print_version v M.print_version v'
+                | None ->
+                    Format.eprintf "Remove binary package %s/%s@." nm arch)
+           t'.M.packages_by_num;
+         Hashtbl.iter
+           (fun _ p ->
+              let nm = p.M.package in
+              if not (ListTbl.mem unchanged (nm, arch)) then
+                if not (ListTbl.mem t'.M.packages_by_name nm) then
+                  Format.eprintf "Adding binary package %s/%s@." nm arch)
+           u'.M.packages_by_num)
+      l
+  end;
 
   generate_hints l l';
 
@@ -1355,6 +1377,9 @@ let spec =
    "--offset",
    Arg.Int (fun n -> offset := n),
    "N         Move N days into the future";
+   "--debug",
+   Arg.String Debug.set,
+   "NAME      Activate debug option NAME";
    "--control-files",
    Arg.Unit (fun () -> ()),
    "          Currently ignored";
