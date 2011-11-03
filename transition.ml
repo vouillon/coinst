@@ -1356,6 +1356,10 @@ let f () =
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
             let (nm, v) = p.M.source in
+if not (Hashtbl.mem u nm) then begin
+Format.eprintf "Warning: missing source package %s in unstable@." nm;
+Hashtbl.add u nm v
+end;
             assert (Hashtbl.mem u nm);
             let v' = Hashtbl.find u nm in
             (* Do not add a binary package if its source is not
@@ -1389,6 +1393,11 @@ let f () =
          (fun _ pkgs -> all_or_none pkgs (Atomic pkgs)) bin_nmus;
        Hashtbl.iter
          (fun _ p ->
+            let (nm, v) = p.M.source in
+if not (Hashtbl.mem t nm) then begin
+Format.eprintf "Warning: missing source package %s in testing@." nm;
+Hashtbl.add t nm v
+end;
             let pkg = ((p.M.package, p.M.version), arch) in
             (* We cannot remove a source package if a corresponding
                binary package still exists. *)
