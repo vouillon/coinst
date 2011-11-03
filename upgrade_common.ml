@@ -135,7 +135,7 @@ if debug then Format.printf "Try to add %a => %a@." (Package.print_name st.dist)
          else
            ignore
              (PSet.fold
-                (fun q st -> 
+                (fun q st ->
                    List.fold_right (fun j st -> do_add_piece st j cont)
                      (ListTbl.find st.pieces_in_confl q) st)
                 (Conflict.of_package st.confl p) st))
@@ -682,20 +682,6 @@ let t = Timer.start () in
             (StringSet.elements pos))
        ", ")
     problems;
-(*
-  if policy = `Conservative then
-    List.fold_left
-      (fun d (s, _) -> StringSet.union s d) StringSet.empty problems
-  else
-    let has_singletons =
-      List.exists (fun (s, _) -> StringSet.cardinal s = 1) problems
-    in
-    List.fold_left
-      (fun d (s, _) ->
-         if has_singletons && StringSet.cardinal s > 1 then d else
-         StringSet.add (StringSet.choose s) d)
-    StringSet.empty problems
-*)
 Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
   problems
 
@@ -760,14 +746,8 @@ ignore first_dummy;
            depends = []; recommends = []; suggests = []; enhances = [];
            pre_depends = []; provides = [[provides, None]];
            conflicts = [[provides, None]];
-(*
-           conflicts = [["<" ^ q ^ "/" ^ "BOGUS" ^ ">", None]];
-*)
            breaks = []; replaces = [] }
        in
-(*
-       ignore (M.add_package dist2 (pkg "BOGUS"));
-*)
        let old_grp = Package.of_index (M.add_package dist2 (pkg "OLD")) in
        let new_grp = Package.of_index (M.add_package dist2 (pkg "NEW")) in
        Hashtbl.add group_pkgs q (old_grp, new_grp);
@@ -826,21 +806,9 @@ ignore first_dummy;
     in
     let common_f =
       Formula.conj (common_part old_f new_f) (common_part new_f old_f) in
-(*
-Format.eprintf "OLD:    %a@." (Formula.print dist2) old_f;
-Format.eprintf "NEW:    %a@." (Formula.print dist2) new_f;
-Format.eprintf "COMMON: %a@." (Formula.print dist2) common_f;
-let res =
-*)
     Formula.conj
       (Formula.conj common_f (Formula.disj (Formula.lit n) old_f))
       (Formula.disj (Formula.lit o) new_f)
-(*
-in
-Format.eprintf "RES:    %a@." (Formula.print dist2) res;
-Format.eprintf "SIMPL:  %a@." (Formula.print dist2) (Formula.conj res common_f);
-res
-*)
   in
 
   let quotient_formula p f =
