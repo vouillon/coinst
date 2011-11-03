@@ -95,7 +95,7 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = false
+let verbose = true
 
 (****)
 
@@ -1042,8 +1042,9 @@ let f () =
     Hashtbl.mem hints.h_block nm || Hashtbl.mem hints.h_block_udeb nm
   in
   let deferred_constraints = ref [] in
+  let produce_excuses = !excuse_file <> "" in
   let no_change_deferred pkg reason =
-    if !excuse_file <> "" then
+    if produce_excuses then
       deferred_constraints := (pkg, reason) :: !deferred_constraints
     else
       no_change pkg reason
@@ -1106,7 +1107,9 @@ end;
               let is_new = bin_version t' p.M.package = None in
               if not (no_new_bugs is_new p.M.package) then
                 no_change_deferred pkg More_bugs;
-              if not (same_source_version t u (fst p.M.source)) then begin
+              let source_changed =
+                not (same_source_version t u (fst p.M.source)) in
+              if source_changed then begin
                 (* We cannot add a binary package without also adding
                    its source. *)
                 associates pkg (p.M.source, "source")
@@ -1115,7 +1118,7 @@ end;
                 ListTbl.add bin_nmus p.M.source pkg;
               (* If a source is propagated, all its binaries should
                  be propagated as well *)
-              if atomic then
+              if source_changed || produce_excuses then
                 associates (p.M.source, "source") pkg
                   (Binary_not_propagated pkg)
 
@@ -1133,9 +1136,12 @@ end;
             let pkg = ((p.M.package, p.M.version), arch) in
             (* We cannot remove a source package if a corresponding
                binary package still exists. *)
-            associates
-              (p.M.source, "source") pkg (Binary_not_propagated pkg);
-            if not (same_source_version t u (fst p.M.source)) then begin
+            let source_changed =
+              not (same_source_version t u (fst p.M.source)) in
+            if source_changed || produce_excuses then
+              associates
+                (p.M.source, "source") pkg (Binary_not_propagated pkg);
+            if source_changed then begin
               (* We cannot remove a binary without removing its source *)
               if atomic then
                 associates pkg (p.M.source, "source")

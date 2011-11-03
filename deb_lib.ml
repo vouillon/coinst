@@ -504,18 +504,10 @@ let rec compare_rev_rec s1 p1 l1 s2 p2 l2 =
   compare_rev_rec s1 p1'' l1 s2 p2'' l2
 
 let compare_rev s1 s2 =
-(*
-Printf.eprintf "'%s' '%s' %!" s1 s2;
-*)
-let c =
+  if s1 = s2 then 0 else
   compare_rev_rec s1 0 (String.length s1) s2 0 (String.length s2)
-in
-(*
-Printf.eprintf "%d\n%!" c;
-*)
-c
 
-let compare_version v1 v2 =
+let compare_version (v1 : version) (v2 : version) =
   let (epoch1, upstream_version1, debian_revision1) = v1 in
   let (epoch2, upstream_version2, debian_revision2) = v2 in
   let c = compare epoch1 epoch2 in
