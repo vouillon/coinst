@@ -1,7 +1,25 @@
+(* Co-installability tools
+ * http://coinst.irill.org/
+ * Copyright (C) 2011 Jérôme Vouillon
+ * Laboratoire PPS - CNRS Université Paris Diderot
+ *
+ * These programs are free software; you can redistribute them and/or
+ * modify them under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *)
+
 (*
 PRIORITIES
-==> Heidi file: we might propagate empty source files!
-==> improve performance when generating small hints
+==> save learnt clauses
 ==> graphs for reporting co-installability issues
 ==> explain what it takes to migrate a package
 ==> find a way to indicate what corresponds to each new
@@ -10,8 +28,12 @@ PRIORITIES
         if I don't, these other packages will be broken (?)
 ==> how do we ignore co-installability issues?
 ==> allow package removal
+==> Heidi file: we might propagate empty source files!
+==> indicate which packages would be propagated by britney but not by
+    this tool
 
-Generate explanations
+
+  Generate explanations
   ==> link to build logs / merge packages
   ==> link to http://packages.qa.debian.org (for source files)
   ==> link to bugs
@@ -19,7 +41,7 @@ Generate explanations
   ==> three step: no age/bug constraints, bugs added, all
   ==> show packages that only wait for age, for bugs
 
-Find what it takes to install a package
+  Find what it takes to install a package
   ==> iterative: relax the problem until we can install the package
   ==> with clause learning
   ==> we could save learnt rules...
@@ -75,7 +97,7 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = false
+let verbose = true
 
 (****)
 
