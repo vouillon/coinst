@@ -281,8 +281,20 @@ let prepare_analyze dist =
   let st = Coinst.generate_rules (Quotient.trivial dist) deps' confl' in
   { dist; deps; confl; deps'; confl'; st }
 
-let analyze
-      ?(check_new_packages = false) ?reference dist1_state dist2 =
+let compute_predecessors dist1 dist2 =
+  PTbl.init dist2
+    (fun p2 ->
+       let nm = M.package_name dist2 (Package.index p2) in
+       match M.parse_package_name dist1 nm with
+         [] ->
+           if debug then Format.printf "%s is a new package@." nm;
+           -1
+       | [p1] ->
+           p1
+       | _ ->
+           assert false)
+
+let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
   let
     { dist = dist1; deps = deps1; confl = confl1;
       deps' = deps1'; confl' = confl1'; st = st1 }
@@ -299,19 +311,7 @@ Format.eprintf "    Rules: %f@." (Timer.stop t');
 Format.eprintf "  Target dist: %f@." (Timer.stop t);
 
 let t = Timer.start () in
-  let pred =
-    PTbl.init dist2
-      (fun p2 ->
-         let nm = M.package_name dist2 (Package.index p2) in
-         match M.parse_package_name dist1 nm with
-           [] ->
-             if debug then Format.printf "%s is a new package@." nm;
-             -1
-         | [p1] ->
-             p1
-         | _ ->
-             assert false)
-  in
+  let pred = compute_predecessors dist1 dist2 in
 
   let new_conflicts = ref [] in
   Conflict.iter confl2
@@ -622,8 +622,7 @@ Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
 (****)
 
 let rec find_problematic_packages
-          ?(check_new_packages = false)
-          dist1_state dist2_state is_preserved =
+          ?(check_new_packages = false) dist1_state dist2_state is_preserved =
 let t = Timer.start () in
   let dist2 = M.new_pool () in
   M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
@@ -680,3 +679,419 @@ let t = Timer.start () in
 *)
 Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
   problems
+
+(****)
+
+module Union_find = struct
+
+type 'a link =
+    Link of 'a t
+  | Value of 'a
+
+and 'a t =
+  { mutable state : 'a link }
+
+let rec repr t =
+  match t.state with
+    Link t' ->
+      let r = repr t' in
+      t.state <- Link r;
+      r
+  | Value _ ->
+      t
+
+let rec get t =
+  match (repr t).state with
+    Link _  -> assert false
+  | Value v -> v
+
+let merge t t' f =
+  let t = repr t in
+  let t' = repr t' in
+  if t != t' then begin
+    t.state <- Value (f (get t) (get t'));
+    t'.state <- Link t
+  end
+
+let elt v = { state = Value v }
+
+end
+
+let find_clusters dist1_state dist2_state is_preserved groups merge =
+  let dist2 = M.new_pool () in
+  M.merge2 dist2 (fun p -> true) dist1_state.dist;
+  let first_new = dist2.M.size in
+  M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
+
+  let first_dummy = dist2.M.size in
+ignore first_dummy;
+
+  let group_reprs = Hashtbl.create 101 in
+  let group_classes = Hashtbl.create 101 in
+  let group_pkgs = Hashtbl.create 101 in
+  List.iter
+    (fun (l, elt) ->
+       let q = List.hd l in
+       let pkg v =
+         let pseudo = "<" ^ q ^ "/" ^ v ^ ">" in
+         Hashtbl.add group_reprs pseudo q;
+         let provides = "<" ^ q ^ ">" in
+         let v = (0, "none", None) in
+         { M.num = 0; package = pseudo; version = v; source = (pseudo, v);
+           depends = []; recommends = []; suggests = []; enhances = [];
+           pre_depends = []; provides = [[provides, None]];
+           conflicts = [[provides, None]];
+(*
+           conflicts = [["<" ^ q ^ "/" ^ "BOGUS" ^ ">", None]];
+*)
+           breaks = []; replaces = [] }
+       in
+(*
+       ignore (M.add_package dist2 (pkg "BOGUS"));
+*)
+       let old_grp = Package.of_index (M.add_package dist2 (pkg "OLD")) in
+       let new_grp = Package.of_index (M.add_package dist2 (pkg "NEW")) in
+       Hashtbl.add group_pkgs q (old_grp, new_grp);
+       Hashtbl.add group_classes q elt;
+       List.iter (fun p -> Hashtbl.add group_reprs p q) l)
+    groups;
+  let group_repr p =
+    let nm = M.package_name dist2 (Package.index p) in
+    try Hashtbl.find group_reprs nm with Not_found -> ""
+  in
+  let same_group p q = group_repr p == group_repr q in
+  let group_class p =
+    try Some (Hashtbl.find group_classes p) with Not_found -> None
+  in
+
+  let old_version = PTbl.init dist2 (fun p -> p) in
+  let new_version = PTbl.init dist2 (fun p -> p) in
+  ListTbl.iter
+    (fun nm l ->
+       match l with
+         [p] ->
+           ()
+       | [p; q] ->
+           let i = min p.M.num q.M.num in
+           let j = max p.M.num q.M.num in
+           PTbl.set old_version (Package.of_index j) (Package.of_index i);
+           PTbl.set new_version (Package.of_index i) (Package.of_index j)
+       | _ ->
+           assert false)
+    dist2.M.packages_by_name;
+  let is_old p = Package.index p < first_new in
+  let is_new p =
+    Package.index p >= first_new && Package.index p < first_dummy in
+  let is_dummy p = Package.index p >= first_dummy in
+
+  let (deps2full, confl2full) =
+    Coinst.compute_dependencies_and_conflicts dist2 in
+
+  let confl2 = Conflict.create dist2 in
+  Conflict.iter confl2full
+    (fun p q ->
+      let p' = PTbl.get old_version p in
+      let q' = PTbl.get old_version q in
+      (* We omit conflicts between old and new version of packages
+         in a same group. *)
+      if
+        (is_old p && is_old q) || (is_new p && is_new q) ||
+        is_dummy p || not (same_group p q)
+      then
+        Conflict.add confl2 p' q');
+
+  let marked_conj o old_f n new_f =
+    let common_part f f' =
+      Formula.filter
+        (fun d -> Formula.exists (fun d' -> Disj.implies d' d) f) f'
+    in
+    let common_f =
+      Formula.conj (common_part old_f new_f) (common_part new_f old_f) in
+(*
+Format.eprintf "OLD:    %a@." (Formula.print dist2) old_f;
+Format.eprintf "NEW:    %a@." (Formula.print dist2) new_f;
+Format.eprintf "COMMON: %a@." (Formula.print dist2) common_f;
+let res =
+*)
+    Formula.conj
+      (Formula.conj common_f (Formula.disj (Formula.lit n) old_f))
+      (Formula.disj (Formula.lit o) new_f)
+(*
+in
+Format.eprintf "RES:    %a@." (Formula.print dist2) res;
+Format.eprintf "SIMPL:  %a@." (Formula.print dist2) (Formula.conj res common_f);
+res
+*)
+  in
+
+  let quotient_formula p f =
+    Formula.fold
+      (fun d f ->
+         let disj = Disj.to_lits d in
+         let variable_part = PSet.filter (fun p -> group_repr p <> "") disj in
+         if PSet.is_empty variable_part then
+           Formula.conj (Formula.of_disj d) f
+         else begin
+           let stable_part = PSet.filter (fun p -> group_repr p = "") disj in
+           let s =
+             PSet.fold (fun p s -> StringSet.add (group_repr p) s)
+               variable_part StringSet.empty
+           in
+(*
+Format.eprintf "Involved (%s / %a):" (group_repr p) (Package.print dist2) p;
+StringSet.iter (fun nm -> Format.eprintf " %s" nm) s;
+Format.eprintf "@.";
+*)
+           let f' =
+             StringSet.fold
+               (fun nm f ->
+                  let s1 =
+                    PSet.filter
+                      (fun p -> is_new p && group_repr p = nm) variable_part
+                  in
+                  let s2 =
+                    PSet.filter
+                      (fun p -> is_old p && group_repr p = nm) variable_part
+                  in
+                  let d1 =
+                    PSet.fold
+                      (fun p d ->
+                         Disj.disj (Disj.lit (PTbl.get old_version p)) d)
+                      s1 Disj._false
+                  in
+                  let d2 = Disj.of_lits s2 in
+(*
+Format.eprintf "?? %b %b %a %a@." (nm = group_repr p) (is_old p) (Disj.print dist2) d1 (Disj.print dist2) d2;
+*)
+                  Formula.disj
+                    (if Disj.equiv d1 d2 then
+                       Formula.of_disj d1
+                     else if nm <> group_repr p then
+(*
+                       Formula.conj
+                         (Formula.of_disj d1)
+                         (Formula.of_disj d2)
+*)
+                       let (o, n) = Hashtbl.find group_pkgs nm in
+                       marked_conj
+                         o (Formula.of_disj d2) n (Formula.of_disj d1)
+(*
+                       Formula.conj
+                         (Formula.of_disj (Disj.disj d1 (Disj.lit o)))
+                         (Formula.of_disj (Disj.disj d2 (Disj.lit n)))
+*)
+                     else if is_old p then
+                       Formula.of_disj d2
+                     else
+                       Formula.of_disj d1)
+                    f)
+               s Formula._false
+           in
+           let f' =
+             Formula.disj f' (Formula.of_disj (Disj.of_lits stable_part)) in
+(*
+Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
+*)
+           Formula.conj f f'
+         end)
+      f Formula._true
+  in
+  let deps2 = PTbl.mapi quotient_formula deps2full in
+  PTbl.iteri
+    (fun p f ->
+       let q = PTbl.get old_version p in
+       if p <> q then begin
+         let nm = group_repr p in
+         let (o, n) = Hashtbl.find group_pkgs nm in
+         PTbl.set deps2 q
+           (marked_conj o (PTbl.get deps2 q) n (PTbl.get deps2 p));
+(*
+(Formula.conj (Formula.disj (Formula.lit n) (PTbl.get deps2 q)) (Formula.disj (Formula.lit o) (PTbl.get deps2 p)));
+*)
+(*
+         PTbl.set deps2 q (Formula.conj (PTbl.get deps2 q) (PTbl.get deps2 p));
+*)
+         PTbl.set deps2 p Formula._true
+       end else if is_new q then begin
+         let nm = group_repr p in
+         let (o, n) = Hashtbl.find group_pkgs nm in
+         PTbl.set deps2 q (Formula.disj (Formula.lit o) (PTbl.get deps2 q))
+       end)
+    deps2;
+
+  let (deps2', confl2') = Coinst.flatten_and_simplify dist2 deps2 confl2 in
+
+  let pred = compute_predecessors dist1_state.dist dist2 in
+
+  let confl1 = dist1_state.confl in
+
+  let new_conflicts = ref [] in
+  Conflict.iter confl2
+    (fun p2 q2 ->
+       let i = PTbl.get pred p2 in
+       let j = PTbl.get pred q2 in
+       if i <> -1 && j <> -1 then begin
+         let p1 = Package.of_index i in
+         let q1 = Package.of_index j in
+         if not (Conflict.check confl1 p1 q1) then begin
+  if debug then begin
+           Format.printf "possible new conflict: %a %a@."
+             (Package.print_name dist1_state.dist) p1
+             (Package.print_name dist1_state.dist) q1;
+  end;
+           new_conflicts := (p2, q2) :: !new_conflicts;
+         end
+       end);
+
+  (* Only consider new dependencies. *)
+  let deps2 = new_deps pred dist1_state.deps dist2 deps2 in
+
+  (* Compute the corresponding flattened dependencies. *)
+  let deps2 =
+    PTbl.mapi
+       (fun p f ->
+          Formula.fold
+            (fun d f ->
+               Formula.conj
+                 (PSet.fold
+                    (fun p f -> Formula.disj (PTbl.get deps2' p) f)
+                    (Disj.to_lits d) Formula._false) f)
+            f Formula._true)
+      deps2
+  in
+
+  (* Only keep those that are new... *)
+  let deps2 = new_deps pred dist1_state.deps' dist2 deps2 in
+
+  (* ...and that are indeed in the flattened repository *)
+  let deps2 =
+    PTbl.mapi
+      (fun p f ->
+         let f' = PTbl.get deps2' p in
+         Formula.filter
+           (fun d ->
+              Formula.exists (fun d' -> Disj.equiv d d') f') f)
+      deps2
+  in
+
+  (* Only keep relevant conflicts. *)
+  let dep_targets = ref PSet.empty in
+  PTbl.iteri
+    (fun _ f ->
+       Formula.iter f
+         (fun d ->
+            Disj.iter d (fun p -> dep_targets := PSet.add p !dep_targets)))
+    deps2;
+  Conflict.iter confl2'
+    (fun p2 q2 ->
+       let i1 = PTbl.get pred p2 in
+       let j1 = PTbl.get pred q2 in
+       if
+         not (is_dummy p2 ||
+              (PSet.mem p2 !dep_targets && j1 <> -1) ||
+              (PSet.mem q2 !dep_targets && i1 <> -1) ||
+              (PSet.mem p2 !dep_targets && PSet.mem q2 !dep_targets))
+       then
+         Conflict.remove confl2' p2 q2);
+  List.iter (fun (p2, q2) -> Conflict.remove confl2' p2 q2) !new_conflicts;
+  (* As a consequence, some new dependencies might not be relevant anymore. *)
+  let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
+
+  (* Add self dependencies for packages with conflicts, as we want to
+     consider them as well to find possible problems. *)
+  let deps2 =
+    PTbl.mapi
+      (fun p f ->
+         if Conflict.has confl2' p && PTbl.get pred p <> -1 then
+           Formula.conj (Formula.lit p) f
+         else
+           f)
+      deps2
+  in
+
+  let merge v v' =
+    match v, v' with
+      Some c, Some c' -> merge c c'; v
+    | Some _, None    -> v
+    | None, Some _    -> v'
+    | None, None      -> None
+  in
+
+  let group_confl = Hashtbl.create 101 in
+  PTbl.iteri
+    (fun p f ->
+       Formula.iter f
+         (fun d ->
+(*
+Format.eprintf "New dep %a ==> %a@."
+(Package.print_name dist2) p
+(Disj.print dist2) d;
+*)
+            let c =
+              Disj.fold
+                (fun p c ->
+                   if is_dummy p then
+                     merge c (group_class (group_repr p))
+                   else
+                     c)
+                d (group_class (group_repr p))
+            in
+            let c = Union_find.elt c in
+            Disj.iter d
+              (fun p ->
+                 if not (is_dummy p) then
+                   let c' =
+                     try
+                       Hashtbl.find group_confl p
+                     with Not_found ->
+                       Union_find.elt None
+                   in
+                   Union_find.merge c c' merge;
+                   Hashtbl.replace group_confl p c)))
+    deps2;
+
+  Conflict.iter confl2'
+    (fun p p' ->
+       if not (is_dummy p) then begin
+(*
+Format.eprintf "Old conflict %a ## %a@."
+(Package.print dist2) p (Package.print dist2) p';
+*)
+         try
+           let c = Hashtbl.find group_confl p in
+           let c' = Hashtbl.find group_confl p' in
+           Union_find.merge c c' merge
+         with Not_found ->
+           assert false
+       end);
+
+  List.iter
+    (fun (p, p') ->
+      let c = group_class (group_repr p) in
+      let c' = group_class (group_repr p') in
+(*
+Format.eprintf "New conflict %s ## %s@." (group_repr p) (group_repr p');
+*)
+      ignore (merge c c'))
+    !new_conflicts;
+
+  PTbl.iteri
+    (fun p f ->
+       if is_new p && PTbl.get old_version p = p then begin
+(*
+Format.eprintf "New package %a ==> %a@."
+  (Package.print_name dist2) p
+  (Formula.print dist2) f;
+*)
+         Formula.iter f
+           (fun d ->
+              ignore
+                (Disj.fold
+                   (fun p c ->
+                      if is_dummy p then
+                        merge c (group_class (group_repr p))
+                      else
+                        c)
+                   d None))
+       end)
+    deps2'

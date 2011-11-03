@@ -43,7 +43,7 @@ val only_latest : pool -> pool
 
 val merge : pool -> (int -> bool) -> pool -> unit
 val merge2 : pool -> (p -> bool) -> pool -> unit
-val add_package : pool -> p -> unit
+val add_package : pool -> p -> int
 
 val parse_version : string -> version
 val print_version : Format.formatter -> version -> unit
@@ -54,3 +54,5 @@ val src_only_latest :
   (string, version) Hashtbl.t -> (string, version) Hashtbl.t
 
 val generate_rules_restricted : pool -> Util.IntSet.t -> Solver.state
+
+val print_package_dependency : Format.formatter -> dep -> unit

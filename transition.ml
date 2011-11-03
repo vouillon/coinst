@@ -1,45 +1,45 @@
 (*
-- Generate explanations
+PRIORITIES
+==> Heidi file: we might propagate empty source files!
+==> improve performance when generating small hints
+==> graphs for reporting co-installability issues
+==> explain what it takes to migrate a package
+==> find a way to indicate what corresponds to each new
+    co-installability issue
+    ==> if I upgrade, these packages will be broken
+        if I don't, these other packages will be broken (?)
+==> how do we ignore co-installability issues?
+==> allow package removal
 
-- Find what it takes to install a package
+Generate explanations
+  ==> link to build logs / merge packages
+  ==> link to http://packages.qa.debian.org (for source files)
+  ==> link to bugs
+  ==> show source and binary versions
+  ==> three step: no age/bug constraints, bugs added, all
+  ==> show packages that only wait for age, for bugs
+
+Find what it takes to install a package
   ==> iterative: relax the problem until we can install the package
   ==> with clause learning
   ==> we could save learnt rules...
 
-- parallelise the program: one process per architecture
+  - parallelise the program: one process per architecture
 
+  - associate a nice graph to each co-installability issue found
 
-XXX What if some bin packages are removed and there are no bin packages
-to replace them?
+  XXX What if some bin packages are removed and there are no bin packages
+  to replace them?
 
-- generate small easy hints
-- when reducing the repositories, do not build intermediate tables (?)
-  except for conflicts
-
-REPORTS
-=======
-- when printing a report, put constraints such as bugs and age last,
-  to get more details
-- report core reasons for each packages (recursively follow reasons)
-
-RULES
-=====
-- old binary of libhunspell-1.2-0 still in unstable ==> what should we do?
+  RULES
+  =====
+  - old binary of libhunspell-1.2-0 still in unstable ==> what should we do?
   (do as if it was not there?)
-- should be aware of arch:all packages (or not?)
+  - should be aware of arch:all packages (or not?)
 
-- report current problems
-  ==> what packages was not propagated just due to problems
-  ==> what packages will not be propagated
-
-
-- Different policies: conservative, greedy
+  - Different policies: conservative, greedy
   (behavior when disjunction: skip all/one)
-- Improved analysis of new packages: consider not upgrading some packages
-  if this breaks a new package.
-- Generic solver
-- We may want to reduce the repositories several times, and possibly
-  reduce the number of packages in each repository
+  - Generic solver
 *)
 
 let dir = ref (Filename.concat (Sys.getenv "HOME") "debian-dists/britney")
@@ -75,7 +75,7 @@ let atomic = true
 let atomic_bin_nmus = atomic
 let no_removal = ref true
 
-let verbose = true
+let verbose = false
 
 (****)
 
@@ -92,37 +92,57 @@ let default_urgency = urgency_delay "low"
 
 (****)
 
-let cached files cache f =
+let cached files cache magic f =
+  let magic = Format.sprintf "%s\n%s\n\n" magic (String.concat "\n" files) in
+  let ch = try Some (open_in cache) with Sys_error _ -> None in
   let should_compute =
-    try
-      let cache_time = (Unix.stat cache).Unix.st_mtime in
-      List.exists
-        (fun file -> (Unix.stat file).Unix.st_mtime > cache_time)
-        files
-    with Unix.Unix_error (Unix.ENOENT, _, _) ->
-      true
+    match ch with
+      None ->
+        true
+    | Some ch ->
+        (try
+           let cache_time =
+             (Unix.fstat (Unix.descr_of_in_channel ch)).Unix.st_mtime in
+             List.exists
+               (fun file -> (Unix.stat file).Unix.st_mtime > cache_time)
+               files
+         with Unix.Unix_error (Unix.ENOENT, _, _) ->
+           true)
+          ||
+        (try
+           let l = String.length magic in
+           let s = String.create l in
+           really_input ch s 0 l;
+           s <> magic
+         with End_of_file ->
+           true)
   in
   if should_compute then begin
+    begin match ch with Some ch -> close_in ch | None -> () end;
     let res = f () in
     let tmp = cache ^ ".tmp" in
     Util.make_directories tmp;
     let ch = open_out tmp in
+    output_string ch magic;
     Marshal.to_channel ch res [];
     close_out ch;
     Sys.rename tmp cache;
     res
   end else begin
-    let ch = open_in cache in
-    let res = Marshal.from_channel ch in
-    close_in ch;
-    res
+    match ch with
+      Some ch ->
+        let res = Marshal.from_channel ch in
+        close_in ch;
+        res
+    | None ->
+        assert false
   end
 
 module StringSet = Upgrade_common.StringSet
 
 let _ =
 Gc.set {(Gc.get ())
-        with Gc.space_overhead = 300; Gc.max_overhead = 1000000}
+        with Gc.space_overhead = 200; Gc.max_overhead = 1000000}
 
 module Timer = Util.Timer
 module ListTbl = Util.ListTbl
@@ -158,7 +178,8 @@ let read_dates file = read_package_info file int_of_string
 
 let read_urgencies file =
   let cache = Filename.concat (unstable ()) ".cache/Urgencies" in
-  cached [file] cache (fun () -> read_package_info file urgency_delay)
+  cached [file] cache "version 1"
+    (fun () -> read_package_info file urgency_delay)
 
 let read_bugs file =
   let ch = open_in file in
@@ -318,7 +339,7 @@ let print_reason f reason =
       if StringSet.is_empty s then
         Format.fprintf f "cannot be installed"
       else begin
-        Format.fprintf f "relies propagation of binary packages";
+        Format.fprintf f "relies on propagation of binary packages";
         StringSet.iter (fun nm -> Format.fprintf f " %s" nm) s
       end;
       Format.fprintf f " (would break";
@@ -474,7 +495,7 @@ let output_reasons l filename =
                   Format.fprintf f "<li>Left unchanged due to block request.@."
               | Too_young (cur_ag, req_ag) ->
                   Format.fprintf f
-                    "<li>Only %d days old.  Must be %d days old to go in.@."
+                    "<li>Only %d days old. Must be %d days old to go in.@."
                     cur_ag req_ag
               | Binary_not_propagated ((bin, v), arch) ->
                   binaries := (bin, arch) :: !binaries
@@ -501,7 +522,7 @@ let output_reasons l filename =
               Format.fprintf f "<li>Binary package %s not yet built on %a.@."
                 nm'
                 (Util.print_list
-                   (fun f arch -> Format.fprintf f " %s" arch) ", ")
+                   (fun f arch -> Format.fprintf f "%s" arch) ", ")
                 l)
            not_yet_built;
          let has_new_bugs =
@@ -616,7 +637,7 @@ let no_new_bin t u nm =
 
 (****)
 
-let reduce_repository_pair (arch, (t, u)) =
+let compute_conflicts t u =
   let conflicts = ListTbl.create 101 in
   let add_conflicts dist p confls =
     List.iter
@@ -640,6 +661,10 @@ let reduce_repository_pair (arch, (t, u)) =
   in
   compute_package_conflicts t t; compute_package_conflicts t u;
   compute_package_conflicts u t; compute_package_conflicts u u;
+  conflicts
+
+let reduce_repository_pair (arch, (t, u)) =
+  let conflicts = compute_conflicts t u in
 
   let changed_packages = Hashtbl.create 101 in
   let consider_package _ p =
@@ -758,6 +783,16 @@ end
 
 (****)
 
+(*
+- Union of the repositories
+  ==> dependencies and conflicts
+- Map upgraded packages to previous version
+  + take conjunction of dependencies (just want to see the possible deps)
+- find packages with new dependencies; all packages in their cone will
+  have to be together
+
+*)
+
 type easy_hint =
   { mutable h_names : (string * string) list;
     mutable h_pkgs : (string * string) list;
@@ -795,68 +830,250 @@ let elt v = { state = Value v }
 
 end
 
-let generate_small_hints buckets l =
+let resolve_dep dist pkgs dist' deps =
+  List.fold_left
+    (fun f dep ->
+       Formula.conj f
+         (Formula.of_disj
+            (List.fold_left
+               (fun d p ->
+                  let l =
+                    if List.mem (fst p) pkgs then begin
+                      if M.resolve_package_dep dist' p = [] then [] else
+                      List.map (fun p -> p.M.num)
+                        (ListTbl.find dist.M.packages_by_name (fst p))
+                    end else
+                      M.resolve_package_dep dist p
+                  in
+                  Disj.disj d (Disj.lit_disj (Package.of_index_list l)))
+               Disj._false dep)))
+    Formula._true deps
+
+(*
+let resolve_dep dist pkgs dist' deps =
+  let d = resolve_dep dist pkgs dist' deps in
+Format.eprintf "(%a)@." (Formula.print dist) d;
+  d
+*)
+
+(*
+XXX Dependencies that can always be satisfied:
+    no conflict and unchanged, recursively
+XXX Internal dependencies
+*)
+
+let resolve_confl dist pkgs dist' confl =
+  List.fold_left
+    (fun d c ->
+       List.fold_left
+         (fun d p ->
+            let l =
+              if List.mem (fst p) pkgs then begin
+Format.eprintf "===> %s@." (fst p);
+                if M.resolve_package_dep dist' p = [] then [] else
+                List.map (fun p -> p.M.num)
+                  (ListTbl.find dist.M.packages_by_name (fst p))
+              end else
+                M.resolve_package_dep dist p
+            in
+            Disj.disj d (Disj.lit_disj (Package.of_index_list l)))
+         d c)
+    Disj._false confl
+
+let resolve_confl dist pkgs dist' deps =
+  let d = resolve_confl dist pkgs dist' deps in
+Format.eprintf "(%a)@." (Disj.print dist) d;
+  d
+
+let dep_implies t u pkgs td ud =
+  td = ud ||
+  (Formula.implies (resolve_dep t pkgs t td) (resolve_dep t pkgs u ud) &&
+   Formula.implies (resolve_dep u pkgs t td) (resolve_dep u pkgs u ud))
+
+let confl_implies t u pkgs c1 c2 =
+  c1 = c2 ||
+  (Disj.implies (resolve_confl t pkgs u c2) (resolve_confl t pkgs t c1) &&
+   Disj.implies (resolve_confl u pkgs u c2) (resolve_confl u pkgs t c1))
+
+let generate_small_hints buckets l l' =
   let to_consider = ref [] in
   ListTbl.iter
-    (fun (src, arch) l ->
-       let info = {h_names = [(src, arch)]; h_pkgs = l; h_live = true} in
+    (fun (src, arch) lst ->
+       let info = {h_names = [(src, arch)]; h_pkgs = lst; h_live = true} in
        let elt = Union_find.elt info in
        to_consider := (info, elt) :: !to_consider)
     buckets;
+
+  let merge elt elt' =
+    if Union_find.repr elt != Union_find.repr elt' then begin
+      let info = Union_find.get elt in
+      let info' = Union_find.get elt' in
+      assert (info.h_live);
+      assert (info'.h_live);
+      Union_find.merge elt elt';
+  (*
+  List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info.h_pkgs;
+  Format.printf " /";
+  List.iter (fun (p, arch) -> Format.printf " %s/%s" p arch) info'.h_pkgs;
+  Format.printf "@.";
+  *)
+      info.h_names <- info'.h_names @ info.h_names;
+      info.h_pkgs <- info'.h_pkgs @ info.h_pkgs;
+      info'.h_live <- false
+    end
+  in
+
+  List.iter
+    (fun (arch, t, u) ->
+       let clusters = ref [] in
+       List.iter
+         (fun (info, elt) ->
+            let l = List.filter (fun (_, arch') -> arch = arch') info.h_pkgs in
+            if l <> [] then
+              clusters := (List.map fst l, elt) :: !clusters)
+         !to_consider;
+       Upgrade_common.find_clusters t u
+         (fun nm -> ListTbl.mem unchanged (nm, arch)) !clusters merge)
+    l';
+
+  (****)
+
+(*
+  let to_consider = ref [] in
+  let n1 = ref 0 in
+  let n2 = ref 0 in
+  ListTbl.iter
+    (fun (src, arch) lst ->
+       let info = {h_names = [(src, arch)]; h_pkgs = lst; h_live = true} in
+
+Format.eprintf "== %s/%s ==@." src arch;
+let ok = ref true in
+List.iter
+ (fun (nm, arch) ->
+    let pkgs =
+      List.map fst (List.filter (fun (_, arch') -> arch = arch') lst) in
+
+    let (t, u) = List.assoc arch l in
+    if not (ListTbl.mem t.M.packages_by_name nm) then begin
+      ok := false;
+      Format.eprintf "New package %s/%s@." nm arch
+    end else if not (ListTbl.mem u.M.packages_by_name nm) then begin
+      ok := false;
+      Format.eprintf "Removed package %s/%s@." nm arch
+    end else begin
+    let tp = List.hd (ListTbl.find t.M.packages_by_name nm) in
+    let up = List.hd (ListTbl.find u.M.packages_by_name nm) in
+    Format.eprintf "Package %s/%s@." nm arch;
+    if not (dep_implies u t pkgs up.M.provides tp.M.provides) then begin
+    ok := false;
+    Format.eprintf "Provides: %a / %a@."
+      M.print_package_dependency tp.M.provides
+      M.print_package_dependency up.M.provides
+    end;
+    if not (confl_implies t u pkgs tp.M.conflicts up.M.conflicts) then begin
+    ok := false;
+    Format.eprintf "Conflicts: %a / %a@."
+      M.print_package_dependency tp.M.conflicts
+      M.print_package_dependency up.M.conflicts
+    end;
+    if not (confl_implies t u pkgs tp.M.breaks up.M.breaks) then begin
+    ok := false;
+    Format.eprintf "Breaks: %a / %a@."
+      M.print_package_dependency tp.M.breaks
+      M.print_package_dependency up.M.breaks
+    end;
+    if not (dep_implies t u pkgs tp.M.depends up.M.depends) then begin
+    ok := false;
+    Format.eprintf "Depends: %a / %a@."
+      M.print_package_dependency tp.M.depends
+      M.print_package_dependency up.M.depends
+    end;
+    if not (dep_implies t u pkgs tp.M.pre_depends up.M.pre_depends) then begin
+    ok := false;
+    Format.eprintf "Pre-Depends: %a / %a@."
+      M.print_package_dependency tp.M.pre_depends
+      M.print_package_dependency up.M.pre_depends
+    end
+end;
+if nm = "libawl-php" || nm = "libmodule-runtime-perl" || nm = "libmojolicious-perl" || nm = "m17n-db" || nm = "libapiextractor-dev" || nm = "libcorosync4" then ok := false;
+(*XXX A new package should be installable no matter what
+  XXX A removed package should not be used anywhere
+  XXX Conflicts?
+  XXX Need to iterate over all packages to check whether dependencies are
+  still satisfied
+*)
+    ())
+ lst;
+incr n1; if !ok then incr n2;
+Format.eprintf "%d/%d@." !n2 !n1;
+
+ok := false;(*XXXXX*)
+       let elt = Union_find.elt info in
+       if not !ok then
+         to_consider := (info, elt) :: !to_consider
+       else
+         List.iter
+           (fun (nm, arch) -> ListTbl.add unchanged (nm, arch) Unchanged) lst)
+    buckets;
+  *)
+
+(*
+  let l = reduce_repositories l in
+
   let package_repr = Hashtbl.create 101 in
   List.iter
     (fun (info, elt) ->
-       List.iter (fun p -> Hashtbl.add package_repr p elt) info.h_pkgs)
+      List.iter (fun p -> Hashtbl.add package_repr p elt) info.h_pkgs)
     !to_consider;
 
   let l =
     List.map
       (fun (arch, (t', u')) ->
-         (arch,
-          Upgrade_common.prepare_analyze t',
-          Upgrade_common.prepare_analyze u'))
+        (arch,
+         Upgrade_common.prepare_analyze t',
+         Upgrade_common.prepare_analyze u'))
       l
   in
   let n = List.length !to_consider in
   let i = ref 0 in
   List.iter
     (fun (info, elt) ->
-incr i;
-if info.h_live then begin
-Format.eprintf "%d/%d:" !i n;
-List.iter (fun (p, arch) -> Format.eprintf " %s/%s" p arch) info.h_names;
-Format.eprintf "@."
-end;
-       while
-         info.h_live &&
-         List.exists
-           (fun (arch, t, u) ->
-              let h = Hashtbl.create 101 in
-              let empty = ref true in
-              List.iter
-                (fun (p, arch') ->
-                   if arch' = arch then begin
-                     Hashtbl.add h p (); empty := false
-                   end)
-                info.h_pkgs;
-              if !empty then false else begin
-                let filter p =
-                  let res =
-                    not (Hashtbl.mem h p)
-                  in
-  (*
-                  if not res then begin
-                  let v1 =
+      incr i;
+      if info.h_live then begin
+        Format.eprintf "%d/%d:" !i n;
+        List.iter (fun (p, arch) -> Format.eprintf " %s/%s" p arch) info.h_names;
+        Format.eprintf "@."
+      end;
+      while
+        info.h_live &&
+          List.exists
+          (fun (arch, t, u) ->
+            let h = Hashtbl.create 101 in
+            let empty = ref true in
+            List.iter
+              (fun (p, arch') ->
+                if arch' = arch then begin
+                  Hashtbl.add h p (); empty := false
+                end)
+              info.h_pkgs;
+            if !empty then false else begin
+              let filter p =
+                let res =
+                  not (Hashtbl.mem h p)
+                in
+                  (*
+                    if not res then begin
+                    let v1 =
                     (List.hd (ListTbl.find u.M.packages_by_name p)).M.version in
                     try
-                  let v2 = match ListTbl.find t.Upgrade_common.dist.M.packages_by_name p with [p] -> p.M.version | _ -> raise Not_found
-                  in
-                  Format.eprintf "%s %a %a@." p M.print_version v1 M.print_version v2
+                    let v2 = match ListTbl.find t.Upgrade_common.dist.M.packages_by_name p with [p] -> p.M.version | _ -> raise Not_found
+                    in
+                    Format.eprintf "%s %a %a@." p M.print_version v1 M.print_version v2
                     with Not_found ->
-                  Format.eprintf "%s %a@." p M.print_version v1
+                    Format.eprintf "%s %a@." p M.print_version v1
 
-                  end;
-  *)
+                    end;
+                  *)
                   res
                 in
                 let problems =
@@ -898,11 +1115,12 @@ end;
     !to_consider;
   (*XXX Should iterate one more time to check that previous upgrade do
     not break further ones... *)
+*)
 
   let l = List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
   List.map (fun info -> info.h_names) l
 
-let generate_hints l =
+let generate_hints l l' =
   let l =
     List.map
       (fun (arch, (t, u)) ->
@@ -962,7 +1180,7 @@ let generate_hints l =
     changes;
   let hints =
     if !small_hints then
-      generate_small_hints buckets (reduce_repositories l)
+      generate_small_hints buckets l l'
     else
       []
   in
@@ -977,6 +1195,7 @@ with Not_found ->
 Format.fprintf f " ***%s/%s***" src arch
   in
   let print_hint f l =
+    let l = List.sort (compare_pair compare compare) l in
     Format.fprintf f "easy";
     List.iter (fun (src, arch) -> print_pkg f src arch) l;
     Format.fprintf f "@."
@@ -1015,7 +1234,7 @@ let f () =
   in
   let cache = Filename.concat (unstable ()) ".cache/Packages" in
   let l =
-    cached files cache (fun () ->
+    cached files cache "version 1" (fun () ->
     List.map
       (fun arch ->
          (arch,
@@ -1027,7 +1246,7 @@ let f () =
     src_package_files (testing ()) @ src_package_files (unstable ()) in
   let cache = Filename.concat (unstable ()) ".cache/Sources" in
   let (t, u) =
-    cached files cache (fun () ->
+    cached files cache "version 1" (fun () ->
       (load_src_packages (testing ()), load_src_packages (unstable ())))
   in
   Format.eprintf "Loading: %f@." (Timer.stop load_t);
@@ -1137,6 +1356,12 @@ let f () =
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
             let (nm, v) = p.M.source in
+(*
+if not (Hashtbl.mem u nm) then begin
+Format.eprintf "Warning: missing source package %s in unstable@." nm;
+Hashtbl.add u nm v
+end;
+*)
             assert (Hashtbl.mem u nm);
             let v' = Hashtbl.find u nm in
             (* Do not add a binary package if its source is not
@@ -1170,6 +1395,7 @@ let f () =
          (fun _ pkgs -> all_or_none pkgs (Atomic pkgs)) bin_nmus;
        Hashtbl.iter
          (fun _ p ->
+            assert (Hashtbl.mem t (fst p.M.source));
             let pkg = ((p.M.package, p.M.version), arch) in
             (* We cannot remove a source package if a corresponding
                binary package still exists. *)
@@ -1226,7 +1452,8 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
                     let nm = StringSet.choose pos in
                     let p =
                       match
-                        ListTbl.find u'.Upgrade_common.dist.M.packages_by_name nm
+                        ListTbl.find
+                          u'.Upgrade_common.dist.M.packages_by_name nm
                       with
                         p :: _ ->
                           p
@@ -1300,7 +1527,7 @@ Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
          u'.M.packages_by_num)
     l;
 
-  generate_hints l;
+  generate_hints l l';
 
   let print_heidi ch =
     let lines = ref [] in

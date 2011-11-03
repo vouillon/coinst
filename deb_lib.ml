@@ -762,6 +762,9 @@ let rec print_package_disj ch l =
   | p :: r -> print_package_ref ch p; Format.fprintf ch " | ";
               print_package_disj ch r
 
+let print_package_dependency ch l =
+  Util.print_list print_package_disj ", " ch l
+
 let check pool st =
   let assign = Solver.assignment st in
   Array.iteri
@@ -947,7 +950,10 @@ let merge2 pool filter pool' =
     (fun _ p -> if filter p then insert_package pool {p with num = pool.size})
     pool'.packages
 
-let add_package pool p = insert_package pool {p with num = pool.size}
+let add_package pool p =
+  let num = pool.size in
+  insert_package pool {p with num = num};
+  (Hashtbl.find pool.packages (p.package, p.version)).num
 
 let src_only_latest h =
   let h' = Hashtbl.create 101 in
