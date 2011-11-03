@@ -172,8 +172,9 @@ let cached files cache magic f =
 module StringSet = Upgrade_common.StringSet
 
 let _ =
-Gc.set {(Gc.get ())
-        with Gc.space_overhead = 200; Gc.max_overhead = 1000000}
+Gc.set { (Gc.get ())
+         with Gc.space_overhead = 200; max_overhead = 1000000;
+              major_heap_increment = 20 * 1024 * 1024 }
 
 module Timer = Util.Timer
 module ListTbl = Util.ListTbl
