@@ -857,7 +857,26 @@ let generate_small_hints l buckets =
 
   let lst =
     List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
-  List.map (fun info -> info.h_names) lst
+  let lst = List.map (fun info -> info.h_names) lst in
+  let compare_elt = compare_pair compare (compare_pair compare compare) in
+  let rec compare_lst l1 l2 =
+    match l1, l2 with
+      [], [] ->
+        0
+    | [], _ ->
+        -1
+    | _, [] ->
+        1
+    | v1 :: r1, v2 :: r2 ->
+        let c = compare_elt v1 v2 in if c = 0 then compare_lst r1 r2 else c
+  in
+  let lst = List.map (fun names -> List.sort compare_elt names) lst in
+  let lst = List.sort compare_lst lst in
+  let lst =
+    List.stable_sort
+      (fun l l' -> compare (List.length l) (List.length l')) lst
+  in
+  lst
 
 let generate_hints t u l l' =
   let changes = ListTbl.create 101 in
@@ -948,7 +967,6 @@ let generate_hints t u l l' =
       Format.fprintf f " -%s/%a" src M.print_version vers
   in
   let print_hint f l =
-    let l = List.sort (compare_pair compare compare) l in
     Format.fprintf f "easy";
     List.iter (fun (src, (arch, lst)) -> print_pkg f src arch lst) l;
     Format.fprintf f "@."
@@ -958,8 +976,8 @@ let generate_hints t u l l' =
       Format.fprintf f "easy";
       ListTbl.iter (fun (src, arch) lst -> print_pkg f src arch lst) buckets;
       Format.fprintf f "@."
-    end;
-    List.iter (fun names -> print_hint f names) hints
+    end else
+      List.iter (fun names -> print_hint f names) hints
   in
   if debug_hints () then print_hints Format.std_formatter;
   if !hint_file <> "-" then begin
