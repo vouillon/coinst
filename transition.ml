@@ -19,9 +19,6 @@
 
 (*
 PRIORITIES
-==> only propagate a source package if some of its binaries
-    are propagated as well
-==> sort easy hints : more packages last; lexicographic order otherwise
 ==> save learnt clauses
 ==> graphs for reporting co-installability issues
 ==> explain what it takes to migrate a package
@@ -31,7 +28,6 @@ PRIORITIES
         if I don't, these other packages will be broken (?)
 ==> how do we ignore co-installability issues?
 ==> allow package removal
-==> Heidi file: we might propagate empty source files!
 ==> indicate which packages would be propagated by britney but not by
     this tool
 
@@ -337,6 +333,7 @@ type reason =
   | Blocked
   | Too_young of int * int
   | Binary_not_propagated of ((string * M.version) * string)
+  | No_binary
   (* Both *)
   | More_bugs
   (* Binaries *)
@@ -374,6 +371,8 @@ let print_reason f reason =
   | Binary_not_propagated ((bin, v), arch) ->
       Format.fprintf f "binary package %s (%a / %s) cannot be propagated"
         bin M.print_version v arch
+  | No_binary ->
+      Format.fprintf f "no associated binary package"
   | Atomic l ->
       Format.fprintf f "binary packages";
       List.iter
@@ -519,6 +518,8 @@ let output_reasons l filename =
                   binaries := (bin, arch) :: !binaries
               | More_bugs ->
                   Format.fprintf f "<li>Has new bugs.@."
+              | No_binary ->
+                  Format.fprintf f "<li>No associated binary package.@."
               | _ ->
                   assert false)
            reasons;
@@ -932,9 +933,7 @@ let generate_hints t u l l' =
       let vers = (Hashtbl.find u src).M.s_version in
       if arch = "source" then begin
         (* We are propagating a source package. *)
-        (*FIX: should only propagate a source package when it has binaries *)
-        if List.exists (fun (_, action) -> action = `Propagate) lst then
-          Format.fprintf f " %s/%a" src M.print_version vers;
+        Format.fprintf f " %s/%a" src M.print_version vers;
         (* Explicitly remove unneeded packages left over due to smooth
            upgrade. *)
         List.iter
@@ -1110,6 +1109,7 @@ let f () =
        end)
     u;
   let fake_src = Hashtbl.create 17 in
+  let sources_with_binaries = Hashtbl.create 16384 in
   List.iter
     (fun (arch, (t', u')) ->
        let bin_nmus = ListTbl.create 101 in
@@ -1128,7 +1128,9 @@ let f () =
             (* Do not add a binary package if its source is not
                the most up to date source file. *)
             if M.compare_version v v' <> 0 then
-              no_change pkg (Not_yet_built (nm, v, v'));
+              no_change pkg (Not_yet_built (nm, v, v'))
+            else
+              Hashtbl.replace sources_with_binaries nm ();
             let source_changed =
               not (same_source_version t u (fst p.M.source)) in
             (* We only propagate binary packages with a larger version.
@@ -1200,6 +1202,15 @@ let f () =
                 (Binary_not_propagated pkg))
          t'.M.packages_by_num)
     l;
+
+  Hashtbl.iter
+    (fun nm s ->
+       if not (Hashtbl.mem sources_with_binaries nm) then
+         let v = s.M.s_version in
+         no_change ((nm, v), "source") No_binary)
+    u;
+
+
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
@@ -1334,7 +1345,6 @@ let f () =
     let output_lines ch =
       List.iter (output_string ch) (List.sort compare !lines); lines := []
     in
-    let srcs = Hashtbl.create 4096 in
     List.iter
       (fun (arch, (t, u)) ->
          let is_preserved nm = ListTbl.mem unchanged (nm, arch) in
@@ -1348,16 +1358,12 @@ let f () =
            (fun _ p ->
               let nm = p.M.package in
               let sect = if p.M.section = "" then "faux" else p.M.section in
-              if not (is_preserved nm) then begin
-                add_line nm p.M.version arch sect;
-                Hashtbl.add srcs (fst p.M.source) ()
-              end)
+              if not (is_preserved nm) then
+                add_line nm p.M.version arch sect)
            u.M.packages_by_num;
          output_lines ch)
       (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l0);
-    (*HACK: we do not propagate source files with no associated binary.*)
-    let is_preserved nm =
-      ListTbl.mem unchanged (nm, "source") || not (Hashtbl.mem srcs nm) in
+    let is_preserved nm = ListTbl.mem unchanged (nm, "source") in
     let source_sect nm s =
       if Hashtbl.mem fake_src nm then "faux"
       else if s.M.s_section = "" then "unknown"
