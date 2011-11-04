@@ -978,9 +978,11 @@ let generate_hints t u l l' =
       Format.fprintf f " -%s/%a" src M.print_version vers
   in
   let print_hint f l =
-    Format.fprintf f "easy";
-    List.iter (fun (src, (arch, lst)) -> print_pkg f src arch lst) l;
-    Format.fprintf f "@."
+    if List.length l > 1 then begin
+      Format.fprintf f "easy";
+      List.iter (fun (src, (arch, lst)) -> print_pkg f src arch lst) l;
+      Format.fprintf f "@."
+    end
   in
   let print_hints f =
     if not !small_hints then begin
