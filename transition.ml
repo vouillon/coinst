@@ -234,6 +234,10 @@ let read_hints dir =
   Array.sort compare files;
   Array.iter
     (fun f ->
+       let file = Filename.concat dir f in
+       if Sys.is_directory file || f = "README" || f = "index.html" then
+         ()
+       else
        let ch = open_in (Filename.concat dir f) in
        begin try
          while true do
@@ -310,6 +314,9 @@ let load_bin_packages suite arch =
   let dist = M.new_pool () in
   List.iter
     (fun file ->
+       if Sys.is_directory file then
+         ()
+       else
        let ch = File.open_in file in
        M.parse_packages dist [] ch;
        close_in ch)
@@ -321,6 +328,9 @@ let load_src_packages suite =
   let dist = Hashtbl.create 101 in
   List.iter
     (fun file ->
+       if Sys.is_directory file then
+         ()
+       else
        let ch = File.open_in file in
        M.parse_src_packages dist ch;
        close_in ch)
@@ -981,7 +991,7 @@ let generate_hints t u l l' =
       List.iter (fun names -> print_hint f names) hints
   in
   if debug_hints () then print_hints Format.std_formatter;
-  if !hint_file <> "-" then begin
+  if !hint_file <> "-" && not (Sys.is_directory !hint_file) && !hint_file <> "README" && !hint_file <> "index.html" then begin
     let ch = open_out !hint_file in
     print_hints (Format.formatter_of_out_channel ch);
     close_out ch
