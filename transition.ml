@@ -19,6 +19,7 @@
 
 (*
 PRIORITIES
+==> sort easy hints : more packages last; lexicographic order otherwise
 ==> save learnt clauses
 ==> graphs for reporting co-installability issues
 ==> explain what it takes to migrate a package
@@ -49,24 +50,11 @@ PRIORITIES
   - parallelise the program: one process per architecture
 
   - associate a nice graph to each co-installability issue found
-
-  XXX What if some bin packages are removed and there are no bin packages
-  to replace them?
-
-  RULES
-  =====
-  - old binary of libhunspell-1.2-0 still in unstable ==> what should we do?
-  (do as if it was not there?)
-  - should be aware of arch:all packages (or not?)
-
-  - Different policies: conservative, greedy
-  (behavior when disjunction: skip all/one)
-  - Generic solver
 *)
 
 let dir = ref (Filename.concat (Sys.getenv "HOME") "debian-dists/britney")
-let archs = ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
-let sects = ["main"; "contrib"; "non-free"]
+let archs = ref ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
+let smooth_updates = ref ["libs"; "oldlibs"]
 let ext = ".bz2"
 
 let options = Hashtbl.create 17
@@ -90,10 +78,6 @@ let offset = ref 0
 let small_hints = ref false
 
 (****)
-
-let atomic = true
-let atomic_bin_nmus = atomic
-let no_removal = ref true
 
 let debug = Debug.make "normal" "Set normal debug output level." []
 let verbose =
@@ -351,7 +335,6 @@ type reason =
   | Blocked
   | Too_young of int * int
   | Binary_not_propagated of ((string * M.version) * string)
-  | No_removal
   (* Both *)
   | More_bugs
   (* Binaries *)
@@ -396,8 +379,6 @@ let print_reason f reason =
            Format.fprintf f " %s (%a / %s)" src M.print_version v arch)
         l;
       Format.fprintf f " cannot be propagated all at once"
-  | No_removal ->
-      Format.fprintf f "would be removed"
 
 let unchanged = ListTbl.create 101
 
@@ -534,8 +515,6 @@ let output_reasons l filename =
                     cur_ag req_ag
               | Binary_not_propagated ((bin, v), arch) ->
                   binaries := (bin, arch) :: !binaries
-              | No_removal ->
-                  Format.fprintf f "<li>Would have to be removed.@."
               | More_bugs ->
                   Format.fprintf f "<li>Has new bugs.@."
               | _ ->
@@ -643,7 +622,7 @@ let output_reasons l filename =
 (****)
 
 let source_version src nm =
-  try Some (Hashtbl.find src nm) with Not_found -> None
+  try Some (Hashtbl.find src nm).M.s_version with Not_found -> None
 let same_source_version t u nm =
   match source_version t nm, source_version u nm with
     None, None      -> true
@@ -669,6 +648,9 @@ let no_new_bin t u nm =
     None, None      -> true
   | Some v, Some v' -> M.compare_version v v' >= 0
   | _               -> false
+
+let allow_smooth_updates p =
+  List.mem "ALL" !smooth_updates || List.mem p.M.section !smooth_updates
 
 (****)
 
@@ -797,7 +779,7 @@ let reduce_repositories l =
 (****)
 
 type easy_hint =
-  { mutable h_names : (string * string) list;
+  { mutable h_names : (string * (string * (string * string) list)) list;
     mutable h_pkgs : (string * string) list;
     mutable h_live : bool }
 
@@ -833,11 +815,12 @@ let elt v = { state = Value v }
 
 end
 
-let generate_small_hints buckets l l' =
+let generate_small_hints l buckets =
   let to_consider = ref [] in
   ListTbl.iter
     (fun (src, arch) lst ->
-       let info = {h_names = [(src, arch)]; h_pkgs = lst; h_live = true} in
+       let info =
+         {h_names = [(src, (arch, lst))]; h_pkgs = lst; h_live = true} in
        let elt = Union_find.elt info in
        to_consider := (info, elt) :: !to_consider)
     buckets;
@@ -866,95 +849,127 @@ let generate_small_hints buckets l l' =
          !to_consider;
        Upgrade_common.find_clusters t u
          (fun nm -> ListTbl.mem unchanged (nm, arch)) !clusters merge)
-    l';
+    l;
 
-  let l = List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
-  List.map (fun info -> info.h_names) l
+  let lst =
+    List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
+  List.map (fun info -> info.h_names) lst
 
-let generate_hints l l' =
-  let l =
-    List.map
-      (fun (arch, (t, u)) ->
-         let filter p = ListTbl.mem unchanged (p.M.package, arch) in
-         let u' = M.new_pool () in
-         M.merge2 u' (fun p -> not (filter p)) u;
-         M.merge2 u' filter t;
-         (arch, (t, u')))
-      l
-  in
+let generate_hints t u l l' =
+(*
+Add src
+Add src/arch
+
+Remove src
+Remove bin/arch
+
+To add a binary package, add its source (possibly per arch)
+
+When upgrading a package, we may have to remove some old libraries...
+==> binary in lib, not in unstable, source not removed
+*)
   let changes = ListTbl.create 101 in
   List.iter
-    (fun (arch, (t, u)) ->
+    (fun (arch, (t', u')) ->
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
             if not (ListTbl.mem unchanged (nm, arch)) then begin
               let (src, v) = p.M.source in
-              ListTbl.add changes src (arch, nm, Some v)
+              ListTbl.add changes src (nm, arch)
             end)
-         u.M.packages_by_num;
+         u'.M.packages_by_num;
        Hashtbl.iter
          (fun _ p ->
             let nm = p.M.package in
             if
               not (ListTbl.mem unchanged (nm, arch))
                 &&
-              not (ListTbl.mem u.M.packages_by_name nm)
+              not (ListTbl.mem u'.M.packages_by_name nm)
             then begin
               let (src, v) = p.M.source in
-              ListTbl.add changes src (arch, nm, None)
+              ListTbl.add changes src (nm, arch)
             end)
-         t.M.packages_by_num)
+         t'.M.packages_by_num)
     l;
   let buckets = ListTbl.create 101 in
-  let versions = Hashtbl.create 101 in
   ListTbl.iter
     (fun src l ->
        if not (ListTbl.mem unchanged (src, "source")) then
          List.iter
-           (fun (arch, nm, v) ->
-              begin match v with
-                Some v -> Hashtbl.replace versions (src, "source") v
-              | None   -> ()
-              end;
-              ListTbl.add buckets (src, "source") (nm, arch))
+           (fun (nm, arch) -> ListTbl.add buckets (src, "source") (nm, arch))
            l
        else
          List.iter
-           (fun (arch, nm, v) ->
-              begin match v with
-                Some v -> Hashtbl.replace versions (src, arch) v
-              | None   -> ()
-              end;
-              ListTbl.add buckets (src, arch) (nm, arch))
+           (fun (nm, arch) -> ListTbl.add buckets (src, arch) (nm, arch))
            l)
     changes;
   let hints =
     if !small_hints then
-      generate_small_hints buckets l l'
+      generate_small_hints l' buckets
     else
       []
   in
-  let print_pkg f src arch =
-try
-    let vers = Hashtbl.find versions (src, arch) in
-    if arch = "source" then
-      Format.fprintf f " %s/%a" src M.print_version vers
-    else
-      Format.fprintf f " %s/%s/%a" src arch M.print_version vers
-with Not_found ->
-Format.fprintf f " ***%s/%s***" src arch
+  let print_pkg f src arch lst =
+    try
+      let vers = (Hashtbl.find u src).M.s_version in
+      if arch = "source" then begin
+        (* We are propagating a source package. *)
+        Format.fprintf f " %s/%a" src M.print_version vers;
+        (* Explicitly remove unneeded packages left over due to smooth
+           upgrade... *)
+        List.iter
+          (fun (nm, arch) ->
+             let (t', u') = List.assoc arch l in
+             if not (ListTbl.mem u'.M.packages_by_name nm) then begin
+               match ListTbl.find t'.M.packages_by_name nm with
+                 [p] ->
+                   if
+                     allow_smooth_updates p ||
+                     M.compare_version
+                       (snd p.M.source) (Hashtbl.find t src).M.s_version <> 0
+                   then
+                     Format.fprintf f " -%s/%s/%a"
+                       nm arch M.print_version p.M.version
+               | _ ->
+                 assert false
+             end)
+          lst
+      end else begin
+        (* We are changing some binaries. *)
+        let (t', u') = List.assoc arch l in
+        let (propagated, removed) =
+          List.partition
+            (fun (nm, _) -> ListTbl.mem u'.M.packages_by_name nm) lst
+        in
+        if propagated <> [] then
+          Format.fprintf f " %s/%s/%a" src arch M.print_version vers;
+        List.iter
+          (fun (nm, _) ->
+             match ListTbl.find t'.M.packages_by_name nm with
+               [p] ->
+                 Format.fprintf f " -%s/%s/%a"
+                   nm arch M.print_version p.M.version
+             | _ ->
+                 assert false)
+          removed
+      end
+    with Not_found ->
+      (* We are removing a source package. *)
+      assert (arch = "source");
+      let vers = (Hashtbl.find t src).M.s_version in
+      Format.fprintf f " -%s/%a" src M.print_version vers
   in
   let print_hint f l =
     let l = List.sort (compare_pair compare compare) l in
     Format.fprintf f "easy";
-    List.iter (fun (src, arch) -> print_pkg f src arch) l;
+    List.iter (fun (src, (arch, lst)) -> print_pkg f src arch lst) l;
     Format.fprintf f "@."
   in
   let print_hints f =
     if not !small_hints then begin
       Format.fprintf f "easy";
-      ListTbl.iter (fun (src, arch) _ -> print_pkg f src arch) buckets;
+      ListTbl.iter (fun (src, arch) lst -> print_pkg f src arch lst) buckets;
       Format.fprintf f "@."
     end;
     List.iter (fun names -> print_hint f names) hints
@@ -969,9 +984,6 @@ Format.fprintf f " ***%s/%s***" src arch
 (****)
 
 let f () =
-  let archs =
-    try Hashtbl.find options "ARCHITECTURES" with Not_found -> archs in
-
   let load_t = Timer.start () in
   let (dates, urgencies, testing_bugs, unstable_bugs, hints) =
     read_extra_info () in
@@ -981,23 +993,23 @@ let f () =
          (fun arch ->
             bin_package_files (testing ()) arch @
             bin_package_files (unstable ()) arch)
-         archs)
+         !archs)
   in
   let cache = Filename.concat (unstable ()) ".cache/Packages" in
   let l =
-    cached files cache "version 1" (fun () ->
+    cached files cache "version 2" (fun () ->
     List.map
       (fun arch ->
          (arch,
           (load_bin_packages (testing ()) arch,
            load_bin_packages (unstable ()) arch)))
-      archs)
+      !archs)
   in
   let files =
     src_package_files (testing ()) @ src_package_files (unstable ()) in
   let cache = Filename.concat (unstable ()) ".cache/Sources" in
   let (t, u) =
-    cached files cache "version 1" (fun () ->
+    cached files cache "version 2" (fun () ->
       (load_src_packages (testing ()), load_src_packages (unstable ())))
   in
   if debug_time () then Format.eprintf "Loading: %f@." (Timer.stop load_t);
@@ -1071,7 +1083,8 @@ let f () =
     deferred_constraints := []
   in
   Hashtbl.iter
-    (fun nm v ->
+    (fun nm s ->
+       let v = s.M.s_version in
        (* We only propagate source packages with a larger version *)
        if no_new_source t u nm then
          no_change ((nm, v), "source") Unchanged
@@ -1091,13 +1104,6 @@ let f () =
            no_change_deferred ((nm, v), "source") More_bugs
        end)
     u;
-  if !no_removal then begin
-    Hashtbl.iter
-      (fun nm v ->
-         if source_version u nm = None then
-           no_change ((nm, v), "source") No_removal)
-      t
-  end;
   List.iter
     (fun (arch, (t', u')) ->
        let bin_nmus = ListTbl.create 101 in
@@ -1108,15 +1114,18 @@ let f () =
             let (nm, v) = p.M.source in
             (* Faux packages *)
             if not (Hashtbl.mem u nm) then begin
-              Hashtbl.add u nm v;
+              Hashtbl.add u nm
+                { M.s_name = nm; s_version = v; s_section = "" };
               Hashtbl.add fake_src nm ();
               no_change ((nm, v), "source") Unchanged
             end;
-            let v' = Hashtbl.find u nm in
+            let v' = (Hashtbl.find u nm).M.s_version in
             (* Do not add a binary package if its source is not
                the most up to date source file. *)
             if M.compare_version v v' <> 0 then
               no_change pkg (Not_yet_built (nm, v, v'));
+            let source_changed =
+              not (same_source_version t u (fst p.M.source)) in
             (* We only propagate binary packages with a larger version.
                Faux packages are not propagated. *)
             if no_new_bin t' u' p.M.package || Hashtbl.mem fake_src nm then
@@ -1126,22 +1135,20 @@ let f () =
               let is_new = bin_version t' p.M.package = None in
               if not (no_new_bugs is_new p.M.package) then
                 no_change_deferred pkg More_bugs;
-              let source_changed =
-                not (same_source_version t u (fst p.M.source)) in
               if source_changed then
                 (* We cannot add a binary package without also adding
                    its source. *)
                 associates pkg (p.M.source, "source")
                   (Source_not_propagated p.M.source)
-              else if atomic_bin_nmus then
+              else
                 ListTbl.add bin_nmus p.M.source pkg;
-              (* If a source is propagated, all its binaries should
-                 be propagated as well *)
-              if source_changed || produce_excuses then
-                associates (p.M.source, "source") pkg
-                  (Binary_not_propagated pkg)
 
-            end)
+            end;
+            (* If a source is propagated, all its binaries should
+               be propagated as well *)
+            if source_changed || produce_excuses then
+              associates (p.M.source, "source") pkg
+                (Binary_not_propagated pkg))
          u'.M.packages_by_num;
        (* All binaries packages from a same source are propagated
           atomically on any given architecture. *)
@@ -1155,26 +1162,37 @@ let f () =
             if not (Hashtbl.mem t nm) then begin
               (* The source should be fake in unstable as well. *)
               assert (not (Hashtbl.mem u nm) || Hashtbl.mem fake_src nm);
-              Hashtbl.add t nm v;
+              Hashtbl.add t nm
+                { M.s_name = nm; s_version = v; s_section = "" };
               Hashtbl.add fake_src nm ();
               no_change ((nm, v), "source") Unchanged
             end;
+            let v' = (Hashtbl.find t nm).M.s_version in
+            let source_changed =
+              not (same_source_version t u (fst p.M.source)) in
             (* Faux packages are not propagated. *)
             if Hashtbl.mem fake_src nm then
               no_change pkg Unchanged
-            else begin
-              let source_changed =
-                not (same_source_version t u (fst p.M.source)) in
+            (* Binary packages without source of the same version can
+               be removed freely when not needed anymore (these are
+               binaries left for smooth update) *)
+            else if M.compare_version v v' = 0 then begin
               (* We cannot remove a binary without removing its source *)
-              if source_changed && atomic then
+              if source_changed then
                 associates pkg (p.M.source, "source")
-                  (Source_not_propagated p.M.source);
-              (* We cannot remove a source package if a corresponding
-                 binary package still exists. *)
-              if source_changed || produce_excuses then
-                associates (p.M.source, "source") pkg
-                  (Binary_not_propagated pkg)
-            end)
+                  (Source_not_propagated p.M.source)
+            end;
+            (* We cannot remove or upgrade a source package if a
+               corresponding binary package still exists.
+               We relax this constraint for libraries when upgrading
+               a source package. *)
+            if
+              (source_changed || produce_excuses)
+                &&
+              not (allow_smooth_updates p && Hashtbl.mem u nm)
+            then
+              associates (p.M.source, "source") pkg
+                (Binary_not_propagated pkg))
          t'.M.packages_by_num)
     l;
   if debug_time () then
@@ -1260,12 +1278,12 @@ let f () =
 
   if debug_outcome () then begin
     Hashtbl.iter
-      (fun nm v ->
+      (fun nm s ->
          if not (ListTbl.mem unchanged (nm, "source")) then
            try
-             let v' = Hashtbl.find u nm in
+             let s' = Hashtbl.find u nm in
              Format.eprintf "Upgrade source package %s from %a to %a@." nm
-               M.print_version v M.print_version v'
+               M.print_version s.M.s_version M.print_version s'.M.s_version
            with Not_found ->
              Format.eprintf "Remove source package %s@." nm)
       t;
@@ -1299,7 +1317,7 @@ let f () =
       l
   end;
 
-  generate_hints l l';
+  generate_hints t u l l';
 
   let print_heidi ch =
     let lines = ref [] in
@@ -1328,10 +1346,12 @@ let f () =
       (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l0);
     let is_preserved nm = ListTbl.mem unchanged (nm, "source") in
     Hashtbl.iter
-      (fun nm vers -> if is_preserved nm then add_line nm vers "source")
+      (fun nm s ->
+         if is_preserved nm then add_line nm s.M.s_version "source")
       t;
     Hashtbl.iter
-      (fun nm vers -> if not (is_preserved nm) then add_line nm vers "source")
+      (fun nm s ->
+         if not (is_preserved nm) then add_line nm s.M.s_version "source")
       u;
     output_lines ch; flush ch
   in
@@ -1364,7 +1384,12 @@ let read_conf f =
   with End_of_file -> () end;
   close_in ch;
   heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
-  no_removal := false
+  archs := (try Hashtbl.find options "ARCHITECTURES" with Not_found -> !archs);
+  smooth_updates :=
+    (try
+       Hashtbl.find options "SMOOTH_UPDATES"
+     with Not_found ->
+       !smooth_updates)
 
 let _ =
 let spec =

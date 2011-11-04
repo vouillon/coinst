@@ -58,7 +58,7 @@ let rec next st =
   if pos < st.last then begin
     st.pos <- st.pos + 1;
     st.buf.[pos]
-  end else if st.eof then '\000' else begin
+  end else if st.eof then '\n' else begin
     refill st;
     next st
   end
@@ -146,6 +146,24 @@ let parse_field_end st =
   skip_whitespaces st;
   if not (accept st '\n' || at_eof st) then failwith "Garbage at end of field"
 
+let parse_simple_field_content st =
+  start_token st;
+  let rec skip n =
+    match next st with 
+      ' ' | '\t' -> skip (n + 1)
+    | '\n'       -> unread st; n
+    | _          -> skip 0
+  in
+  let s = get_token st (skip 0) in
+  parse_field_end st;
+  s
+
+(****)
+
+let strings = Hashtbl.create 101
+let common_string s =
+  try Hashtbl.find strings s with Not_found -> Hashtbl.add strings s s; s
+
 (****)
 
 type rel = SE | E | EQ | L | SL
@@ -156,6 +174,8 @@ type p =
     mutable package : string;
     mutable version : version;
     mutable source : string * version;
+    mutable section : string;
+    mutable architecture : string;
     mutable depends : dep;
     mutable recommends : dep;
     mutable suggests : dep;
@@ -382,7 +402,7 @@ let parse_packages pool ignored_packages ch =
   let start () =
     Common.parsing_tick info;
     { num = 0; package = " "; version = dummy_version;
-      source = (" ", dummy_version);
+      source = (" ", dummy_version); section = ""; architecture = "";
       depends = []; recommends = []; suggests = []; enhances = [];
       pre_depends = []; provides = []; conflicts = []; breaks = [];
       replaces = [] }
@@ -396,43 +416,55 @@ let parse_packages pool ignored_packages ch =
   in
   let field q f st =
     match f with
-      "Package"     -> q.package <- parse_package st; parse_field_end st; true
-    | "Version"     -> q.version <- parse_version st; parse_field_end st; true
-    | "Source"      -> q.source <- parse_package_source st; true
-    | "Depends"     -> q.depends <- parse_rel f true true st; true
-    | "Recommends"  -> q.recommends <- parse_rel f true true st; true
-    | "Suggests"    -> q.suggests <- parse_rel f true true st; true
-    | "Enhances"    -> q.enhances <- parse_rel f true false st; true
-    | "Pre-Depends" -> q.pre_depends <- parse_rel f true true st; true
-    | "Provides"    -> q.provides <- parse_rel f false false st; true
-    | "Conflicts"   -> q.conflicts <- parse_rel f true false st; true
-    | "Breaks"      -> q.breaks <- parse_rel f true false st; true
-    | "Replaces"    -> q.replaces <- parse_rel f true false st; true
-        | _         -> false
+      "Package"      -> q.package <- parse_package st; parse_field_end st; true
+    | "Version"      -> q.version <- parse_version st; parse_field_end st; true
+    | "Source"       -> q.source <- parse_package_source st; true
+    | "Section"      -> q.section <-
+                          common_string (parse_simple_field_content st);
+                        true
+    | "Architecture" -> q.architecture <-
+                          common_string (parse_simple_field_content st);
+                        true
+    | "Depends"      -> q.depends <- parse_rel f true true st; true
+    | "Recommends"   -> q.recommends <- parse_rel f true true st; true
+    | "Suggests"     -> q.suggests <- parse_rel f true true st; true
+    | "Enhances"     -> q.enhances <- parse_rel f true false st; true
+    | "Pre-Depends"  -> q.pre_depends <- parse_rel f true true st; true
+    | "Provides"     -> q.provides <- parse_rel f false false st; true
+    | "Conflicts"    -> q.conflicts <- parse_rel f true false st; true
+    | "Breaks"       -> q.breaks <- parse_rel f true false st; true
+    | "Replaces"     -> q.replaces <- parse_rel f true false st; true
+    | _              -> false
   in
   parse_stanzas ~start ~field ~finish st;
   Common.stop_parsing info
 
 (****)
 
-type s = { mutable s_name : string; mutable s_version : version }
+type s =
+  { mutable s_name : string;
+    mutable s_version : version;
+    mutable s_section : string }
 
 let parse_src_packages pool ch =
   let info = Common.start_parsing true ch in
   let st = from_channel ch in
   let start () =
     Common.parsing_tick info;
-    { s_name = " "; s_version = dummy_version }
+    { s_name = " "; s_version = dummy_version; s_section = "unknown" }
   in
   let field q f st =
     match f with
       "Package" -> q.s_name <- parse_package st; parse_field_end st; true
     | "Version" -> q.s_version <- parse_version st; parse_field_end st; true
+    | "Section" -> q.s_section <-
+                     common_string (parse_simple_field_content st);
+                   true
     | _         -> false
   in
   let finish q =
     assert (q.s_name <> " "); assert (q.s_version <> dummy_version);
-    Hashtbl.add pool q.s_name q.s_version
+    Hashtbl.add pool q.s_name q
   in
   parse_stanzas ~start ~field ~finish st;
   Common.stop_parsing info
@@ -968,11 +1000,12 @@ let add_package pool p =
 let src_only_latest h =
   let h' = Hashtbl.create 101 in
   Hashtbl.iter
-    (fun nm v ->
+    (fun nm s ->
        try
-         let v' = Hashtbl.find h' nm in
-         if compare_version v v' > 0 then Hashtbl.replace h' nm v
+         let s' = Hashtbl.find h' nm in
+         if compare_version s.s_version s'.s_version > 0 then
+           Hashtbl.replace h' nm s
        with Not_found ->
-         Hashtbl.add h' nm v)
+         Hashtbl.add h' nm s)
     h;
   h'

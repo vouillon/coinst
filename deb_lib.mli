@@ -31,6 +31,8 @@ type p =
     mutable package : string;
     mutable version : version;
     mutable source : string * version;
+    mutable section : string;
+    mutable architecture : string;
     mutable depends : dep;
     mutable recommends : dep;
     mutable suggests : dep;
@@ -67,9 +69,13 @@ val parse_version : string -> version
 val print_version : Format.formatter -> version -> unit
 val compare_version : version -> version -> int
 
-val parse_src_packages : (string, version) Hashtbl.t -> in_channel -> unit
-val src_only_latest :
-  (string, version) Hashtbl.t -> (string, version) Hashtbl.t
+type s =
+  { mutable s_name : string;
+    mutable s_version : version;
+    mutable s_section : string }
+
+val parse_src_packages : (string, s) Hashtbl.t -> in_channel -> unit
+val src_only_latest : (string, s) Hashtbl.t -> (string, s) Hashtbl.t
 
 val generate_rules_restricted : pool -> Util.IntSet.t -> Solver.state
 

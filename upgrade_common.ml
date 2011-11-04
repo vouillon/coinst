@@ -760,6 +760,7 @@ ignore first_dummy;
          let provides = "<" ^ q ^ ">" in
          let v = (0, "none", None) in
          { M.num = 0; package = pseudo; version = v; source = (pseudo, v);
+           section = ""; architecture = "";
            depends = []; recommends = []; suggests = []; enhances = [];
            pre_depends = []; provides = [[provides, None]];
            conflicts = [[provides, None]];
