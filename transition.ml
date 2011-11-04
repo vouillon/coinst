@@ -1091,10 +1091,10 @@ let f () =
            no_change_deferred ((nm, v), "source") More_bugs
        end)
     u;
+  let fake_src = Hashtbl.create 17 in
   List.iter
     (fun (arch, (t', u')) ->
        let bin_nmus = ListTbl.create 101 in
-       let fake_src = Hashtbl.create 17 in
        Hashtbl.iter
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
@@ -1308,37 +1308,52 @@ let f () =
 
   let print_heidi ch =
     let lines = ref [] in
-    let add_line nm vers arch =
+    let add_line nm vers arch sect =
       let b = Buffer.create 80 in
-      Format.bprintf b "%s %a %s@." nm M.print_version vers arch;
+      Format.bprintf b "%s %a %s %s@." nm M.print_version vers arch sect;
       lines := Buffer.contents b :: !lines
     in
     let output_lines ch =
       List.iter (output_string ch) (List.sort compare !lines); lines := []
     in
+    let srcs = Hashtbl.create 4096 in
     List.iter
       (fun (arch, (t, u)) ->
          let is_preserved nm = ListTbl.mem unchanged (nm, arch) in
          Hashtbl.iter
            (fun _ p ->
               let nm = p.M.package in
-              if is_preserved nm then add_line nm p.M.version arch)
+              let sect = if p.M.section = "" then "faux" else p.M.section in
+              if is_preserved nm then add_line nm p.M.version arch sect)
            t.M.packages_by_num;
          Hashtbl.iter
            (fun _ p ->
               let nm = p.M.package in
-              if not (is_preserved nm) then add_line nm p.M.version arch)
+              let sect = if p.M.section = "" then "faux" else p.M.section in
+              if not (is_preserved nm) then begin
+                add_line nm p.M.version arch sect;
+                Hashtbl.add srcs (fst p.M.source) ()
+              end)
            u.M.packages_by_num;
          output_lines ch)
       (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l0);
-    let is_preserved nm = ListTbl.mem unchanged (nm, "source") in
+    (*HACK: we do not propagate source files with no associated binary.*)
+    let is_preserved nm =
+      ListTbl.mem unchanged (nm, "source") || not (Hashtbl.mem srcs nm) in
+    let source_sect nm s =
+      if Hashtbl.mem fake_src nm then "faux"
+      else if s.M.s_section = "" then "unknown"
+      else s.M.s_section
+    in
     Hashtbl.iter
       (fun nm s ->
-         if is_preserved nm then add_line nm s.M.s_version "source")
+         let sect = source_sect nm s in
+         if is_preserved nm then add_line nm s.M.s_version "source" sect)
       t;
     Hashtbl.iter
       (fun nm s ->
-         if not (is_preserved nm) then add_line nm s.M.s_version "source")
+         let sect = source_sect nm s in
+         if not (is_preserved nm) then add_line nm s.M.s_version "source" sect)
       u;
     output_lines ch; flush ch
   in
