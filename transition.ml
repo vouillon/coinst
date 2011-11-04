@@ -17,6 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
+Printexc.record_backtrace true;;
+
 (*
 PRIORITIES
 ==> save learnt clauses
@@ -1464,4 +1466,7 @@ Arg.parse spec (fun p -> ())
     or a britney config file (option -c).\n\
     \n\
     Options:");
-f ()
+try
+  f ()
+with _ ->
+  Printexc.print_backtrace stdout
