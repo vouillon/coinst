@@ -19,6 +19,8 @@
 
 (*
 PRIORITIES
+==> only propagate a source package if some of its binaries
+    are propagated as well
 ==> sort easy hints : more packages last; lexicographic order otherwise
 ==> save learnt clauses
 ==> graphs for reporting co-installability issues
@@ -778,8 +780,8 @@ let reduce_repositories l =
 
 (****)
 
-type easy_hint =
-  { mutable h_names : (string * (string * (string * string) list)) list;
+type 'a easy_hint =
+  { mutable h_names : 'a list;
     mutable h_pkgs : (string * string) list;
     mutable h_live : bool }
 
@@ -820,7 +822,9 @@ let generate_small_hints l buckets =
   ListTbl.iter
     (fun (src, arch) lst ->
        let info =
-         {h_names = [(src, (arch, lst))]; h_pkgs = lst; h_live = true} in
+         { h_names = [(src, (arch, lst))]; h_pkgs = List.map fst lst;
+           h_live = true }
+       in
        let elt = Union_find.elt info in
        to_consider := (info, elt) :: !to_consider)
     buckets;
@@ -856,18 +860,6 @@ let generate_small_hints l buckets =
   List.map (fun info -> info.h_names) lst
 
 let generate_hints t u l l' =
-(*
-Add src
-Add src/arch
-
-Remove src
-Remove bin/arch
-
-To add a binary package, add its source (possibly per arch)
-
-When upgrading a package, we may have to remove some old libraries...
-==> binary in lib, not in unstable, source not removed
-*)
   let changes = ListTbl.create 101 in
   List.iter
     (fun (arch, (t', u')) ->
@@ -876,7 +868,7 @@ When upgrading a package, we may have to remove some old libraries...
             let nm = p.M.package in
             if not (ListTbl.mem unchanged (nm, arch)) then begin
               let (src, v) = p.M.source in
-              ListTbl.add changes src (nm, arch)
+              ListTbl.add changes src ((nm, arch), `Propagate)
             end)
          u'.M.packages_by_num;
        Hashtbl.iter
@@ -888,7 +880,12 @@ When upgrading a package, we may have to remove some old libraries...
               not (ListTbl.mem u'.M.packages_by_name nm)
             then begin
               let (src, v) = p.M.source in
-              ListTbl.add changes src (nm, arch)
+              let explicit =
+                allow_smooth_updates p || 
+                M.compare_version v (Hashtbl.find t src).M.s_version <> 0
+              in
+              ListTbl.add changes src
+                ((nm, arch), `Remove (p.M.version, explicit))
             end)
          t'.M.packages_by_num)
     l;
@@ -897,11 +894,12 @@ When upgrading a package, we may have to remove some old libraries...
     (fun src l ->
        if not (ListTbl.mem unchanged (src, "source")) then
          List.iter
-           (fun (nm, arch) -> ListTbl.add buckets (src, "source") (nm, arch))
+           (fun info -> ListTbl.add buckets (src, "source") info)
            l
        else
          List.iter
-           (fun (nm, arch) -> ListTbl.add buckets (src, arch) (nm, arch))
+           (fun (((_, arch), _) as info) ->
+              ListTbl.add buckets (src, arch) info)
            l)
     changes;
   let hints =
@@ -915,44 +913,33 @@ When upgrading a package, we may have to remove some old libraries...
       let vers = (Hashtbl.find u src).M.s_version in
       if arch = "source" then begin
         (* We are propagating a source package. *)
-        Format.fprintf f " %s/%a" src M.print_version vers;
+        (*FIX: should only propagate a source package when it has binaries *)
+        if List.exists (fun (_, action) -> action = `Propagate) lst then
+          Format.fprintf f " %s/%a" src M.print_version vers;
         (* Explicitly remove unneeded packages left over due to smooth
-           upgrade... *)
+           upgrade. *)
         List.iter
-          (fun (nm, arch) ->
-             let (t', u') = List.assoc arch l in
-             if not (ListTbl.mem u'.M.packages_by_name nm) then begin
-               match ListTbl.find t'.M.packages_by_name nm with
-                 [p] ->
-                   if
-                     allow_smooth_updates p ||
-                     M.compare_version
-                       (snd p.M.source) (Hashtbl.find t src).M.s_version <> 0
-                   then
-                     Format.fprintf f " -%s/%s/%a"
-                       nm arch M.print_version p.M.version
-               | _ ->
-                 assert false
-             end)
+          (fun ((nm, arch), action) ->
+             match action with
+               `Propagate ->
+                 ()
+             | `Remove (vers, explicit) ->
+                 if explicit then
+                   Format.fprintf f " -%s/%s/%a" nm arch M.print_version vers)
           lst
       end else begin
         (* We are changing some binaries. *)
-        let (t', u') = List.assoc arch l in
-        let (propagated, removed) =
-          List.partition
-            (fun (nm, _) -> ListTbl.mem u'.M.packages_by_name nm) lst
-        in
-        if propagated <> [] then
+        if List.exists (fun (_, action) -> action = `Propagate) lst then
           Format.fprintf f " %s/%s/%a" src arch M.print_version vers;
         List.iter
-          (fun (nm, _) ->
-             match ListTbl.find t'.M.packages_by_name nm with
-               [p] ->
-                 Format.fprintf f " -%s/%s/%a"
-                   nm arch M.print_version p.M.version
-             | _ ->
-                 assert false)
-          removed
+          (fun ((nm, arch), action) ->
+             match action with
+               `Propagate ->
+                 ()
+             | `Remove (vers, explicit) ->
+                 assert explicit;
+                 Format.fprintf f " -%s/%s/%a" nm arch M.print_version vers)
+          lst
       end
     with Not_found ->
       (* We are removing a source package. *)
