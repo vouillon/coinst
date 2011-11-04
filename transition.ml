@@ -1101,22 +1101,25 @@ let f () =
   List.iter
     (fun (arch, (t', u')) ->
        let bin_nmus = ListTbl.create 101 in
+       let fake_src = Hashtbl.create 17 in
        Hashtbl.iter
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
             let (nm, v) = p.M.source in
-if not (Hashtbl.mem u nm) then begin
-Format.eprintf "Warning: missing source package %s in unstable@." nm;
-Hashtbl.add u nm v
-end;
-            assert (Hashtbl.mem u nm);
+            (* Faux packages *)
+            if not (Hashtbl.mem u nm) then begin
+              Hashtbl.add u nm v;
+              Hashtbl.add fake_src nm ();
+              no_change ((nm, v), "source") Unchanged
+            end;
             let v' = Hashtbl.find u nm in
             (* Do not add a binary package if its source is not
                the most up to date source file. *)
             if M.compare_version v v' <> 0 then
               no_change pkg (Not_yet_built (nm, v, v'));
-            (* We only propagate binary packages with a larger version *)
-            if no_new_bin t' u' p.M.package then
+            (* We only propagate binary packages with a larger version.
+               Faux packages are not propagated. *)
+            if no_new_bin t' u' p.M.package || Hashtbl.mem fake_src nm then
               no_change pkg Unchanged
             else begin
               (* Do not upgrade a package if it has new bugs *)
@@ -1125,12 +1128,12 @@ end;
                 no_change_deferred pkg More_bugs;
               let source_changed =
                 not (same_source_version t u (fst p.M.source)) in
-              if source_changed then begin
+              if source_changed then
                 (* We cannot add a binary package without also adding
                    its source. *)
                 associates pkg (p.M.source, "source")
-                  (Source_not_propagated p.M.source);
-              end else if atomic_bin_nmus then
+                  (Source_not_propagated p.M.source)
+              else if atomic_bin_nmus then
                 ListTbl.add bin_nmus p.M.source pkg;
               (* If a source is propagated, all its binaries should
                  be propagated as well *)
@@ -1140,28 +1143,37 @@ end;
 
             end)
          u'.M.packages_by_num;
+       (* All binaries packages from a same source are propagated
+          atomically on any given architecture. *)
        ListTbl.iter
          (fun _ pkgs -> all_or_none pkgs (Atomic pkgs)) bin_nmus;
        Hashtbl.iter
          (fun _ p ->
-            let (nm, v) = p.M.source in
-if not (Hashtbl.mem t nm) then begin
-Format.eprintf "Warning: missing source package %s in testing@." nm;
-Hashtbl.add t nm v
-end;
             let pkg = ((p.M.package, p.M.version), arch) in
-            (* We cannot remove a source package if a corresponding
-               binary package still exists. *)
-            let source_changed =
-              not (same_source_version t u (fst p.M.source)) in
-            if source_changed || produce_excuses then
-              associates
-                (p.M.source, "source") pkg (Binary_not_propagated pkg);
-            if source_changed then begin
+            let (nm, v) = p.M.source in
+            (* Faux packages *)
+            if not (Hashtbl.mem t nm) then begin
+              (* The source should be fake in unstable as well. *)
+              assert (not (Hashtbl.mem u nm) || Hashtbl.mem fake_src nm);
+              Hashtbl.add t nm v;
+              Hashtbl.add fake_src nm ();
+              no_change ((nm, v), "source") Unchanged
+            end;
+            (* Faux packages are not propagated. *)
+            if Hashtbl.mem fake_src nm then
+              no_change pkg Unchanged
+            else begin
+              let source_changed =
+                not (same_source_version t u (fst p.M.source)) in
               (* We cannot remove a binary without removing its source *)
-              if atomic then
+              if source_changed && atomic then
                 associates pkg (p.M.source, "source")
-                  (Source_not_propagated p.M.source)
+                  (Source_not_propagated p.M.source);
+              (* We cannot remove a source package if a corresponding
+                 binary package still exists. *)
+              if source_changed || produce_excuses then
+                associates (p.M.source, "source") pkg
+                  (Binary_not_propagated pkg)
             end)
          t'.M.packages_by_num)
     l;
