@@ -302,7 +302,7 @@ let prepare_analyze dist =
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
   let (deps', confl') = Coinst.flatten_and_simplify dist deps confl in
   let st = Coinst.generate_rules (Quotient.trivial dist) deps' confl' in
-  { dist; deps; confl; deps'; confl'; st }
+  { dist=dist; deps=deps; confl=confl; deps'=deps'; confl'=confl'; st=st }
 
 let compute_predecessors dist1 dist2 =
   PTbl.init dist2
