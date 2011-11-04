@@ -903,7 +903,7 @@ let generate_hints t u l l' =
             then begin
               let (src, v) = p.M.source in
               let explicit =
-                allow_smooth_updates p || 
+                allow_smooth_updates p ||
                 M.compare_version v (Hashtbl.find t src).M.s_version <> 0
               in
               ListTbl.add changes src
