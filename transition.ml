@@ -193,7 +193,7 @@ let read_package_info file f =
 let read_dates file = read_package_info file int_of_string
 
 let read_urgencies file =
-  let cache = Filename.concat (unstable ()) ".cache/Urgencies" in
+  let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Urgencies" in
   cached [file] cache "version 1"
     (fun () -> read_package_info file urgency_delay)
 
@@ -1001,7 +1001,7 @@ let f () =
             bin_package_files (unstable ()) arch)
          !archs)
   in
-  let cache = Filename.concat (unstable ()) ".cache/Packages" in
+  let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Packages" in
   let l =
     cached files cache "version 2" (fun () ->
     List.map
@@ -1013,7 +1013,7 @@ let f () =
   in
   let files =
     src_package_files (testing ()) @ src_package_files (unstable ()) in
-  let cache = Filename.concat (unstable ()) ".cache/Sources" in
+  let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Sources" in
   let (t, u) =
     cached files cache "version 2" (fun () ->
       (load_src_packages (testing ()), load_src_packages (unstable ())))
