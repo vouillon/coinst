@@ -991,7 +991,7 @@ let generate_hints t u l l' =
       List.iter (fun names -> print_hint f names) hints
   in
   if debug_hints () then print_hints Format.std_formatter;
-  if !hint_file <> "-" && not (Sys.is_directory !hint_file) && !hint_file <> "README" && !hint_file <> "index.html" then begin
+  if !hint_file <> "-" then begin
     let ch = open_out !hint_file in
     print_hints (Format.formatter_of_out_channel ch);
     close_out ch
