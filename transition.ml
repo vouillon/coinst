@@ -235,7 +235,7 @@ let read_hints dir =
   Array.iter
     (fun f ->
        let file = Filename.concat dir f in
-       if Sys.is_directory file || f = "README" || f = "index.html" then
+       if Sys.is_directory file || f = "README" || f = "index.html" || f.[0] = '.' then
          ()
        else
        let ch = open_in (Filename.concat dir f) in
