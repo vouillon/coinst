@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-Printexc.record_backtrace true;;
-
 (*
 PRIORITIES
 ==> save learnt clauses
@@ -156,6 +154,7 @@ let cached files cache magic f =
 module StringSet = Upgrade_common.StringSet
 
 let _ =
+Printexc.record_backtrace true;
 Gc.set { (Gc.get ())
          with Gc.space_overhead = 200; max_overhead = 1000000;
               major_heap_increment = 20 * 1024 * 1024 }
@@ -304,37 +303,27 @@ module M = Deb_lib
 module Repository = Repository.F(M)
 open Repository
 
-let bin_package_files suite arch =
-  [Filename.concat suite (Format.sprintf "Packages_%s" arch)]
+let bin_package_file suite arch =
+  Filename.concat suite (Format.sprintf "Packages_%s" arch)
 
-let src_package_files suite = [Filename.concat suite "Sources"]
+let src_package_file suite = Filename.concat suite "Sources"
 
 let load_bin_packages suite arch =
-  let files = bin_package_files suite arch in
+  let file = bin_package_file suite arch in
   let dist = M.new_pool () in
-  List.iter
-    (fun file ->
-       if Sys.is_directory file then
-         ()
-       else
-       let ch = File.open_in file in
-       M.parse_packages dist [] ch;
-       close_in ch)
-    files;
+  assert (not (Sys.is_directory file));
+  let ch = File.open_in file in
+  M.parse_packages dist [] ch;
+  close_in ch;
   M.only_latest dist
 
 let load_src_packages suite =
-  let files = src_package_files suite in
+  let file = src_package_file suite in
   let dist = Hashtbl.create 101 in
-  List.iter
-    (fun file ->
-       if Sys.is_directory file then
-         ()
-       else
-       let ch = File.open_in file in
-       M.parse_src_packages dist ch;
-       close_in ch)
-    files;
+  assert (not (Sys.is_directory file));
+  let ch = File.open_in file in
+  M.parse_src_packages dist ch;
+  close_in ch;
   M.src_only_latest dist
 
 (****)
@@ -1009,8 +998,8 @@ let f () =
     List.flatten
       (List.map
          (fun arch ->
-            bin_package_files (testing ()) arch @
-            bin_package_files (unstable ()) arch)
+            [bin_package_file (testing ()) arch;
+             bin_package_file (unstable ()) arch])
          !archs)
   in
   let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Packages" in
@@ -1024,7 +1013,7 @@ let f () =
       !archs)
   in
   let files =
-    src_package_files (testing ()) @ src_package_files (unstable ()) in
+    [src_package_file (testing ()); src_package_file (unstable ())] in
   let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Sources" in
   let (t, u) =
     cached files cache "version 2" (fun () ->
@@ -1478,7 +1467,4 @@ Arg.parse spec (fun p -> ())
     or a britney config file (option -c).\n\
     \n\
     Options:");
-try
   f ()
-with _ ->
-  Printexc.print_backtrace stdout
