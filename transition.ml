@@ -73,7 +73,7 @@ let hint_file = ref "-"
 let heidi_file = ref ""
 let excuse_file = ref ""
 let offset = ref 0
-let small_hints = ref false
+let all_hints = ref false
 
 (****)
 
@@ -923,12 +923,7 @@ let generate_hints t u l l' =
               ListTbl.add buckets (src, arch) info)
            l)
     changes;
-  let hints =
-    if !small_hints then
-      generate_small_hints l' buckets
-    else
-      []
-  in
+  let hints = generate_small_hints l' buckets in
   let print_pkg f src arch lst =
     try
       let vers = (Hashtbl.find u src).M.s_version in
@@ -967,20 +962,13 @@ let generate_hints t u l l' =
       Format.fprintf f " -%s/%a" src M.print_version vers
   in
   let print_hint f l =
-    if List.length l > 1 then begin
+    if !all_hints || List.length l > 1 then begin
       Format.fprintf f "easy";
       List.iter (fun (src, (arch, lst)) -> print_pkg f src arch lst) l;
       Format.fprintf f "@."
     end
   in
-  let print_hints f =
-    if not !small_hints then begin
-      Format.fprintf f "easy";
-      ListTbl.iter (fun (src, arch) lst -> print_pkg f src arch lst) buckets;
-      Format.fprintf f "@."
-    end else
-      List.iter (fun names -> print_hint f names) hints
-  in
+  let print_hints f = List.iter (fun names -> print_hint f names) hints in
   if debug_hints () then print_hints Format.std_formatter;
   if !hint_file <> "-" then begin
     let ch = open_out !hint_file in
@@ -1432,9 +1420,9 @@ let spec =
    "--hints",
    Arg.String (fun f -> hint_file := f),
    "FILE      Output hints to FILE";
-   "--small",
-   Arg.Unit (fun () -> small_hints := true),
-   "          Generate small hints";
+   "--all-hints",
+   Arg.Unit (fun () -> all_hints := true),
+   "          Show all hints (including those for single packages)";
    "--heidi",
    Arg.String (fun f -> heidi_file := f),
    "FILE      Output Heidi results to FILE";
