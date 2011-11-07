@@ -53,7 +53,8 @@ PRIORITIES
 let dir = ref (Filename.concat (Sys.getenv "HOME") "debian-dists/britney")
 let archs = ref ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
 let smooth_updates = ref ["libs"; "oldlibs"]
-let ext = ".bz2"
+
+let cache_dir = Filename.concat (Sys.getenv "HOME") ".coinst"
 
 let options = Hashtbl.create 17
 let get_option key def =
@@ -105,10 +106,23 @@ let default_urgency = urgency_delay "low"
 
 (****)
 
-let cached files cache magic f =
-  let magic = Format.sprintf "%s\n%s\n\n" magic (String.concat "\n" files) in
+let make_uid () =
+  let magic1 = 0xcab4ea850533f24dL in
+  let magic2 = 0xb517d4f5440b7995L in
+  Format.sprintf "%16Lx"
+    (Int64.logxor
+       (Int64.mul magic1 (Int64.of_float (1e6 *. Unix.gettimeofday ())))
+       (Int64.mul magic2 (Int64.of_int (Unix.getpid ()))))
+
+let cached ?(force=false) files cache magic f =
+  let magic =
+    Format.sprintf
+      "This cache file can be safely removed at any time.\n%s\n%s\n\n"
+      magic (String.concat "\n" files)
+  in
   let ch = try Some (open_in cache) with Sys_error _ -> None in
   let should_compute =
+    force ||
     match ch with
       None ->
         true
@@ -137,16 +151,20 @@ let cached files cache magic f =
     Util.make_directories tmp;
     let ch = open_out tmp in
     output_string ch magic;
+    let uid = make_uid () in
+    output_string ch uid;
     Marshal.to_channel ch res [];
     close_out ch;
     Sys.rename tmp cache;
-    res
+    (res, uid)
   end else begin
     match ch with
       Some ch ->
+        let uid = String.create 16 in
+        really_input ch uid 0 16;
         let res = Marshal.from_channel ch in
         close_in ch;
-        res
+        (res, uid)
     | None ->
         assert false
   end
@@ -192,9 +210,9 @@ let read_package_info file f =
 let read_dates file = read_package_info file int_of_string
 
 let read_urgencies file =
-  let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Urgencies" in
-  cached [file] cache "version 1"
-    (fun () -> read_package_info file urgency_delay)
+  let cache = Filename.concat cache_dir "Urgencies" in
+  fst (cached [file] cache "version 1"
+         (fun () -> read_package_info file urgency_delay))
 
 let read_bugs file =
   let ch = open_in file in
@@ -340,7 +358,7 @@ type reason =
     (* Source *)
   | Blocked
   | Too_young of int * int
-  | Binary_not_propagated of ((string * M.version) * string)
+  | Binary_not_propagated of (string * string)
   | No_binary
   (* Both *)
   | More_bugs
@@ -348,7 +366,7 @@ type reason =
   | Conflict of StringSet.t * StringSet.t
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated of (string * M.version)
-  | Atomic of ((string * M.version) * string) list
+  | Atomic of (string * string) list
 
 let print_reason f reason =
   match reason with
@@ -376,16 +394,15 @@ let print_reason f reason =
   | Source_not_propagated (src, v) ->
       Format.fprintf f "source package %s (%a) cannot be propagated"
         src M.print_version v
-  | Binary_not_propagated ((bin, v), arch) ->
-      Format.fprintf f "binary package %s (%a / %s) cannot be propagated"
-        bin M.print_version v arch
+  | Binary_not_propagated (bin, arch) ->
+      Format.fprintf f "binary package %s (%s) cannot be propagated"
+        bin arch
   | No_binary ->
       Format.fprintf f "no associated binary package"
   | Atomic l ->
       Format.fprintf f "binary packages";
       List.iter
-        (fun ((src, v), arch) ->
-           Format.fprintf f " %s (%a / %s)" src M.print_version v arch)
+        (fun (src, arch) -> Format.fprintf f " %s (%s)" src arch)
         l;
       Format.fprintf f " cannot be propagated all at once"
 
@@ -394,20 +411,20 @@ let unchanged = ListTbl.create 101
 let propagation_rules = Hashtbl.create 101
 
 let rec no_change pkg reason =
-  let ((nm, version), arch) = pkg in
+  let (nm, arch) = pkg in
   let already = ListTbl.mem unchanged (nm, arch) in
   ListTbl.add unchanged (nm, arch) reason;
   if not already then begin
     if reason <> Unchanged && verbose () then
-      Format.eprintf "Skipping %s (%a / %s): %a@."
-        nm M.print_version version arch print_reason reason;
+      Format.eprintf "Skipping %s (%s): %a@."
+        nm arch print_reason reason;
     let l = Hashtbl.find_all propagation_rules (nm, arch) in
     List.iter (fun (pkg', reason') -> no_change pkg' reason') l
   end
 
 (* if pkg2 is unchanged, then pkg1 should be unchanged as well. *)
 let associates pkg1 pkg2 reason =
-  let ((nm, version), arch) = pkg2 in
+  let (nm, arch) = pkg2 in
   if ListTbl.mem unchanged (nm, arch) then
     no_change pkg1 reason
   else
@@ -421,6 +438,31 @@ let all_or_none pkgs reason =
             if p1 <> p2 then associates p1 p2 reason)
          pkgs)
     pkgs
+
+(****)
+
+let learnt_rules = ref []
+
+let learn_rule nm version arch neg s =
+  learnt_rules := (nm, version, arch, neg, s) :: !learnt_rules
+
+let load_rules uid =
+  let cache = Filename.concat cache_dir "Rules" in
+  let (rules, _) = cached [] cache ("version 1\n" ^ uid) (fun () -> []) in
+  List.iter
+    (fun (nm, version, arch, neg, s) ->
+       if StringSet.is_empty neg then
+         no_change (nm, arch) (Conflict (neg, s))
+       else if StringSet.cardinal neg = 1 then
+         associates
+           (nm, arch) (StringSet.choose neg, arch) (Conflict (neg, s)))
+    rules;
+  learnt_rules := rules
+
+let save_rules uid =
+  let cache = Filename.concat cache_dir "Rules" in
+  ignore (cached ~force:true [] cache ("version 1\n" ^ uid)
+            (fun () -> List.rev !learnt_rules))
 
 (****)
 
@@ -461,7 +503,7 @@ let rec interesting_reason r =
   match r with
     Unchanged ->
       false
-  | Binary_not_propagated ((bin, _), arch) ->
+  | Binary_not_propagated (bin, arch) ->
       List.exists interesting_reason (ListTbl.find unchanged (bin, arch))
   | Source_not_propagated _ ->
       false
@@ -522,7 +564,7 @@ let output_reasons l filename =
                   Format.fprintf f
                     "<li>Only %d days old. Must be %d days old to go in.@."
                     cur_ag req_ag
-              | Binary_not_propagated ((bin, v), arch) ->
+              | Binary_not_propagated (bin, arch) ->
                   binaries := (bin, arch) :: !binaries
               | More_bugs ->
                   Format.fprintf f "<li>Has new bugs.@."
@@ -885,6 +927,7 @@ let generate_small_hints l buckets =
   lst
 
 let generate_hints t u l l' =
+  let hint_t = Timer.start () in
   let changes = ListTbl.create 101 in
   List.iter
     (fun (arch, (t', u')) ->
@@ -923,6 +966,8 @@ let generate_hints t u l l' =
            l)
     changes;
   let hints = generate_small_hints l' buckets in
+  if debug_time () then
+    Format.eprintf "Generating hints: %f@." (Timer.stop hint_t);
   let print_pkg f src arch =
     try
       let vers = (Hashtbl.find u src).M.s_version in
@@ -968,8 +1013,8 @@ let f () =
              bin_package_file (unstable ()) arch])
          !archs)
   in
-  let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Packages" in
-  let l =
+  let cache = Filename.concat cache_dir "Packages" in
+  let (l, uid) =
     cached files cache "version 2" (fun () ->
     List.map
       (fun arch ->
@@ -980,14 +1025,17 @@ let f () =
   in
   let files =
     [src_package_file (testing ()); src_package_file (unstable ())] in
-  let cache = Filename.concat (Sys.getenv "HOME") ".coinst/Sources" in
-  let (t, u) =
+  let cache = Filename.concat cache_dir "Sources" in
+  let ((t, u), _) =
     cached files cache "version 2" (fun () ->
       (load_src_packages (testing ()), load_src_packages (unstable ())))
   in
   if debug_time () then Format.eprintf "Loading: %f@." (Timer.stop load_t);
 
+  load_rules uid;
+
   let init_t = Timer.start () in
+  let compute_hints = debug_hints () || !hint_file <> "" in
   let compute_ages nm uv tv =
     let d =
       try
@@ -1060,21 +1108,21 @@ let f () =
        let v = s.M.s_version in
        (* We only propagate source packages with a larger version *)
        if no_new_source t u nm then
-         no_change ((nm, v), "source") Unchanged
+         no_change (nm, "source") Unchanged
        else if is_blocked nm then
-         no_change_deferred ((nm, v), "source") Blocked
+         no_change_deferred (nm, "source") Blocked
        else begin
          (* Do not propagate a source package if not old enough *)
          let v' = source_version t nm in
          let (cur_ag, req_ag) = compute_ages nm v v' in
          if cur_ag < req_ag then
-           no_change_deferred ((nm, v), "source") (Too_young (cur_ag, req_ag));
+           no_change_deferred (nm, "source") (Too_young (cur_ag, req_ag));
          (* Do not propagate a source package if it has new bugs *)
          let is_new = v' = None in
          if
            not (no_new_bugs is_new nm && no_new_bugs is_new ("src:" ^ nm))
          then
-           no_change_deferred ((nm, v), "source") More_bugs
+           no_change_deferred (nm, "source") More_bugs
        end)
     u;
   let fake_src = Hashtbl.create 17 in
@@ -1084,14 +1132,14 @@ let f () =
        let bin_nmus = ListTbl.create 101 in
        Hashtbl.iter
          (fun _ p ->
-            let pkg = ((p.M.package, p.M.version), arch) in
+            let pkg = (p.M.package, arch) in
             let (nm, v) = p.M.source in
             (* Faux packages *)
             if not (Hashtbl.mem u nm) then begin
               Hashtbl.add u nm
                 { M.s_name = nm; s_version = v; s_section = "" };
               Hashtbl.add fake_src nm ();
-              no_change ((nm, v), "source") Unchanged
+              no_change (nm, "source") Unchanged
             end;
             let v' = (Hashtbl.find u nm).M.s_version in
             (* Do not add a binary package if its source is not
@@ -1114,7 +1162,7 @@ let f () =
               if source_changed then
                 (* We cannot add a binary package without also adding
                    its source. *)
-                associates pkg (p.M.source, "source")
+                associates pkg (fst p.M.source, "source")
                   (Source_not_propagated p.M.source)
               else
                 ListTbl.add bin_nmus p.M.source pkg;
@@ -1123,17 +1171,16 @@ let f () =
             (* If a source is propagated, all its binaries should
                be propagated as well *)
             if source_changed || produce_excuses then
-              associates (p.M.source, "source") pkg
+              associates (fst p.M.source, "source") pkg
                 (Binary_not_propagated pkg))
          u'.M.packages_by_num;
        (* All binaries packages from a same source are propagated
           atomically on any given architecture. *)
        ListTbl.iter
          (fun _ pkgs -> all_or_none pkgs (Atomic pkgs)) bin_nmus;
-       let compute_hints = debug_hints () || !hint_file <> "" in
        Hashtbl.iter
          (fun _ p ->
-            let pkg = ((p.M.package, p.M.version), arch) in
+            let pkg = (p.M.package, arch) in
             let (nm, v) = p.M.source in
             (* Faux packages *)
             if not (Hashtbl.mem t nm) then begin
@@ -1142,7 +1189,7 @@ let f () =
               Hashtbl.add t nm
                 { M.s_name = nm; s_version = v; s_section = "" };
               Hashtbl.add fake_src nm ();
-              no_change ((nm, v), "source") Unchanged
+              no_change (nm, "source") Unchanged
             end;
             let v' = (Hashtbl.find t nm).M.s_version in
             let source_changed =
@@ -1161,7 +1208,7 @@ let f () =
                 ()
               (* We cannot remove a binary without removing its source. *)
               else if source_changed then
-                associates pkg (p.M.source, "source")
+                associates pkg (fst p.M.source, "source")
                   (Source_not_propagated p.M.source)
               else
                 ListTbl.add bin_nmus p.M.source pkg
@@ -1175,7 +1222,7 @@ let f () =
                 &&
               not (allow_smooth_updates p && Hashtbl.mem u nm)
             then
-              associates (p.M.source, "source") pkg
+              associates (fst p.M.source, "source") pkg
                 (Binary_not_propagated pkg))
          t'.M.packages_by_num)
     l;
@@ -1183,10 +1230,8 @@ let f () =
   Hashtbl.iter
     (fun nm s ->
        if not (Hashtbl.mem sources_with_binaries nm) then
-         let v = s.M.s_version in
-         no_change ((nm, v), "source") No_binary)
+         no_change (nm, "source") No_binary)
     u;
-
 
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
@@ -1194,6 +1239,7 @@ let f () =
   let l0 = l in
   let l = reduce_repositories l in
 
+  let flatten_t = Timer.start () in
   let l' =
     List.map
       (fun (arch, (t', u')) ->
@@ -1202,9 +1248,12 @@ let f () =
           Upgrade_common.prepare_analyze u'))
       l
   in
+  if debug_time () then
+    Format.eprintf "Preparing analyze: %f@." (Timer.stop flatten_t);
 
   let find_coinst_constraints () =
     while
+      let first = ref true in
       let changed = ref false in
       List.iter
         (fun (arch, t', u') ->
@@ -1226,9 +1275,8 @@ let f () =
              let arch_changed = ref false in
              List.iter
                (fun ({Upgrade_common.pos = pos;  neg = neg}, s) ->
-                  if
-                    not (has_singletons && StringSet.cardinal pos > 1)
-                  then begin
+                  let n = StringSet.cardinal pos in
+                  if not (has_singletons && n > 1) then begin
                     let nm = StringSet.choose pos in
                     let p =
                       match
@@ -1248,14 +1296,17 @@ let f () =
                               assert false
                     in
                     arch_changed := true;
-                    no_change ((nm, p.M.version), arch) (Conflict (neg, s))
+                    if n = 1 && StringSet.cardinal neg <= 1 then
+                      learn_rule nm p.M.version arch neg s;
+                    no_change (nm, arch) (Conflict (neg, s))
                   end)
                problems;
              if debug_time () then begin
                Format.eprintf "  New constraints: %f@." (Timer.stop t);
                Format.eprintf "Step duration: %f@." (Timer.stop step_t)
              end;
-             if !arch_changed then changed := true;
+             if !arch_changed && not !first then changed := true;
+             first := false;
              !arch_changed
            do () done)
         l';
@@ -1268,6 +1319,8 @@ let f () =
     perform_deferred ();
     find_coinst_constraints ()
   end;
+
+  save_rules uid;
 
   if debug_outcome () then begin
     Hashtbl.iter
@@ -1310,7 +1363,7 @@ let f () =
       l
   end;
 
-  generate_hints t u l l';
+  if compute_hints then generate_hints t u l l';
 
   let print_heidi ch =
     let lines = ref [] in
