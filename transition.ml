@@ -69,7 +69,7 @@ let unstable () = get_option "UNSTABLE" (Filename.concat !dir "unstable")
 
 (****)
 
-let hint_file = ref "-"
+let hint_file = ref ""
 let heidi_file = ref ""
 let excuse_file = ref ""
 let offset = ref 0
@@ -435,8 +435,8 @@ let sort_and_uniq compare l =
   | v :: r -> uniq v r
 
 let compare_pair compare1 compare2 (a1, a2) (b1, b2) =
-  let c = compare a1 b1 in
-  if c = 0 then compare a2 b2 else c
+  let c = compare1 a1 b1 in
+  if c = 0 then compare2 a2 b2 else c
 
 let group compare l =
   match l with
@@ -830,10 +830,7 @@ let generate_small_hints l buckets =
   let to_consider = ref [] in
   ListTbl.iter
     (fun (src, arch) lst ->
-       let info =
-         { h_names = [(src, (arch, lst))]; h_pkgs = List.map fst lst;
-           h_live = true }
-       in
+       let info = { h_names = [(src, arch)]; h_pkgs = lst; h_live = true } in
        let elt = Union_find.elt info in
        to_consider := (info, elt) :: !to_consider)
     buckets;
@@ -867,7 +864,7 @@ let generate_small_hints l buckets =
   let lst =
     List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
   let lst = List.map (fun info -> info.h_names) lst in
-  let compare_elt = compare_pair compare (compare_pair compare compare) in
+  let compare_elt = compare_pair compare compare in
   let rec compare_lst l1 l2 =
     match l1, l2 with
       [], [] ->
@@ -896,7 +893,7 @@ let generate_hints t u l l' =
             let nm = p.M.package in
             if not (ListTbl.mem unchanged (nm, arch)) then begin
               let (src, v) = p.M.source in
-              ListTbl.add changes src ((nm, arch), `Propagate)
+              ListTbl.add changes src (nm, arch)
             end)
          u'.M.packages_by_num;
        Hashtbl.iter
@@ -908,12 +905,7 @@ let generate_hints t u l l' =
               not (ListTbl.mem u'.M.packages_by_name nm)
             then begin
               let (src, v) = p.M.source in
-              let explicit =
-                allow_smooth_updates p ||
-                M.compare_version v (Hashtbl.find t src).M.s_version <> 0
-              in
-              ListTbl.add changes src
-                ((nm, arch), `Remove (p.M.version, explicit))
+              ListTbl.add changes src (nm, arch)
             end)
          t'.M.packages_by_num)
     l;
@@ -926,41 +918,20 @@ let generate_hints t u l l' =
            l
        else
          List.iter
-           (fun (((_, arch), _) as info) ->
+           (fun ((_, arch) as info) ->
               ListTbl.add buckets (src, arch) info)
            l)
     changes;
   let hints = generate_small_hints l' buckets in
-  let print_pkg f src arch lst =
+  let print_pkg f src arch =
     try
       let vers = (Hashtbl.find u src).M.s_version in
       if arch = "source" then begin
         (* We are propagating a source package. *)
-        Format.fprintf f " %s/%a" src M.print_version vers;
-        (* Explicitly remove unneeded packages left over due to smooth
-           upgrade. *)
-        List.iter
-          (fun ((nm, arch), action) ->
-             match action with
-               `Propagate ->
-                 ()
-             | `Remove (vers, explicit) ->
-                 if explicit then
-                   Format.fprintf f " -%s/%s/%a" nm arch M.print_version vers)
-          lst
+        Format.fprintf f " %s/%a" src M.print_version vers
       end else begin
         (* We are changing some binaries. *)
-        if List.exists (fun (_, action) -> action = `Propagate) lst then
-          Format.fprintf f " %s/%s/%a" src arch M.print_version vers;
-        List.iter
-          (fun ((nm, arch), action) ->
-             match action with
-               `Propagate ->
-                 ()
-             | `Remove (vers, explicit) ->
-                 assert explicit;
-                 Format.fprintf f " -%s/%s/%a" nm arch M.print_version vers)
-          lst
+        Format.fprintf f " %s/%s/%a" src arch M.print_version vers
       end
     with Not_found ->
       (* We are removing a source package. *)
@@ -971,13 +942,13 @@ let generate_hints t u l l' =
   let print_hint f l =
     if !all_hints || List.length l > 1 then begin
       Format.fprintf f "easy";
-      List.iter (fun (src, (arch, lst)) -> print_pkg f src arch lst) l;
+      List.iter (fun (src, arch) -> print_pkg f src arch) l;
       Format.fprintf f "@."
     end
   in
   let print_hints f = List.iter (fun names -> print_hint f names) hints in
   if debug_hints () then print_hints Format.std_formatter;
-  if !hint_file <> "-" then begin
+  if !hint_file <> "" then begin
     let ch = open_out !hint_file in
     print_hints (Format.formatter_of_out_channel ch);
     close_out ch
@@ -1159,6 +1130,7 @@ let f () =
           atomically on any given architecture. *)
        ListTbl.iter
          (fun _ pkgs -> all_or_none pkgs (Atomic pkgs)) bin_nmus;
+       let compute_hints = debug_hints () || !hint_file <> "" in
        Hashtbl.iter
          (fun _ p ->
             let pkg = ((p.M.package, p.M.version), arch) in
@@ -1175,17 +1147,24 @@ let f () =
             let v' = (Hashtbl.find t nm).M.s_version in
             let source_changed =
               not (same_source_version t u (fst p.M.source)) in
-            (* Faux packages are not propagated. *)
-            if Hashtbl.mem fake_src nm then
+            (* We only propagate binary packages with a larger version.
+               Faux packages are not propagated. *)
+            if no_new_bin t' u' p.M.package || Hashtbl.mem fake_src nm then
               no_change pkg Unchanged
-            (* Binary packages without source of the same version can
-               be removed freely when not needed anymore (these are
-               binaries left for smooth update) *)
-            else if M.compare_version v v' = 0 then begin
-              (* We cannot remove a binary without removing its source *)
-              if source_changed then
+            else begin
+              (* Binary packages without source of the same version can
+                 be removed freely when not needed anymore (these are
+                 binaries left for smooth update).
+                 However, when producing hints, we do not allow this, as
+                 we have no way to communicate the change to britney... *)
+              if not compute_hints && M.compare_version v v' <> 0 then
+                ()
+              (* We cannot remove a binary without removing its source. *)
+              else if source_changed then
                 associates pkg (p.M.source, "source")
                   (Source_not_propagated p.M.source)
+              else
+                ListTbl.add bin_nmus p.M.source pkg
             end;
             (* We cannot remove or upgrade a source package if a
                corresponding binary package still exists.
