@@ -222,6 +222,8 @@ type hint =
 
 let debug_read_hints = Debug.make "read_hints" "Show input hints." ["normal"]
 
+exception Ignored_hint
+
 let read_hints dir =
   let hints =
     { h_block = Hashtbl.create 16;
@@ -229,6 +231,8 @@ let read_hints dir =
       h_urgent = Hashtbl.create 16;
       h_age_days = Hashtbl.create 16 }
   in
+  if debug_read_hints () then
+    Format.eprintf "Reading hints:@.";
   let files = Sys.readdir dir in
   Array.sort compare files;
   Array.iter
@@ -242,46 +246,49 @@ let read_hints dir =
          while true do
            let l = input_line ch in
            let l = Str.split whitespaces l in
-           begin match l with
-             [] ->
-               ()
-           | s :: _ when s.[0] = '#' ->
-               ()
-           | "finished" :: _ ->
-               raise End_of_file
-           | _ ->
+           try
+             begin match l with
+             | "block" :: l ->
+                 List.iter (fun p -> Hashtbl.replace hints.h_block p ()) l
+             | "block-udeb" :: l ->
+                 List.iter (fun p -> Hashtbl.replace hints.h_block_udeb p ()) l
+             | "urgent" :: l ->
+                 List.iter
+                   (fun p ->
+                      match Str.split slash p with
+                        [nm; v] -> Hashtbl.replace hints.h_urgent
+                                     nm (Deb_lib.parse_version v)
+                      | _       -> ())
+                   l
+             | "age-days" :: n :: l ->
+                 let n = int_of_string n in
+                 List.iter
+                   (fun p ->
+                      match Str.split slash p with
+                        [nm; v] ->
+                          let v =
+                            if v = "-" then None else
+                            Some (Deb_lib.parse_version v)
+                          in
+                          Hashtbl.replace hints.h_age_days nm (v, n)
+                      | _ ->
+                         ())
+                   l
+             | "finished" :: _ ->
+                 raise End_of_file
+             | [] ->
+                 raise Ignored_hint
+             | s :: _ when s.[0] = '#' ->
+                 raise Ignored_hint
+             | _ ->
                if debug_read_hints () then
-                 Format.eprintf "# %s@." (String.concat " " l)
-           end;
-           match l with
-           | "block" :: l ->
-               List.iter (fun p -> Hashtbl.replace hints.h_block p ()) l
-           | "block-udeb" :: l ->
-               List.iter (fun p -> Hashtbl.replace hints.h_block_udeb p ()) l
-           | "urgent" :: l ->
-               List.iter
-                 (fun p ->
-                    match Str.split slash p with
-                      [nm; v] -> Hashtbl.replace hints.h_urgent
-                                   nm (Deb_lib.parse_version v)
-                    | _       -> ())
-                 l
-           | "age-days" :: n :: l ->
-               let n = int_of_string n in
-               List.iter
-                 (fun p ->
-                    match Str.split slash p with
-                      [nm; v] ->
-                        let v =
-                          if v = "-" then None else
-                          Some (Deb_lib.parse_version v)
-                        in
-                        Hashtbl.replace hints.h_age_days nm (v, n)
-                    | _ ->
-                       ())
-                 l
-           | _ ->
-               ()
+                 Format.eprintf "> (ignored) %s@." (String.concat " " l);
+                 raise Ignored_hint
+             end;
+             if debug_read_hints () then
+               Format.eprintf "> %s@." (String.concat " " l)
+           with Ignored_hint ->
+             ()
          done
        with End_of_file -> () end;
        close_in ch
