@@ -17,8 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-let enable_msgs = (* isatty is not available...*)
-  (Unix.fstat Unix.stderr).Unix.st_kind = Unix.S_CHR
+let can_enable_msgs = Unix.isatty Unix.stderr
+
+let enable_msgs = ref can_enable_msgs
+
+let enable_messages b = if can_enable_msgs then enable_msgs := b
 
 let cur_msg = ref ""
 
@@ -34,7 +37,7 @@ let show_msg () =
   if !cur_msg <> "" then begin prerr_string !cur_msg; flush stderr end
 
 let set_msg s =
-  if enable_msgs && s <> !cur_msg then begin
+  if !enable_msgs && s <> !cur_msg then begin
     hide_msg (); cur_msg := s; show_msg ()
   end
 
@@ -70,6 +73,12 @@ module Timer = struct
   let stop t = Unix.gettimeofday () -. t
 end
 
+module Utimer = struct
+  type t = float
+  let start () = (Unix.times ()).Unix.tms_utime
+  let stop t = start () -. t
+end
+
 module IntSet =
   Set.Make (struct type t = int let compare x (y : int) = compare x y end)
 
@@ -92,6 +101,11 @@ module ListTbl = struct
   let mem = Hashtbl.mem
 
   let iter f h = Hashtbl.iter (fun k l -> f k !l) h
+
+  let copy h =
+    let h' = Hashtbl.create (2 * Hashtbl.length h) in
+    Hashtbl.iter (fun k l -> Hashtbl.add h' k (ref !l)) h;
+    h'
 end
 
 (****)

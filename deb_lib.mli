@@ -61,6 +61,7 @@ val resolve_package_dep_raw :
 
 val only_latest : pool -> pool
 
+val copy : pool -> pool
 val merge : pool -> (int -> bool) -> pool -> unit
 val merge2 : pool -> (p -> bool) -> pool -> unit
 val add_package : pool -> p -> int

@@ -20,6 +20,8 @@
 (*
 XXXX List broken new packages!
 
+- Show how important each issue is (use strong dependencies?)
+
 - Does it make sense to consider new packages as previously
   installable, and report issues for them in a uniform way?
 

@@ -981,6 +981,13 @@ let only_latest pool' =
     pool'.packages_by_name;
   pool
 
+let copy pool =
+  { size = pool.size;
+    packages = Hashtbl.copy pool.packages;
+    packages_by_name = ListTbl.copy pool.packages_by_name;
+    packages_by_num = Hashtbl.copy pool.packages_by_num;
+    provided_packages = ListTbl.copy pool.provided_packages }
+
 let merge pool filter pool' =
   Hashtbl.iter
     (fun _ p ->

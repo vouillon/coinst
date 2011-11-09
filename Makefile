@@ -3,13 +3,13 @@ COINST=coinst
 UPGRADE=upgrade
 TRANS=transition
 
-
 OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
 OCAMLDEP=ocamldep
 
-OBJS = util.cmx file.cmx debug.cmx common.cmx dgraph.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx repository.cmx quotient.cmx conflicts.cmx graph.cmx coinst_common.cmx
-COMPFLAGS=-package unix,str
+TASK = bytearray_stubs.o bytearray.cmx task_stubs.o task.cmx
+OBJS = util.cmx file.cmx debug.cmx common.cmx solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx repository.cmx quotient.cmx conflicts.cmx graph.cmx coinst_common.cmx
+COMPFLAGS=-package unix,str,bigarray -g
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 
 all: $(COINST) $(UPGRADE) $(TRANS)
@@ -23,7 +23,7 @@ $(COINST).byte: $(OBJS:.cmx=.cmo) main.cmo
 $(UPGRADE): $(OBJS) upgrade_common.cmx upgrade.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(TRANS): $(OBJS) upgrade_common.cmx transition.cmx
+$(TRANS): $(OBJS) $(TASK) upgrade_common.cmx transition.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::

@@ -20,6 +20,7 @@
 val set_msg : string -> unit
 val hide_msg : unit -> unit
 val show_msg : unit -> unit
+val enable_messages : bool -> unit
 
 val set_warning_location : string -> unit
 val reset_warning_location : unit -> unit
@@ -35,6 +36,12 @@ module Timer : sig
   val stop : t -> float
 end
 
+module Utimer : sig
+  type t
+  val start : unit -> t
+  val stop : t -> float
+end
+
 module IntSet : Set.S with type elt = int
 
 module ListTbl : sig
@@ -44,6 +51,7 @@ module ListTbl : sig
   val find : ('a, 'b) t -> 'a -> 'b list
   val mem : ('a, 'b) t -> 'a -> bool
   val iter : ('a -> 'b list -> unit) -> ('a, 'b) t -> unit
+  val copy : ('a, 'b) t -> ('a, 'b) t
 end
 
 val print_list :

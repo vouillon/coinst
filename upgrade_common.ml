@@ -524,10 +524,10 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
       if
         PSet.exists (fun p -> not (now_installable (PSet.remove p s))) s
       then begin
-  if true (*debug*) then begin
-  Format.printf "Not minimal:";
-  List.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) l;
-  Format.printf "@.";
+  if debug_coinst () then begin
+  Format.eprintf "Not minimal:";
+  List.iter (fun p -> Format.eprintf " %a" (Package.print_name dist2) p) l;
+  Format.eprintf "@.";
   end;
       end else begin
         add_result s
