@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-module StringSet : Set.S with type elt = string
-
 module Repository : Repository.S with type pool = Deb_lib.pool
 open Repository
 module PSetSet : Set.S with type elt = PSet.t
@@ -33,7 +31,7 @@ type state =
 
 val prepare_analyze : pool -> state
 
-type clause = { pos : StringSet.t; neg : StringSet.t }
+type clause = { pos : Util.StringSet.t; neg : Util.StringSet.t }
 type graph =
   { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
 type issue = { i_issue : PSet.t; i_clause : clause; i_graph : graph }
@@ -49,7 +47,7 @@ val analyze :
 
 val find_problematic_packages :
   ?check_new_packages:bool ->
-  state -> state -> (string -> bool) -> (clause * StringSet.t) list
+  state -> state -> (string -> bool) -> (clause * Util.StringSet.t) list
 
 val find_clusters :
   state -> state -> (string -> bool) ->

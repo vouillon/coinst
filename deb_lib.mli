@@ -75,8 +75,13 @@ type s =
     mutable s_version : version;
     mutable s_section : string }
 
-val parse_src_packages : (string, s) Hashtbl.t -> in_channel -> unit
-val src_only_latest : (string, s) Hashtbl.t -> (string, s) Hashtbl.t
+type s_pool =
+  { mutable s_size : int;
+    s_packages : (string, s) Hashtbl.t }
+
+val new_src_pool : unit -> s_pool
+val parse_src_packages : s_pool -> in_channel -> unit
+val src_only_latest : s_pool -> s_pool
 
 val generate_rules_restricted : pool -> Util.IntSet.t -> Solver.state
 

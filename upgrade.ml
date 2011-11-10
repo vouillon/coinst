@@ -179,7 +179,7 @@ let output_conflicts filename dist2 results =
 
 (****)
 
-module StringSet = Upgrade_common.StringSet
+module StringSet = Util.StringSet
 
 module F = struct
 

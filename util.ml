@@ -81,6 +81,7 @@ end
 
 module IntSet =
   Set.Make (struct type t = int let compare x (y : int) = compare x y end)
+module StringSet = Set.Make (String)
 
 (****)
 

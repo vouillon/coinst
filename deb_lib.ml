@@ -446,6 +446,13 @@ type s =
     mutable s_version : version;
     mutable s_section : string }
 
+type s_pool =
+  { mutable s_size : int;
+    s_packages : (string, s) Hashtbl.t }
+
+let new_src_pool () =
+  { s_size = 0; s_packages = Hashtbl.create 16384 }
+
 let parse_src_packages pool ch =
   let info = Common.start_parsing true ch in
   let st = from_channel ch in
@@ -464,7 +471,8 @@ let parse_src_packages pool ch =
   in
   let finish q =
     assert (q.s_name <> " "); assert (q.s_version <> dummy_version);
-    Hashtbl.add pool q.s_name q
+    Hashtbl.add pool.s_packages q.s_name q;
+    pool.s_size <- pool.s_size + 1
   in
   parse_stanzas ~start ~field ~finish st;
   Common.stop_parsing info
@@ -1005,14 +1013,15 @@ let add_package pool p =
   (Hashtbl.find pool.packages (p.package, p.version)).num
 
 let src_only_latest h =
-  let h' = Hashtbl.create 101 in
+  let h' = new_src_pool () in
   Hashtbl.iter
     (fun nm s ->
        try
-         let s' = Hashtbl.find h' nm in
+         let s' = Hashtbl.find h'.s_packages nm in
          if compare_version s.s_version s'.s_version > 0 then
-           Hashtbl.replace h' nm s
+           Hashtbl.replace h'.s_packages nm s
        with Not_found ->
-         Hashtbl.add h' nm s)
-    h;
+         Hashtbl.add h'.s_packages nm s;
+         h'.s_size <- h'.s_size + 1)
+    h.s_packages;
   h'

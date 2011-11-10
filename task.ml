@@ -21,6 +21,8 @@
 TODO:
 - error handling
 - clear marshalled when large
+- should keep track of the state of each process (idle or not)
+  ==> deal with several function invocation (either failure or queueing?)
 *)
 
 let debug_task = Debug.make "tasks" "debug client/server communication" []

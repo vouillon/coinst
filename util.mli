@@ -43,6 +43,7 @@ module Utimer : sig
 end
 
 module IntSet : Set.S with type elt = int
+module StringSet : Set.S with type elt = string
 
 module ListTbl : sig
   type ('a, 'b) t

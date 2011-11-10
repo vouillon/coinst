@@ -23,7 +23,8 @@ let debug_time = Debug.make "time" "Print execution times" []
 
 let debug = false
 
-module StringSet = Set.Make (String)
+module IntSet = Util.IntSet
+module StringSet = Util.StringSet
 
 module M = Deb_lib
 module Coinst = Coinst_common.F(M)
@@ -31,9 +32,6 @@ module Repository = Coinst.Repository
 open Repository
 module Quotient = Coinst.Quotient
 module Graph = Graph.F (Repository)
-
-module IntSet =
-  Set.Make (struct type t = int let compare (x : int) y = compare x y end)
 
 module PSetSet = Set.Make (PSet)
 module PSetMap = Map.Make (PSet)
