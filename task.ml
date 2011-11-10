@@ -126,8 +126,8 @@ let spawn f =
           if i < 0 then
             exit 0
           else begin
-            let f = Hashtbl.find functions i in
-            let l = f st mem l in
+            let g = Hashtbl.find functions i in
+            let l = g st mem l in
             send cw 0 l;
             loop ()
           end

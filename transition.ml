@@ -1149,6 +1149,7 @@ let find_all_coinst_constraints a =
     end else begin
       changed.(i) <- false;
       running.(i) <- true;
+      incr n;
       let (arch, st) = a.(i) in
       Task.async scheduler
         (find_coinst_constraints st (Hashtbl.find unchanged arch))
