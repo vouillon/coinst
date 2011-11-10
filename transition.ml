@@ -1097,6 +1097,13 @@ let arch_constraints st (produce_excuses, compute_hints) =
      atomically on any given architecture. *)
   ListTbl.iter
     (fun _ pkgs -> all_or_none pkgs Atomic) bin_nmus;
+  (* Clear faked packages (crucial when using a single processor). *)
+  List.iter
+    (fun (nm, _) ->
+       Hashtbl.remove t.M.s_packages nm;
+       Hashtbl.remove u.M.s_packages nm;
+       Hashtbl.remove st.id_of_source nm)
+    !fake_srcs;
   (List.rev !l, st.uid, !sources_with_binaries, !fake_srcs, bin_id_count,
    if verbose () then st.bin_of_id else [||])
 
