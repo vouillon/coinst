@@ -4,6 +4,20 @@
 *)
 
 let debug = Debug.make "horn" "Debug Horn clause solver." []
+let stats =
+  Debug.make "horn_stats" "Output stats regarding Horn clause solver." ["horn"]
+let debug_retract =
+  Debug.make "horn_retract" "Debug Horn assumption retraction." ["horn"]
+
+let n1 = ref 0
+let n2 = ref 0
+let d = Array.make 10 0
+let _ = at_exit (fun _ ->
+if stats () && (!n1 > 0 || !n2 > 0) then begin
+Format.eprintf "%d rules / %d assumptions@." !n1 !n2;
+Array.iter (fun n -> Format.eprintf " %d" n) d;
+Format.eprintf "@."
+end)
 
 (****)
 
@@ -22,11 +36,20 @@ let array_extend a n v =
 module BitVect = struct
   type t = string
   let make n v = String.make n (if v then 'T' else 'F')
-  let test vect x = Char.code vect.[x] <> Char.code 'F'
+  let test vect x = vect.[x] <> 'F'
   let set vect x = vect.[x] <- 'T'
   let clear vect x = vect.[x] <- 'F'
   let extend vect n v = string_extend vect n (if v then 'T' else 'F')
   let sub = String.sub
+  let implies vect1 vect2 =
+    let l = String.length vect1 in
+    assert (String.length vect2 = l);
+    let rec implies_rec vect1 vect2 i l =
+      i = l ||
+      ((vect1.[i] <> 'T' || vect2.[i] = 'T') &&
+       implies_rec vect1 vect2 (i + 1) l)
+    in
+    implies_rec vect1 vect2 0 l
 end
 
 (****)
@@ -44,13 +67,16 @@ module type SOLVER = sig
 
   val initialize : ?signal_assign:(var array -> reason -> unit) -> int -> state
   val extend : state -> int -> unit
+  val set_var_printer : state -> (Format.formatter -> var -> unit) -> unit
 
   val assignment : state -> BitVect.t
   val direct_reasons : state -> var -> (var array * reason) list
+  val reason : state -> var -> (var array * reason) option
+  val assumptions : state -> var -> reason list
 
   val add_rule : state -> var array -> reason -> unit
-
   val assume : state -> var -> reason -> unit
+  val retract_assumptions : state -> var -> unit
 end
 
 module F (X : S) : SOLVER  with type reason = X.reason = struct
@@ -72,21 +98,29 @@ type state =
     mutable st_reason : explanation array;
     mutable st_forward : clause list array;
     mutable st_backward : clause list array;
-    mutable st_assumptions : clause list array;
+    mutable st_assumptions : reason list array;
     (* Queues *)
     st_prop_queue : var Queue.t;
     (* Misc *)
-    st_signal_assign : (var array -> reason -> unit) option }
+    st_signal_assign : (var array -> reason -> unit) option;
+    mutable st_var_printer : (Format.formatter -> var -> unit) option }
 
-let print_clause f r =
+let set_var_printer st pr = st.st_var_printer <- Some pr
+
+let print_var st f x =
+  match st.st_var_printer with
+    None    -> Format.fprintf f "%d" x
+  | Some pr -> Format.fprintf f "%d (%a)" x pr x
+
+let print_clause st f r =
   let r = r.lits in
   if Array.length r > 1 then begin
     for i = 1 to Array.length r - 1 do
-      Format.fprintf f "%d " r.(i)
+      Format.fprintf f "%a " (print_var st) r.(i)
     done;
     Format.fprintf f " => "
   end;
-  Format.fprintf f "%d" r.(0)
+  Format.fprintf f "%a" (print_var st) r.(0)
 
 let is_unit st r =
   let lits = r.lits in
@@ -107,19 +141,19 @@ let rec enqueue st p reason =
     | Some _, Unconstrained     -> assert false
     | None,   _                 -> ()
     end;
-    List.iter (fun r -> ignore (propagate_in_clause st r)) st.st_forward.(p)
+    List.iter (fun r -> propagate_in_clause st r) st.st_forward.(p)
   end
 
 and propagate_in_clause st r =
-  if debug () then Format.eprintf "Trying rule %a@." print_clause r;
-  if is_unit st r then begin
-    enqueue st r.lits.(0) (Clause r); true
-  end else
-    false
+  if debug () then Format.eprintf "Trying rule %a@." (print_clause st) r;
+  if is_unit st r then enqueue st r.lits.(0) (Clause r)
 
 let add_rule st lits reason =
+incr n1;
+let len = Array.length lits in
+if len <= 10 then d.(len - 1) <- d.(len - 1) + 1;
   let r = { lits = lits; reason = reason } in
-  if debug () then Format.eprintf "Adding rule %a@." print_clause r;
+  if debug () then Format.eprintf "Adding rule %a@." (print_clause st) r;
   let l = Array.length lits in
   for i = 1 to l - 1 do
     let p = lits.(i) in
@@ -127,22 +161,70 @@ let add_rule st lits reason =
   done;
   let p = lits.(0) in
   st.st_backward.(p) <- r :: st.st_backward.(p);
-  ignore (propagate_in_clause st r)
+  propagate_in_clause st r
 
 let assume st p reason =
-  let r = { lits = [|p|]; reason = reason } in
-  st.st_assumptions.(p) <- r :: st.st_assumptions.(p);
+incr n2;
+  st.st_assumptions.(p) <- reason :: st.st_assumptions.(p);
   enqueue st p (Assumption reason)
 
-(*
-let retract st p =
+let rec propagate_retraction st l p =
+  if debug_retract () then
+    Format.eprintf "Retracting assignment to variable %a@." (print_var st) p;
+  st.st_reason.(p) <- Unconstrained;
+  BitVect.clear st.st_assign p;
+  p ::
+  List.fold_left
+    (fun l r ->
+       if debug_retract () then
+         Format.eprintf "Considering rule %a:@." (print_clause st) r;
+       match st.st_reason.(r.lits.(0)) with
+         Assumption _ | Unconstrained ->
+           if debug_retract () then
+             Format.eprintf "  does not apply.@.";
+           l
+       | Clause r' ->
+           if debug_retract () then
+             Format.eprintf "  rule %a was applied; still unit: %b.@."
+               (print_clause st) r' (is_unit st r');
+           if not (is_unit st r') then
+             propagate_retraction st l r'.lits.(0)
+           else
+             l)
+    l st.st_forward.(p)
+
+let retract_assumptions st p =
+  (* We remove all the assumptions associated to variable p *)
   st.st_assumptions.(p) <- [];
-  if st.st_reason.(p) = Assumption then begin
-    st.st_reason.(p) <- Unconstrained;
-    (*XXX Recursively cancel all consequences... *)
-    ignore (List.exists (fun r -> propagate_in_clause st r) st.st_backward.(p))
-  end
-*)
+  match st.st_reason.(p) with
+    Assumption _ ->
+      (* If variable p were directly constrained by an assumption,
+         we recursevely cancel the consequences of the this
+         assumption. *)
+      let l = propagate_retraction st [] p in
+      (* Then, we see whether other rules apply instead. *)
+      List.iter
+        (fun q ->
+           if st.st_reason.(q) = Unconstrained then
+             List.iter (fun r -> propagate_in_clause st r) st.st_backward.(q))
+        l;
+      if debug_retract () then
+        List.iter
+          (fun q ->
+             match st.st_reason.(q) with
+               Unconstrained ->
+                 ()
+             | Assumption _ ->
+                 Format.eprintf
+                   "Variable %a constrained for another reason (assumption).@."
+                   (print_var st) q
+             | Clause r ->
+                 Format.eprintf
+                   "Variable %a constrained for another reason (%a).@."
+                   (print_var st) q (print_clause st) r)
+          l
+  | _ ->
+      ()
 
 let initialize ?signal_assign n =
   { st_assign = BitVect.make n false;
@@ -151,7 +233,8 @@ let initialize ?signal_assign n =
     st_backward = Array.make n [];
     st_assumptions = Array.make n [];
     st_prop_queue = Queue.create ();
-    st_signal_assign = signal_assign }
+    st_signal_assign = signal_assign;
+    st_var_printer = None }
 
 let extend st n =
   let n = max n (Array.length st.st_reason) in
@@ -165,7 +248,14 @@ let assignment st = st.st_assign
 
 let direct_reasons st p =
   List.map (fun r -> (r.lits, r.reason))
-    (List.filter (fun p -> is_unit st p) st.st_backward.(p) @
-     List.filter (fun p -> is_unit st p) st.st_assumptions.(p))
+    (List.filter (fun p -> is_unit st p) st.st_backward.(p)) @
+  List.map (fun reason -> ([|p|], reason)) st.st_assumptions.(p)
+
+let reason st p =
+  match st.st_reason.(p) with
+    Clause r -> Some (r.lits, r.reason)
+  | _        -> None
+
+let assumptions st p = st.st_assumptions.(p)
 
 end

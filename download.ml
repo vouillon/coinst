@@ -1,4 +1,9 @@
 #! /usr/bin/ocaml unix.cma
+
+(*XXX
+./fauxpkg.py generate ~/debian-dists/britney/{testing,unstable}
+*)
+
 let src = "http://ftp.debian.org/debian/dists/"
 let dest = Filename.concat (Sys.getenv "HOME") "debian-dists"
 let britney_dir = Filename.concat dest "britney"

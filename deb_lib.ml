@@ -396,6 +396,19 @@ let insert_package pool p =
       p.provides
   end
 
+let remove_package pool p =
+  Hashtbl.remove pool.packages (p.package, p.version);
+  Hashtbl.remove pool.packages_by_num p.num;
+  ListTbl.remove pool.packages_by_name p.package (fun q -> q.num = p.num);
+  ListTbl.remove pool.provided_packages p.package (fun q -> q.num = p.num);
+  List.iter
+    (fun l ->
+       match l with
+         [(n, None)] -> ListTbl.remove pool.provided_packages n
+                          (fun q -> q.num = p.num)
+       | _           -> assert false)
+    p.provides
+
 let parse_packages pool ignored_packages ch =
   let info = Common.start_parsing true ch in
   let st = from_channel ch in

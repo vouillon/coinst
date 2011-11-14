@@ -53,6 +53,7 @@ module ListTbl : sig
   val mem : ('a, 'b) t -> 'a -> bool
   val iter : ('a -> 'b list -> unit) -> ('a, 'b) t -> unit
   val copy : ('a, 'b) t -> ('a, 'b) t
+  val remove : ('a, 'b) t -> 'a -> ('b -> bool) -> unit
 end
 
 val print_list :

@@ -107,6 +107,14 @@ module ListTbl = struct
     let h' = Hashtbl.create (2 * Hashtbl.length h) in
     Hashtbl.iter (fun k l -> Hashtbl.add h' k (ref !l)) h;
     h'
+
+  let remove h n f =
+    try
+      let l = Hashtbl.find h n in
+      l := List.filter (fun p -> not (f p)) !l;
+      if !l = [] then Hashtbl.remove h n
+    with Not_found ->
+      ()
 end
 
 (****)
