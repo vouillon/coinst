@@ -429,7 +429,7 @@ let learn_rule r neg s =
 let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  let (rules, _) = cached [] cache ("version 3\n" ^ uids) (fun () -> []) in
+  let (rules, _) = cached [] cache ("version 4\n" ^ uids) (fun () -> []) in
   List.iter
     (fun (r, neg, s) -> HornSolver.add_rule solver r (Conflict (neg, s)))
     rules;
@@ -438,7 +438,7 @@ let load_rules solver uids =
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  ignore (cached ~force:true [] cache ("version 3\n" ^ uids)
+  ignore (cached ~force:true [] cache ("version 4\n" ^ uids)
             (fun () -> List.rev !learnt_rules))
 
 (****)
