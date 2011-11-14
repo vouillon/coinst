@@ -372,7 +372,7 @@ type reason =
   | Binary_not_propagated
   | No_binary
   (* Both *)
-  | More_bugs
+  | More_bugs of StringSet.t
   (* Binaries *)
   | Conflict of IntSet.t * IntSet.t
   | Not_yet_built of string * M.version * M.version
@@ -385,36 +385,43 @@ let print_reason get_name_arch f (lits, reason) =
       Format.fprintf f "no update"
   | Blocked ->
       Format.fprintf f "blocked"
-  | Too_young _ ->
-      Format.fprintf f "not old enough"
-  | More_bugs ->
-      Format.fprintf f "has new bugs"
+  | Too_young (cur_ag, req_ag) ->
+      Format.fprintf f "only %d days old; must be %d days old to go in"
+        cur_ag req_ag
+  | More_bugs s ->
+      Format.fprintf f "has new bugs: %a"
+        (Util.print_list (fun f s -> Format.fprintf f "#%s" s) ", ")
+        (StringSet.elements s)
   | Conflict (s, s') ->
-      if IntSet.is_empty s then
-        Format.fprintf f "cannot be installed"
-      else begin
-        Format.fprintf f "relies on propagation of binary packages";
-        IntSet.iter
-          (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s
+      begin match IntSet.cardinal s with
+        0 ->
+          Format.fprintf f "a dependency cannot be satisfied"
+      | 1 ->
+          Format.fprintf f "needs binary package %s"
+            (fst (get_name_arch (IntSet.choose s)));
+      | _ ->
+          Format.fprintf f "needs one of the binary packages";
+          IntSet.iter
+            (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s
       end;
-      Format.fprintf f " (would break";
-      IntSet.iter
-        (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s';
-      Format.fprintf f ")"
+      if IntSet.cardinal s' > 1 || not (IntSet.mem lits.(0) s') then begin
+        Format.fprintf f " (would break";
+        IntSet.iter
+          (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s';
+        Format.fprintf f ")"
+      end
   | Not_yet_built (src, v1, v2) ->
       Format.fprintf f "not yet rebuilt (source %s %a rather than %a)"
         src M.print_version v1 M.print_version v2
   | Source_not_propagated ->
       let (nm, _) = get_name_arch lits.(1) in
       Format.fprintf f "source package %s cannot be propagated" nm
-  | Binary_not_propagated ->
+  | Atomic | Binary_not_propagated ->
       let (bin, arch) = get_name_arch lits.(1) in
-      Format.fprintf f "binary package %s (%s) cannot be propagated"
+      Format.fprintf f "binary package %s/%s cannot be propagated"
         bin arch
   | No_binary ->
       Format.fprintf f "no associated binary package"
-  | Atomic ->
-      Format.fprintf f "binary packages cannot be propagated all at once"
 
 module HornSolver = Horn.F (struct type t = reason type reason = t end)
 module BitVect = Horn.BitVect
@@ -605,8 +612,16 @@ let output_reasons l solver source_of_id id_offsets filename =
                     cur_ag req_ag
               | Binary_not_propagated ->
                   binaries := (fst r).(1) :: !binaries
-              | More_bugs ->
-                  Format.fprintf f "<li>Has new bugs.@."
+              | More_bugs s ->
+                  let bug_url =
+                    "http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=" in
+                  Format.fprintf f "<li>Has new bugs: %a.@."
+                    (Util.print_list
+                       (fun f s ->
+                          Format.fprintf f "<a href=\"%s%s\">#%s</a>"
+                            bug_url s s)
+                       ", ")
+                    (StringSet.elements s)
               | No_binary ->
                   Format.fprintf f "<li>No associated binary package.@."
               | _ ->
@@ -647,7 +662,8 @@ let output_reasons l solver source_of_id id_offsets filename =
              (List.filter
                 (fun (_, (_, id)) ->
                   List.exists
-                    (fun r -> match snd r with More_bugs -> true | _ -> false)
+                    (fun r ->
+                       match snd r with More_bugs _ -> true | _ -> false)
                     (HornSolver.direct_reasons solver id))
                 binaries)
          in
@@ -663,8 +679,8 @@ let output_reasons l solver source_of_id id_offsets filename =
                   (fun r ->
                      interesting_reason solver r &&
                      match snd r with
-                       Not_yet_built _ | More_bugs -> false
-                     | _                           -> true)
+                       Not_yet_built _ | More_bugs _ -> false
+                     | _                             -> true)
                   (HornSolver.direct_reasons solver bin))
                 binaries
          in
@@ -685,7 +701,8 @@ let output_reasons l solver source_of_id id_offsets filename =
                           Format.fprintf f "<li>Needs binary package %a"
                             print_binary (IntSet.choose s)
                       | _ ->
-                          Format.fprintf f "<li>Needs binary packages";
+                          Format.fprintf f
+                            "<li>Needs one of the binary packages";
                           IntSet.iter
                             (fun id ->
                                Format.fprintf f " %a" print_binary id)
@@ -706,7 +723,7 @@ let output_reasons l solver source_of_id id_offsets filename =
                           s';
                         Format.fprintf f ".@."
                       end
-                  | More_bugs ->
+                  | More_bugs _ ->
                       ()
                   | Not_yet_built _ ->
                       ()
@@ -992,6 +1009,14 @@ let arch_constraints st (produce_excuses, compute_hints) =
         (get_bugs u st.unstable_bugs p)
         (get_bugs t st.testing_bugs p)
   in
+  let new_bugs is_new p =
+    if is_new then
+      get_bugs u st.unstable_bugs p
+    else
+      StringSet.diff
+        (get_bugs u st.unstable_bugs p)
+        (get_bugs t st.testing_bugs p)
+  in
   let bin_nmus = ListTbl.create 101 in
   let source_id p = Hashtbl.find st.id_of_source (fst p.M.source) in
   let bin_id p = Hashtbl.find st.id_of_bin p.M.package in
@@ -1021,7 +1046,7 @@ let arch_constraints st (produce_excuses, compute_hints) =
          Hashtbl.add source_has_binaries nm ()
        end;
        let source_changed =
-         not (same_source_version t u (fst p.M.source)) in
+         not (same_source_version t u nm) in
        (* We only propagate binary packages with a larger version.
           Faux packages are not propagated. *)
        if no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm then
@@ -1030,13 +1055,13 @@ let arch_constraints st (produce_excuses, compute_hints) =
          (* Do not upgrade a package if it has new bugs *)
          let is_new = bin_version t' p.M.package = None in
          if not (no_new_bugs is_new p.M.package) then
-           assume_deferred id More_bugs;
+           assume_deferred id (More_bugs (new_bugs is_new p.M.package));
          if source_changed then
            (* We cannot add a binary package without also adding
               its source. *)
            implies (source_id p) id Source_not_propagated
          else
-           ListTbl.add bin_nmus (fst p.M.source) id;
+           ListTbl.add bin_nmus nm id;
 
        end;
        (* If a source is propagated, all its binaries should
@@ -1063,7 +1088,7 @@ let arch_constraints st (produce_excuses, compute_hints) =
        end;
        let v' = (Hashtbl.find t.M.s_packages nm).M.s_version in
        let source_changed =
-         not (same_source_version t u (fst p.M.source)) in
+         not (same_source_version t u nm) in
        (* We only propagate binary packages with a larger version.
           Faux packages are not propagated. *)
        if no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm then
@@ -1080,7 +1105,7 @@ let arch_constraints st (produce_excuses, compute_hints) =
          else if source_changed then
            implies (source_id p) id Source_not_propagated
          else
-           ListTbl.add bin_nmus (fst p.M.source) id
+           ListTbl.add bin_nmus nm id
        end;
        (* We cannot remove or upgrade a source package if a
           corresponding binary package still exists.
@@ -1097,7 +1122,7 @@ let arch_constraints st (produce_excuses, compute_hints) =
      atomically on any given architecture. *)
   ListTbl.iter
     (fun _ pkgs -> all_or_none pkgs Atomic) bin_nmus;
-  (* Clear faked packages (crucial when using a single processor). *)
+  (* Clear faked packages (needed when using a single processor). *)
   List.iter
     (fun (nm, _) ->
        Hashtbl.remove t.M.s_packages nm;
@@ -1114,7 +1139,6 @@ let arch_constraints = Task.funct arch_constraints
 let find_coinst_constraints st unchanged =
   let arch = st.arch in
   let (t', u') = get_upgrade_state st unchanged in
-  let changes = ref [] in
   if debug_coinst () then
     Format.eprintf "==================== %s@." arch;
   let step_t = Timer.start () in
@@ -1129,6 +1153,7 @@ let find_coinst_constraints st unchanged =
       (fun (cl, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
       problems
   in
+  let changes = ref [] in
   List.iter
     (fun ({Upgrade_common.pos = pos;  neg = neg}, s) ->
        let n = StringSet.cardinal pos in
@@ -1200,8 +1225,10 @@ let find_all_coinst_constraints solver id_offsets a =
     decr n;
     start c i i
   in
+(*
   start 1 0 0;
   Task.run scheduler;
+*)
   start c 0 0;
   Task.run scheduler;
   if debug_time () then
@@ -1623,6 +1650,12 @@ let f () =
     else
       StringSet.subset (get_bugs u unstable_bugs p) (get_bugs t testing_bugs p)
   in
+  let new_bugs is_new p =
+    if is_new then
+      get_bugs u unstable_bugs p
+    else
+      StringSet.diff (get_bugs u unstable_bugs p) (get_bugs t testing_bugs p)
+  in
   let is_blocked nm =
     Hashtbl.mem hints.h_block nm || Hashtbl.mem hints.h_block_udeb nm
   in
@@ -1674,7 +1707,10 @@ let f () =
          if
            not (no_new_bugs is_new nm && no_new_bugs is_new ("src:" ^ nm))
          then
-           assume_deferred id More_bugs
+           assume_deferred id
+             (More_bugs (StringSet.union
+                           (new_bugs is_new nm)
+                           (new_bugs is_new ("src:" ^ nm))))
        end)
     u.M.s_packages;
   let source_has_binaries = Hashtbl.create 8192 in
@@ -1757,8 +1793,9 @@ let f () =
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
+(*
   reduce_repositories l solver id_offsets;
-
+*)
   find_all_coinst_constraints solver id_offsets (Array.of_list l);
   if !deferred_constraints <> [] then begin
     perform_deferred ();
