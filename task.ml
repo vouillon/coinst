@@ -67,7 +67,7 @@ let send pipe i l =
 let receive pipe =
   let s = String.create 50 in
   let len = Unix.read pipe s 0 (String.length s) in
-  if len = 0 then exit 0;
+  if len = 0 then exit 1;
   Scanf.sscanf s "%d %d" (fun i l -> (i, l))
 
 let read mem l =
@@ -75,7 +75,7 @@ let read mem l =
   let res = Bytearray.unmarshal mem 0 in (*XXX Clear the data if large*)
   let dt = Utimer.stop t in
   stats.unmarshal_time <- stats.unmarshal_time +. dt;
-  if debug_task () then Format.eprintf "Unmarshal: %s %f (%d)@." !side dt l;
+  if debug_task () then Format.eprintf "Unmarshal: %s %.3f (%d)@." !side dt l;
   res
 
 let write mem v =
@@ -83,7 +83,7 @@ let write mem v =
   let res = Bytearray.marshal_to_buffer mem 0 v [] in
   let dt = Utimer.stop t in
   stats.marshal_time <- stats.marshal_time +. dt;
-  if debug_task () then Format.eprintf "Marshal:   %s %f (%d)@." !side dt res;
+  if debug_task () then Format.eprintf "Marshal:   %s %.3f (%d)@." !side dt res;
   res
 
 let funct f =
@@ -102,8 +102,8 @@ let funct f =
 let _ =
 at_exit (fun _ ->
 if debug_task () then
-  Format.eprintf "===>> marshal: %f / unmarshal: %f@."
-    stats.marshal_time stats.unmarshal_time)
+  Format.eprintf "===>> marshal: %.3f / unmarshal: %.3f / user: %.3f@."
+    stats.marshal_time stats.unmarshal_time (Unix.times ()).Unix.tms_utime)
 
 let spawn f =
   if !proc_count <= 1 then
@@ -158,7 +158,7 @@ let wait fut =
       let t = Unix.gettimeofday () in
       let (i, l) = receive st.pipe_in in
       if debug_task () then
-        Format.eprintf "Wait:         %f@." (Unix.gettimeofday () -. t);
+        Format.eprintf "Wait:         %.3f@." (Unix.gettimeofday () -. t);
       let v = read st.mem l in
       fut := Finished v;
       v
@@ -187,7 +187,7 @@ let run sched =
     let t = Unix.gettimeofday () in
     let (avail, _, _) = Unix.select sched.fds [] [] (-1.) in
     if debug_task () then
-      Format.eprintf "Wait:         %f@." (Unix.gettimeofday () -. t);
+      Format.eprintf "Wait:         %.3f@." (Unix.gettimeofday () -. t);
     sched.fds <- List.filter (fun fd -> not (List.mem fd avail)) sched.fds;
     List.iter
       (fun fd ->
@@ -206,6 +206,16 @@ let iter l pre post =
 
 let iteri l pre post =
   List.iter (fun (x, y) -> post x (wait y)) (List.map pre l)
+
+let iter l pre post =
+  let s = scheduler () in
+  List.iter (fun v -> async s (pre v) post) l;
+  run s
+
+let iteri l pre post =
+  let s = scheduler () in
+  List.iter (fun x -> let (y, t) = pre x in async s t (fun z -> post y z)) l;
+  run s
 
 (*
 
