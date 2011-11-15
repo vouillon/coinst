@@ -1,7 +1,21 @@
-(*
-- Retract one of these assumptions
-- Get all reasons...
-*)
+(* Co-installability tools
+ * http://coinst.irill.org/
+ * Copyright (C) 2011 Jérôme Vouillon
+ * Laboratoire PPS - CNRS Université Paris Diderot
+ *
+ * These programs are free software; you can redistribute them and/or
+ * modify them under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *)
 
 let debug = Debug.make "horn" "Debug Horn clause solver." []
 let stats =
@@ -21,38 +35,7 @@ end)
 
 (****)
 
-let string_extend s n c =
-  let s' = String.make n c in
-  String.blit s 0 s' 0 (String.length s);
-  s'
-
-let array_extend a n v =
-  let a' = Array.make n v in
-  Array.blit a 0 a' 0 (Array.length a);
-  a'
-
-(****)
-
-module BitVect = struct
-  type t = string
-  let make n v = String.make n (if v then 'T' else 'F')
-  let test vect x = vect.[x] <> 'F'
-  let set vect x = vect.[x] <- 'T'
-  let clear vect x = vect.[x] <- 'F'
-  let extend vect n v = string_extend vect n (if v then 'T' else 'F')
-  let sub = String.sub
-  let implies vect1 vect2 =
-    let l = String.length vect1 in
-    assert (String.length vect2 = l);
-    let rec implies_rec vect1 vect2 i l =
-      i = l ||
-      ((vect1.[i] <> 'T' || vect2.[i] = 'T') &&
-       implies_rec vect1 vect2 (i + 1) l)
-    in
-    implies_rec vect1 vect2 0 l
-end
-
-(****)
+module BitVect = Util.BitVect
 
 module type S = sig
   type reason
@@ -239,10 +222,10 @@ let initialize ?signal_assign n =
 let extend st n =
   let n = max n (Array.length st.st_reason) in
   st.st_assign <- BitVect.extend st.st_assign n false;
-  st.st_reason <- array_extend st.st_reason n Unconstrained;
-  st.st_forward <- array_extend st.st_forward n [];
-  st.st_backward <- array_extend st.st_backward n [];
-  st.st_assumptions <- array_extend st.st_assumptions n []
+  st.st_reason <- Util.array_extend st.st_reason n Unconstrained;
+  st.st_forward <- Util.array_extend st.st_forward n [];
+  st.st_backward <- Util.array_extend st.st_backward n [];
+  st.st_assumptions <- Util.array_extend st.st_assumptions n []
 
 let assignment st = st.st_assign
 

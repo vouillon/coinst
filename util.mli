@@ -56,6 +56,9 @@ module ListTbl : sig
   val remove : ('a, 'b) t -> 'a -> ('b -> bool) -> unit
 end
 
+val array_extend : 'a array -> int -> 'a -> 'a array
+val string_extend : string -> int -> char -> string
+
 val print_list :
   (Format.formatter -> 'a -> unit) -> string ->
   Format.formatter -> 'a list -> unit
@@ -63,3 +66,25 @@ val print_list :
 val make_directories : string -> unit
 (* Make sure that the directory containing the file given in argument
    exists. *)
+
+module BitVect : sig
+  type t
+  val make : int -> bool -> t
+  val test : t -> int -> bool
+  val set : t -> int -> unit
+  val clear : t -> int -> unit
+  val sub : t -> int -> int -> t
+  val extend : t -> int -> bool -> t
+end
+
+val sort_and_uniq : ('a -> 'a -> int) -> 'a list -> 'a list
+val compare_pair :
+  ('a -> 'b -> int) -> ('c -> 'd -> int) -> 'a * 'c -> 'b * 'd -> int
+val group : ('a -> 'a -> int) -> ('a * 'b) list -> ('a * 'b list) list
+
+module Union_find : sig
+  type 'a t
+  val elt : 'a -> 'a t
+  val get : 'a t -> 'a
+  val merge : 'a t -> 'a t -> ('a -> 'a -> 'a) -> unit
+end

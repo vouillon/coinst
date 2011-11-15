@@ -17,29 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-module type S = sig
-  type reason
-end
+val cached :
+  ?force:bool -> string list -> string -> string -> (unit -> 'a) -> 'a * string
 
-module type SOLVER = sig
-  type state
+val set_disabled : bool -> unit
 
-  type reason
-
-  type var = int
-
-  val initialize : ?signal_assign:(var array -> reason -> unit) -> int -> state
-  val extend : state -> int -> unit
-  val set_var_printer : state -> (Format.formatter -> var -> unit) -> unit
-
-  val assignment : state -> Util.BitVect.t
-  val direct_reasons : state -> var -> (var array * reason) list
-  val reason : state -> var -> (var array * reason) option
-  val assumptions : state -> var -> reason list
-
-  val add_rule : state -> var array -> reason -> unit
-  val assume : state -> var -> reason -> unit
-  val retract_assumptions : state -> var -> unit
-end
-
-module F (X : S) : SOLVER  with type reason = X.reason

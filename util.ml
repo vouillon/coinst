@@ -135,3 +135,106 @@ let rec make_directories f =
       make_directories f;
       Unix.mkdir f (0o755)
   end
+
+(****)
+
+let string_extend s n c =
+  let s' = String.make n c in
+  String.blit s 0 s' 0 (String.length s);
+  s'
+
+let array_extend a n v =
+  let a' = Array.make n v in
+  Array.blit a 0 a' 0 (Array.length a);
+  a'
+
+(****)
+
+module BitVect = struct
+  type t = string
+  let make n v = String.make n (if v then 'T' else 'F')
+  let test vect x = vect.[x] <> 'F'
+  let set vect x = vect.[x] <- 'T'
+  let clear vect x = vect.[x] <- 'F'
+  let extend vect n v = string_extend vect n (if v then 'T' else 'F')
+  let sub = String.sub
+  let implies vect1 vect2 =
+    let l = String.length vect1 in
+    assert (String.length vect2 = l);
+    let rec implies_rec vect1 vect2 i l =
+      i = l ||
+      ((vect1.[i] <> 'T' || vect2.[i] = 'T') &&
+       implies_rec vect1 vect2 (i + 1) l)
+    in
+    implies_rec vect1 vect2 0 l
+end
+
+(****)
+
+let sort_and_uniq compare l =
+  let rec uniq v l =
+    match l with
+      []      -> [v]
+    | v' :: r -> if compare v v' = 0 then uniq v r else v :: uniq v' r
+  in
+  match List.sort compare l with
+    []     -> []
+  | v :: r -> uniq v r
+
+let compare_pair compare1 compare2 (a1, a2) (b1, b2) =
+  let c = compare1 a1 b1 in
+  if c = 0 then compare2 a2 b2 else c
+
+let group compare l =
+  match l with
+    [] ->
+      []
+  | (a, b) :: r ->
+      let rec group_rec a bl l =
+        match l with
+          [] ->
+            [(a, List.rev bl)]
+        | (a', b) :: r ->
+            if compare a a' = 0 then
+              group_rec a (b :: bl) r
+            else
+              (a, List.rev bl) :: group_rec a' [b] r
+      in
+      group_rec a [b] r
+
+(****)
+
+module Union_find = struct
+
+type 'a link =
+    Link of 'a t
+  | Value of 'a
+
+and 'a t =
+  { mutable state : 'a link }
+
+let rec repr t =
+  match t.state with
+    Link t' ->
+      let r = repr t' in
+      t.state <- Link r;
+      r
+  | Value _ ->
+      t
+
+let rec get t =
+  match (repr t).state with
+    Link _  -> assert false
+  | Value v -> v
+
+let merge t t' f =
+  let t = repr t in
+  let t' = repr t' in
+  if t != t' then begin
+    t.state <- Value (f (get t) (get t'));
+    t'.state <- Link t
+  end
+
+let elt v = { state = Value v }
+
+end

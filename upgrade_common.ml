@@ -280,98 +280,6 @@ let problematic_packages dist1 dist dist2 reasons =
            assert false)
     StringSet.empty reasons
 
-(*
-let problematic_packages dist1_state dist2 reasons =
-  let get_pred p =
-    let nm = M.package_name dist2 (Package.index p) in
-    match ListTbl.find dist1_state.dist.M.packages_by_name nm with
-      [p] -> p.M.num
-    | _   -> -1
-  in
-  List.fold_left
-    (fun s r ->
-       match r with
-         M.R_depends (n, l) ->
-           let p = Package.of_index n in
-           let resolve_dep dist l =
-             Disj.lit_disj
-               (List.map Package.of_index
-                  (List.flatten (List.map (M.resolve_package_dep dist) l)))
-           in
-           let d1 = resolve_dep dist1_state.dist l in
-           let d2 = resolve_dep dist2 l in
-(*
-Format.eprintf "%a ==> %a / %a@." (Package.print dist2) p (Disj.print dist1_state.dist) d1 (Disj.print dist2) d2;
-*)
-           let s2 =
-             Disj.fold
-               (fun p s ->
-                  let i = get_pred p in
-                  if i = -1 then s else PSet.add (Package.of_index i) s)
-               d2 PSet.empty
-           in
-           let i1 = get_pred p in
-(*
-if i1 <> -1 then Format.eprintf "...%a ==> %a@." (Package.print dist1_state.dist) (Package.of_index i1) (Formula.print dist1_state.dist) (PTbl.get dist1_state.deps (Package.of_index i1));
-*)
-           let is_new d =
-             not (Formula.implies1
-                    (PTbl.get dist1_state.deps (Package.of_index i1)) d)
-           in
-(*
-if i1 <> -1 then
-Format.eprintf "?NEW %a (%a) %b@." (Package.print dist2) p  (Package.print dist1_state.dist) (Package.of_index i1) (i1 <> -1 && is_new (Disj.lit_disj (PSet.elements s2)));
-*)
-           if i1 <> -1 && is_new (Disj.lit_disj (PSet.elements s2)) then begin
-(*
-Format.eprintf "NEW %a %b@." (Package.print dist2) p (is_new d1);
-*)
-             let s =
-               if is_new d1 then
-                 StringSet.add (M.package_name dist1_state.dist i1) s
-               else
-                 s
-             in
-             let delta = PSet.diff (Disj.to_lits d1) s2 in
-             PSet.fold
-               (fun p s ->
-                  StringSet.add
-                    (M.package_name dist1_state.dist (Package.index p)) s)
-               delta s
-           end else
-             s
-       | M.R_conflict (i2, j2, Some (k2, l)) ->
-           let p2 = Package.of_index i2 in
-           let q2 = Package.of_index j2 in
-           let i1 = get_pred p2 in
-           let j1 = get_pred q2 in
-           if
-             i1 <> -1 && j1 <> -1 &&
-             not (Conflict.check dist1_state.confl
-                    (Package.of_index i1) (Package.of_index j1))
-           then begin
-             (* If the conflict did already exist, we should not upgrade k;
-                otherwise, we should not upgrade l *)
-             let confls =
-               List.flatten
-                 (List.map (M.resolve_package_dep dist1_state.dist) l) in
-             let p = (min i1 j1, max i1 j1) in
-             let k1 = get_pred (Package.of_index k2) in
-             if
-               List.exists (fun k1' -> p = (min k1 k1', max k1 k1')) confls
-             then begin
-               StringSet.add (M.package_name dist1_state.dist k1) s
-             end else begin
-               let k1' = if i1 = k1 then j1 else i1 in
-               StringSet.add (M.package_name dist1_state.dist k1') s
-             end
-           end else
-             s
-       | M.R_conflict (_, _, None) ->
-           s)
-    StringSet.empty reasons
-*)
-
 (****)
 
 type clause = { pos : StringSet.t; neg : StringSet.t }
@@ -799,40 +707,7 @@ let t = Timer.start () in
 
 (****)
 
-module Union_find = struct
-
-type 'a link =
-    Link of 'a t
-  | Value of 'a
-
-and 'a t =
-  { mutable state : 'a link }
-
-let rec repr t =
-  match t.state with
-    Link t' ->
-      let r = repr t' in
-      t.state <- Link r;
-      r
-  | Value _ ->
-      t
-
-let rec get t =
-  match (repr t).state with
-    Link _  -> assert false
-  | Value v -> v
-
-let merge t t' f =
-  let t = repr t in
-  let t' = repr t' in
-  if t != t' then begin
-    t.state <- Value (f (get t) (get t'));
-    t'.state <- Link t
-  end
-
-let elt v = { state = Value v }
-
-end
+module Union_find = Util.Union_find
 
 let find_clusters dist1_state dist2_state is_preserved groups merge =
   let dist2 = M.new_pool () in
