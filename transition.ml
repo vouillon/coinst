@@ -24,15 +24,9 @@
 - find_coinst_constraints: check whether we have a larger set
   of unconstrained packages and automatically recompute the set
   of packages to consider in that case
-- test wether dir initially points to an existing directory; if not and
-  no option to set the britney conf file nor input directive, exit
-  with an error
 - improve '--migrate option': multiple files, bin_nmus
 
-- is it correct that there is no way to block a package removal?
-  ===> block -src/vers !
 - parse more options from britney config file (in particular, hint files)
-- unblock / unblock-udeb
 - urgency information is huge; can we reduce it?
   (filter, depending on source informations...)
 
@@ -204,12 +198,31 @@ let read_bugs file =
   h
 
 type hint =
-  { h_block : (string, unit) Hashtbl.t;
-    h_block_udeb : (string, unit) Hashtbl.t;
+  { h_block : (string, string) Hashtbl.t;
+    h_block_udeb : (string, string) Hashtbl.t;
+    mutable h_block_all : string option;
+    h_unblock : (string, Deb_lib.version) Hashtbl.t;
+    h_unblock_udeb : (string, Deb_lib.version) Hashtbl.t;
     h_urgent : (string, Deb_lib.version) Hashtbl.t;
     h_age_days : (string, Deb_lib.version option * int) Hashtbl.t }
 
 let debug_read_hints = Debug.make "read_hints" "Show input hints." ["normal"]
+
+let process_unblock_request h l =
+  List.iter
+    (fun p ->
+       match Str.split slash p with
+         [nm; v] ->
+           let v = Deb_lib.parse_version v in
+           begin try
+             let v' = Hashtbl.find h nm in
+             if Deb_lib.compare_version v' v < 0 then raise Not_found
+           with Not_found ->
+             Hashtbl.replace h nm v
+           end
+       | _ ->
+           ())
+    l
 
 exception Ignored_hint
 
@@ -217,6 +230,9 @@ let read_hints dir =
   let hints =
     { h_block = Hashtbl.create 16;
       h_block_udeb = Hashtbl.create 16;
+      h_block_all = None;
+      h_unblock = Hashtbl.create 16;
+      h_unblock_udeb = Hashtbl.create 16;
       h_urgent = Hashtbl.create 16;
       h_age_days = Hashtbl.create 16 }
   in
@@ -225,15 +241,15 @@ let read_hints dir =
   let files = Sys.readdir dir in
   Array.sort compare files;
   Array.iter
-    (fun f ->
-       let file = Filename.concat dir f in
+    (fun who ->
+       let file = Filename.concat dir who in
        if
          Sys.is_directory file ||
-         f = "README" || f = "index.html" || f.[0] = '.'
+         who = "README" || who = "index.html" || who.[0] = '.'
        then
          ()
        else
-       let ch = open_in (Filename.concat dir f) in
+       let ch = open_in (Filename.concat dir who) in
        begin try
          while true do
            let l = input_line ch in
@@ -241,9 +257,17 @@ let read_hints dir =
            try
              begin match l with
              | "block" :: l ->
-                 List.iter (fun p -> Hashtbl.replace hints.h_block p ()) l
+                 List.iter
+                   (fun p -> Hashtbl.replace hints.h_block p who) l
              | "block-udeb" :: l ->
-                 List.iter (fun p -> Hashtbl.replace hints.h_block_udeb p ()) l
+                 List.iter
+                   (fun p -> Hashtbl.replace hints.h_block_udeb p who) l
+             | "block-all" :: l ->
+                 if List.mem "source" l then hints.h_block_all <- Some who
+             | "unblock" :: l ->
+                 process_unblock_request hints.h_unblock l
+             | "unblock-udeb" :: l ->
+                 process_unblock_request hints.h_unblock_udeb l
              | "urgent" :: l ->
                  List.iter
                    (fun p ->
@@ -333,7 +357,7 @@ let load_src_packages suite =
 type reason =
   | Unchanged
     (* Source *)
-  | Blocked
+  | Blocked of (string * string)
   | Too_young of int * int
   | Binary_not_propagated
   | No_binary
@@ -349,8 +373,8 @@ let print_reason get_name_arch f (lits, reason) =
   match reason with
     Unchanged ->
       Format.fprintf f "no update"
-  | Blocked ->
-      Format.fprintf f "blocked"
+  | Blocked (kind, who) ->
+      Format.fprintf f "not touching package due to %s request by %s" kind who
   | Too_young (cur_ag, req_ag) ->
       Format.fprintf f "only %d days old; must be %d days old to go in"
         cur_ag req_ag
@@ -541,8 +565,9 @@ let output_reasons l solver source_of_id id_offsets filename =
            (fun r ->
               if interesting_reason solver r then
               match snd r with
-                Blocked ->
-                  Format.fprintf f "<li>Left unchanged due to block request.@."
+                Blocked (kind, who) ->
+                  Format.fprintf f
+                    "<li>Left unchanged due to %s request by %s.@." kind who
               | Too_young (cur_ag, req_ag) ->
                   Format.fprintf f
                     "<li>Only %d days old. Must be %d days old to go in.@."
@@ -1217,8 +1242,27 @@ let initial_constraints
     else
       StringSet.diff (get_bugs u unstable_bugs p) (get_bugs t testing_bugs p)
   in
-  let is_blocked nm =
-    Hashtbl.mem hints.h_block nm || Hashtbl.mem hints.h_block_udeb nm
+  let is_unblocked h nm v =
+    try M.compare_version (Hashtbl.find h nm) v = 0 with Not_found -> false
+  in
+  let is_blocked nm v =
+    ((hints.h_block_all <> None || Hashtbl.mem hints.h_block nm) &&
+     not (is_unblocked hints.h_unblock nm v))
+       ||
+    (Hashtbl.mem hints.h_block_udeb nm &&
+     not (is_unblocked hints.h_unblock_udeb nm v))
+  in
+  let blocked_reason nm v =
+    let unblocked = is_unblocked hints.h_unblock nm v in
+    match
+      if unblocked then None else
+      try
+        Some (Hashtbl.find hints.h_block nm)
+      with Not_found ->
+        hints.h_block_all
+    with
+      Some who -> ("block", who)
+    | None     -> ("block-udeb", Hashtbl.find hints.h_block_udeb nm)
   in
   let deferred_constraints = ref [] in
   let produce_excuses = !excuse_file <> "" in
@@ -1259,7 +1303,9 @@ let initial_constraints
        if no_new_source t u nm then
          HornSolver.add_rule solver [|id|] Unchanged
        else begin
-         if is_blocked nm then assume_deferred id Blocked;
+         (* Do not propagate a source package requested to be blocked *)
+         if is_blocked nm v then
+           assume_deferred id (Blocked (blocked_reason nm v));
          (* Do not propagate a source package if not old enough *)
          let v' = source_version t nm in
          let (cur_ag, req_ag) = compute_ages nm v v' in
@@ -1276,6 +1322,18 @@ let initial_constraints
                            (new_bugs is_new ("src:" ^ nm))))
        end)
     u.M.s_packages;
+  Hashtbl.iter
+    (fun nm s ->
+       if not (Hashtbl.mem u.M.s_packages nm) then
+         try
+           let who = Hashtbl.find hints.h_block ("-" ^ nm) in
+           let id =
+             try Hashtbl.find id_of_source nm with Not_found -> assert false
+           in
+           assume_deferred id (Blocked ("blocked", who))
+         with Not_found ->
+           ())
+    t.M.s_packages;
   let source_has_binaries = Hashtbl.create 8192 in
   let is_fake = Hashtbl.create 17 in
   let first_bin_id = Array.length source_of_id in
@@ -1343,7 +1401,7 @@ let initial_constraints
                       assume_deferred (offset id) reason
                   | Not_yet_built _ ->
                       HornSolver.assume solver (offset id) reason
-                  | Blocked | Binary_not_propagated | No_binary
+                  | Blocked _ | Binary_not_propagated | No_binary
                   | Conflict _ | Source_not_propagated | Atomic ->
                       assert false
                   end
@@ -1852,10 +1910,10 @@ let analyze_migration
              Not_yet_built (nm, _, _) ->
                Format.bprintf b "# remove outdated binary package %a"
                  print_package p
-           | Blocked ->
+           | Blocked (kind, _) ->
                let (src, _) = get_name_arch p in
                let vers = (Hashtbl.find u.M.s_packages src).M.s_version in
-               Format.bprintf b "unblock %s/%a" src M.print_version vers
+               Format.bprintf b "un%s %s/%a" kind src M.print_version vers
            | Too_young (cur_ag, _) ->
                let (src, _) = get_name_arch p in
                let vers = (Hashtbl.find u.M.s_packages src).M.s_version in
