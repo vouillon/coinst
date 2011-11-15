@@ -1071,6 +1071,7 @@ let arch_constraints st (produce_excuses, compute_hints) =
          assume (source_id p) Unchanged
        end;
        let v' = (Hashtbl.find u.M.s_packages nm).M.s_version in
+       let source_changed = not (same_source_version t u nm) in
        (* Do not add a binary package if its source is not
           the most up to date source file. *)
        if M.compare_version v v' <> 0 then begin
@@ -1081,8 +1082,6 @@ let arch_constraints st (produce_excuses, compute_hints) =
            sources_with_binaries := nm :: !sources_with_binaries;
            Hashtbl.add source_has_binaries nm ()
          end;
-         let source_changed =
-           not (same_source_version t u nm) in
          (* We only propagate binary packages with a larger version.
             Faux packages are not propagated. *)
          if no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm then
@@ -1098,12 +1097,12 @@ let arch_constraints st (produce_excuses, compute_hints) =
              implies (source_id p) id Source_not_propagated
            else
              ListTbl.add bin_nmus nm id
-         end;
-         (* If a source is propagated, all its binaries should
-            be propagated as well *)
-         if source_changed || produce_excuses then
-           implies id (source_id p) Binary_not_propagated
-       end)
+         end
+       end;
+       (* If a source is propagated, all its binaries should
+          be propagated as well *)
+       if source_changed || produce_excuses then
+         implies id (source_id p) Binary_not_propagated)
     u'.M.packages_by_num;
   (* Remove not up to date binaries from sid. *)
   List.iter (fun p -> M.remove_package u' p) st.outdated_binaries;
