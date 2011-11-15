@@ -28,6 +28,9 @@ val kill : 'a t -> unit
 val map : 'a list -> ('a -> 'b future) -> ('b -> 'c) -> 'c list
 val iter : 'a list -> ('a -> 'b future) -> ('b -> unit) -> unit
 val iteri : 'a list -> ('a -> ('b * 'c future)) -> ('b -> 'c -> unit) -> unit
+val iter_ordered : 'a list -> ('a -> 'b future) -> ('b -> unit) -> unit
+val iteri_ordered :
+  'a list -> ('a -> ('b * 'c future)) -> ('b -> 'c -> unit) -> unit
 
 type scheduler
 

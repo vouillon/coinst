@@ -1723,7 +1723,6 @@ let heidi_line lines nm vers arch sect =
 
 let heidi_arch st unchanged =
   let lines = ref [] in
-  let arch = st.arch in
   let t = st.testing in
   let u = st.unstable in
   Hashtbl.iter
@@ -1731,14 +1730,14 @@ let heidi_arch st unchanged =
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
        if is_unchanged st unchanged nm then
-         heidi_line lines nm p.M.version arch sect)
+         heidi_line lines nm p.M.version p.M.architecture sect)
     t.M.packages_by_num;
   Hashtbl.iter
     (fun _ p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
        if not (is_unchanged st unchanged nm) then
-         heidi_line lines nm p.M.version arch sect)
+         heidi_line lines nm p.M.version p.M.architecture sect)
     u.M.packages_by_num;
   String.concat "" (List.sort compare !lines)
 
@@ -1747,8 +1746,8 @@ let heidi_arch = Task.funct heidi_arch
 let print_heidi solver id_of_source id_offsets fake_src l t u =
   let ch = if !heidi_file = "-" then stdout else open_out !heidi_file in
   let heidi_t = Timer.start () in
-  let lines = ref [] in
-  Task.iter (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l)
+  Task.iter_ordered
+    (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l)
     (fun (arch, st) ->
        heidi_arch st (extract_unchanged_bin solver id_offsets arch))
     (fun lines -> output_string ch lines);
@@ -1760,6 +1759,7 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
     else if s.M.s_section = "" then "unknown"
     else s.M.s_section
   in
+  let lines = ref [] in
   Hashtbl.iter
     (fun nm s ->
        let sect = source_sect nm s in

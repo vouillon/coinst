@@ -201,10 +201,10 @@ let run sched =
 let map l pre post =
   List.map (fun x -> post (wait x)) (List.map pre l)
 
-let iter l pre post =
+let iter_ordered l pre post =
   List.iter (fun x -> post (wait x)) (List.map pre l)
 
-let iteri l pre post =
+let iteri_ordered l pre post =
   List.iter (fun (x, y) -> post x (wait y)) (List.map pre l)
 
 let iter l pre post =
