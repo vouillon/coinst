@@ -20,6 +20,7 @@
 let debug_coinst =
   Debug.make "coinst" "Debug co-installability issue analyse" []
 let debug_time = Debug.make "time" "Print execution times" []
+let debug_cluster = Debug.make "cluster" "Debug clustering algorithm" []
 
 let debug = false
 
@@ -997,19 +998,30 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
     (fun p f ->
        Formula.iter f
          (fun d ->
-(*
+if debug_cluster () then begin
 Format.eprintf "New dep %a ==> %a@."
 (Package.print_name dist2) p
-(Disj.print dist2) d;
-*)
+(Disj.print dist2) d
+end;
             let c =
-              Disj.fold
-                (fun p c ->
-                   if is_dummy p then
-                     merge c (group_class (group_repr p))
-                   else
-                     c)
-                d (group_class (group_repr p))
+              if Disj.implies1 p d then begin
+if debug_cluster () then begin
+let s = group_repr p in
+if s <> "" then Format.eprintf "   ==> %s@." s
+end;
+                group_class (group_repr p)
+              end else
+                Disj.fold
+                  (fun p c ->
+                     if is_dummy p then begin
+if debug_cluster () then begin
+let s = group_repr p in
+if s <> "" then Format.eprintf "   ==> %s@." s
+end;
+                       merge c (group_class (group_repr p))
+                     end else
+                       c)
+                  d None
             in
             let c = Union_find.elt c in
             Disj.iter d
@@ -1044,20 +1056,18 @@ Format.eprintf "Old conflict %a ## %a@."
     (fun (p, p') ->
       let c = group_class (group_repr p) in
       let c' = group_class (group_repr p') in
-(*
+if debug_cluster () then
 Format.eprintf "New conflict %s ## %s@." (group_repr p) (group_repr p');
-*)
       ignore (merge c c'))
     !new_conflicts;
 
   PTbl.iteri
     (fun p f ->
        if is_new p && PTbl.get old_version p = p then begin
-(*
+if debug_cluster () then
 Format.eprintf "New package %a ==> %a@."
   (Package.print_name dist2) p
   (Formula.print dist2) f;
-*)
          Formula.iter f
            (fun d ->
               ignore
