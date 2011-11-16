@@ -58,6 +58,8 @@ val resolve_package_dep :
   pool -> string * (rel * (int * string * string option)) option -> int list
 val resolve_package_dep_raw :
   pool -> string * (rel * (int * string * string option)) option -> p list
+val dep_can_be_satisfied :
+  pool -> string * (rel * (int * string * string option)) option -> bool
 
 val only_latest : pool -> pool
 

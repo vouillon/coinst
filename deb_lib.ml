@@ -684,6 +684,15 @@ let resolve_package_dep_raw pool (n, cstr) =
 let resolve_package_dep pool d =
   List.map (fun p -> p.num) (resolve_package_dep_raw pool d)
 
+let dep_can_be_satisfied pool (n, cstr) =
+  match cstr with
+    None ->
+      ListTbl.mem pool.provided_packages n
+  | Some (rel, vers) ->
+      List.exists
+        (fun p -> filter_rel rel (compare_version p.version vers))
+        (ListTbl.find pool.packages_by_name n)
+
 let single l =
   match l with
     [x] -> x

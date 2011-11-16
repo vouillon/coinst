@@ -288,6 +288,14 @@ type graph =
   { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
 type issue = { i_issue : PSet.t; i_clause : clause; i_graph : graph }
 
+let print_clause ch clause =
+  Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
+    (StringSet.elements clause.neg);
+  if not (StringSet.is_empty clause.pos || StringSet.is_empty clause.neg) then
+    Format.fprintf ch " | ";
+  Util.print_list (fun f -> Format.fprintf f "%s") " | " ch
+    (StringSet.elements clause.pos)
+
 let prepare_analyze dist =
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
   let (deps', confl') = Coinst.flatten_and_simplify dist deps confl in
@@ -658,6 +666,53 @@ if debug_coinst () then M.show_reasons dist2 r;
 
 (****)
 
+let get_clearly_broken_packages dist1_state dist dist2_state =
+  let t = Timer.start () in
+  let unsat_dep d =
+    not (List.exists (fun cstr -> M.dep_can_be_satisfied dist cstr) d) in
+  let was_installable p =
+    match ListTbl.find dist1_state.dist.M.packages_by_name p.M.package with
+      [] ->
+        true
+    | [q] ->
+        let res = M.Solver.solve dist1_state.st q.M.num in
+        M.Solver.reset dist1_state.st;
+        res
+    | _ ->
+        assert false
+  in
+  let problems = ref [] in
+  Hashtbl.iter
+    (fun _ p ->
+       let l =
+         List.filter unsat_dep p.M.depends @
+         List.filter unsat_dep p.M.pre_depends
+       in
+       if l <> [] && was_installable p then begin
+         List.iter
+           (fun d ->
+              if debug_coinst () then
+                Format.eprintf "Broken dependency: %a ==> %a@."
+                  (Package.print dist) (Package.of_index p.M.num)
+                  M.print_package_dependency [d];
+             let r = [M.R_depends (p.M.num, d)] in
+             let clause =
+               { pos = problematic_packages
+                         dist1_state.dist dist dist2_state.dist r;
+                 neg = problematic_packages
+                         dist2_state.dist dist dist1_state.dist r }
+             in
+             if debug_coinst () then
+               Format.eprintf ">>> %a@." print_clause clause;
+             problems := (clause, StringSet.singleton p.M.package) :: !problems)
+           l
+       end)
+    dist.M.packages_by_num;
+  if debug_time () then Format.eprintf "  Clearly broken: %f@." (Timer.stop t);
+  !problems
+
+(****)
+
 let rec find_problematic_packages
           ?(check_new_packages = false) dist1_state dist2_state is_preserved =
   let t = Timer.start () in
@@ -666,7 +721,10 @@ let rec find_problematic_packages
   M.merge2 dist2 (fun p -> is_preserved p.M.package) dist1_state.dist;
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
-
+  let problems = get_clearly_broken_packages dist1_state dist2 dist2_state in
+  if List.exists (fun (cl, _) -> StringSet.cardinal cl.pos = 1) problems then
+    problems
+  else
   let (deps1, deps2, pred, st2,
        results, all_pkgs, all_conflicts,
        dep_src, graphs, broken_new_packages) =
@@ -692,16 +750,7 @@ let t = Timer.start () in
   in
   if debug_coinst () then
     Format.eprintf ">>> %a@."
-      (Util.print_list
-         (fun ch ({pos = pos; neg = neg}, _) ->
-            Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
-              (StringSet.elements neg);
-            if not (StringSet.is_empty pos || StringSet.is_empty neg) then
-              Format.fprintf ch " | ";
-            Util.print_list (fun f -> Format.fprintf f "%s") " | " ch
-              (StringSet.elements pos))
-         ", ")
-      problems;
+      (Util.print_list (fun ch (cl, _) -> print_clause ch cl) ", ") problems;
   if debug_time () then
     Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
   problems
