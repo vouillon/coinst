@@ -1594,8 +1594,7 @@ let cluster_packages st (unchanged, clusters) =
     List.map (fun (lst, id) -> (lst, (id, Union_find.elt id))) clusters
   in
   let merge (_, e1) (_, e2) = Union_find.merge e1 e2 min in
-  let (t, u) =
-    match st.upgrade_state with Some st -> st | None -> assert false in
+  let (t, u) = get_upgrade_state st unchanged in
   Upgrade_common.find_clusters t u
     (fun nm -> is_unchanged st unchanged nm) clusters merge;
   List.map (fun (_, (id, elt)) -> (id, Union_find.get elt)) clusters
