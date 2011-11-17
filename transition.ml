@@ -18,17 +18,14 @@
  *)
 
 (*
-- interactive mode
-- for migration, is it possible to focus on a small part of
-  the repositories
+- remove hint: just remove the package from unstable
+  ===> temporarily assume this package is not supported!
+       (big warning)
 - find_coinst_constraints: check whether we have a larger set
   of unconstrained packages and automatically recompute the set
   of packages to consider in that case
 - improve '--migrate option': multiple files, bin_nmus
-
 - parse more options from britney config file (in particular, hint files)
-- urgency information is huge; can we reduce it?
-  (filter, depending on source informations...)
 
 PRIORITIES
   ==> graphs for reporting co-installability issues:
@@ -43,10 +40,6 @@ PRIORITIES
 
   ==> option to indicate which packages would be propagated by britney
       but not by this tool
-  ==> find what it takes to install a package:
-      iterative (relax the problem until we can install the package);
-      with clause learning
-      ===> extend to the case of bin-nmu and multiple packages
   ==> add possibility to migrate packages with co-installability issues
       given appropriate user-provided hints (find out the right kind of
       hints)
@@ -59,6 +52,13 @@ EXPLANATIONS
   ==> summaries; in particular, show packages that only wait for age,
       for bugs
   ==> explanation of co-installability issues
+
+LATER
+- for migration, is it possible to focus on a small part of
+  the repositories
+- urgency information is huge; can we reduce it?
+  (filter, depending on source informations...)
+- interactive mode
 *)
 
 
@@ -104,6 +104,7 @@ let excuse_file = ref ""
 let offset = ref 0
 let all_hints = ref false
 let to_migrate = ref None
+let check_coinstallability = ref true
 
 (**** Debug options ****)
 
@@ -430,7 +431,9 @@ let load_rules solver uids =
   let (rules, _) =
     Cache.cached [] cache ("version 4\n" ^ uids) (fun () -> []) in
   List.iter
-    (fun (r, neg, s) -> HornSolver.add_rule solver r (Conflict (neg, s)))
+    (fun (r, neg, s) ->
+       if !check_coinstallability || IntSet.cardinal s = 1 then
+         HornSolver.add_rule solver r (Conflict (neg, s)))
     rules;
   learnt_rules := rules
 
@@ -758,7 +761,84 @@ let extract_unchanged_bin solver id_offsets arch =
 let is_unchanged st unch nm =
   BitVect.test unch (Hashtbl.find st.id_of_bin nm - st.first_bin_id)
 
-(**** Prepare repositories before looking for co-installability issues ****)
+(**** Prepare repositories before looking for (co-)installability issues ****)
+
+let compute_reverse_dependencies st d id_tbl =
+  let rdep_t = Timer.start () in
+  let rdeps = Array.create (Array.length st.bin_of_id) [] in
+
+  let add_rdep src_id dep =
+    List.iter
+      (fun cstr ->
+         List.iter
+           (fun q ->
+              let target_id =
+                PTbl.get id_tbl (Package.of_index q.M.num) in
+              let i = target_id - st.first_bin_id in
+              rdeps.(i) <- src_id :: rdeps.(i))
+           (ListTbl.find d.M.provided_packages (fst cstr)))
+      dep
+         
+  in
+  Hashtbl.iter
+    (fun _ p ->
+       let src_id = PTbl.get id_tbl (Package.of_index p.M.num) in
+       List.iter (fun d -> add_rdep src_id d) p.M.depends;
+       List.iter (fun d -> add_rdep src_id d) p.M.pre_depends)
+    d.M.packages_by_num;
+  if debug_time () then
+    Format.eprintf "  Reversing dependencies: %f@." (Timer.stop rdep_t);
+  rdeps
+
+let reduce_for_installability st unchanged =
+  let t = st.testing in
+  let u = st.unstable in
+  let d = M.new_pool () in
+  M.merge2 d (fun _ -> true) t;
+  M.merge2 d (fun p -> not (is_unchanged st unchanged p.M.package)) u;
+  let id_tbl = PTbl.create d 0 in
+  Hashtbl.iter
+    (fun _ p ->
+       PTbl.set id_tbl
+         (Package.of_index p.M.num) (Hashtbl.find st.id_of_bin p.M.package))
+    d.M.packages_by_num;
+
+  let rdeps = compute_reverse_dependencies st d id_tbl in
+
+  let predecessors = Hashtbl.create 1024 in
+  let rec add_preds nm =
+    if not (Hashtbl.mem predecessors nm) then begin
+      Hashtbl.add predecessors nm ();
+      let id = Hashtbl.find st.id_of_bin nm in
+      List.iter (fun id -> add_preds st.bin_of_id.(id - st.first_bin_id))
+        rdeps.(id - st.first_bin_id)
+    end
+  in
+  Array.iter
+    (fun nm -> if not (is_unchanged st unchanged nm) then add_preds nm)
+    st.bin_of_id;
+
+  let pkgs = Hashtbl.create 1024 in
+  let rec add_package nm =
+    if not (Hashtbl.mem pkgs nm) then begin
+      Hashtbl.add pkgs nm ();
+      List.iter follow_deps (ListTbl.find d.M.packages_by_name nm);
+    end
+  and follow_deps p =
+    follow_deps_2 p.M.depends; follow_deps_2 p.M.pre_depends
+  and follow_deps_2 deps =
+    List.iter
+      (fun l ->
+         List.iter
+           (fun (nm, _) ->
+              List.iter
+                (fun q -> add_package q.M.package)
+                (ListTbl.find d.M.provided_packages nm))
+           l)
+      deps
+  in
+  Hashtbl.iter (fun nm _ -> add_package nm) predecessors;
+  pkgs
 
 let compute_conflicts t u =
   let conflicts = ListTbl.create 101 in
@@ -786,9 +866,10 @@ let compute_conflicts t u =
   compute_package_conflicts u t; compute_package_conflicts u u;
   conflicts
 
-let prepare_repository st unchanged =
+let reduce_for_coinstallability st unchanged =
   let t = st.testing in
   let u = st.unstable in
+
   let conflicts = compute_conflicts t u in
 
   let changed_packages = Hashtbl.create 101 in
@@ -860,6 +941,20 @@ let prepare_repository st unchanged =
          if stronger_deps p.M.depends || stronger_deps p.M.pre_depends then
            add_package p.M.package)
     t.M.packages_by_num;
+  pkgs
+
+let prepare_repository st unchanged =
+  let t = st.testing in
+  let u = st.unstable in
+
+  let red_t = Timer.start () in
+
+  let pkgs =
+    if !check_coinstallability then 
+      reduce_for_coinstallability st unchanged
+    else
+      reduce_for_installability st unchanged
+  in
 
   let n = ref 0 in
   let m = ref 0 in
@@ -875,6 +970,8 @@ let prepare_repository st unchanged =
   let u' = M.new_pool () in
   M.merge2 u' filter u;
   if debug_reduction () then Format.eprintf "==> %d/%d@." !n !m;
+  if debug_time () then
+    Format.eprintf "  Reducing repository sizes: %f@." (Timer.stop red_t);
   st.upgrade_state <-
     Some (Upgrade_common.prepare_analyze t', Upgrade_common.prepare_analyze u')
 
@@ -896,9 +993,11 @@ let compute_bin_ids first_id t u =
   let id_of_bin = Hashtbl.create 16384 in
   let bin_of_id = ref [] in
   let insert nm =
-    Hashtbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id in
+    Hashtbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
+  in
   ListTbl.iter (fun nm _ -> insert nm) t.M.packages_by_name;
-  ListTbl.iter (fun nm _ -> if not (Hashtbl.mem id_of_bin nm) then insert nm)
+  ListTbl.iter
+    (fun nm _ -> if not (Hashtbl.mem id_of_bin nm) then insert nm)
     u.M.packages_by_name;
   let bin_of_id = Array.of_list (List.rev !bin_of_id) in
   (id_of_bin, bin_of_id)
@@ -1438,9 +1537,13 @@ let find_coinst_constraints st unchanged =
     Format.eprintf "==================== %s@." arch;
   let step_t = Timer.start () in
   let problems =
-    Upgrade_common.find_problematic_packages
-      ~check_new_packages:true t' u'
-      (fun nm -> is_unchanged st unchanged nm)
+    if !check_coinstallability then
+      Upgrade_common.find_problematic_packages
+        ~check_new_packages:true t' u'
+        (fun nm -> is_unchanged st unchanged nm)
+    else
+      Upgrade_common.find_non_inst_packages
+        t' u' (fun nm -> is_unchanged st unchanged nm)
   in
   let t = Timer.start () in
   let has_singletons =
@@ -2086,6 +2189,9 @@ let spec =
    "--offset",
    Arg.Int (fun n -> offset := n),
    "N Move N days into the future";
+   "--inst",
+   Arg.Unit (fun () -> check_coinstallability := false),
+   "Check for single package installability only";
    "--no-cache",
    Arg.Unit (fun () -> Cache.set_disabled true),
    " Disable on-disk caching";
