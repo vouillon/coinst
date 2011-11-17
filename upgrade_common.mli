@@ -49,6 +49,9 @@ val find_problematic_packages :
   ?check_new_packages:bool ->
   state -> state -> (string -> bool) -> (clause * Util.StringSet.t) list
 
+val find_non_inst_packages :
+  state -> state -> (string -> bool) -> (clause * Util.StringSet.t) list
+
 val find_clusters :
   state -> state -> (string -> bool) ->
   (string list * 'a) list -> ('a -> 'a -> unit) -> unit
