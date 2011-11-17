@@ -20,7 +20,7 @@
 module F (M : Api.S) : sig
   module Repository : Repository.S with type pool = M.pool
   open Repository
-  module Quotient : Quotient.S(Repository).S
+  module Quotient : Quotient.S(Repository).S with type t = Quotient.F(Repository).t
 
   val compute_dependencies_and_conflicts :
     pool -> Formula.t PTbl.t * Conflict.t

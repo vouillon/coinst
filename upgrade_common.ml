@@ -21,6 +21,12 @@ let debug_coinst =
   Debug.make "coinst" "Debug co-installability issue analyse" []
 let debug_time = Debug.make "time" "Print execution times" []
 let debug_cluster = Debug.make "cluster" "Debug clustering algorithm" []
+let debug_problems =
+  Debug.make "coinst_prob"
+    "Debug enumeration of possible co-installability issues" []
+let debug_problem_graph =
+  Debug.make "coinst_graph"
+    "Write the graph of new depencies to /tmp/newdeps.dot" []
 
 let debug = false
 
@@ -32,7 +38,7 @@ module Coinst = Coinst_common.F(M)
 module Repository = Coinst.Repository
 open Repository
 module Quotient = Coinst.Quotient
-module Graph = Graph.F (Repository)
+module Graph = Graph.F (Coinst.Repository)
 
 module PSetSet = Set.Make (PSet)
 module PSetMap = Map.Make (PSet)
@@ -104,25 +110,34 @@ let print_prob st =
 let rec add_piece st i cont =
   assert (not (IntSet.mem i st.installed || IntSet.mem i st.not_installed));
   let (p, d) = Hashtbl.find st.pieces i in
-if debug then Format.printf "Try to add %a => %a@." (Package.print_name st.dist) p
-         (Disj.print st.dist) d;
-  (* XXX
-     When adding a package in st.set, one could also check that d is not
-     implied by any of the dependencies of a package already in st.set *)
   if
+    (* We do not add a dependency if it is implied by, or implies, a
+       dependency currently under consideration. *)
     not (IntSet.exists
            (fun i' ->
               let (_, d') = Hashtbl.find st.pieces i' in
               Disj.implies d d' || Disj.implies d' d)
            st.installed)
       &&
+    (* When adding a package in st.set, we check that d is not implied
+       by any of the dependencies of a package already in st.set *)
+    (PSet.mem p st.set ||
+     not (PSet.exists
+            (fun p -> Formula.implies (PTbl.get st.deps p) (Formula.of_disj d))
+            st.set))
+      &&
+    (* If we are adding a package, we check whether the set is still
+       co-installable *)
     (PSet.mem p st.set || st.check (PSet.add p st.set))
   then begin
+    if debug_problems () then
+      Format.printf "Adding %a => %a@."
+        (Package.print_name st.dist) p (Disj.print st.dist) d;
     let st =
       {st with set = PSet.add p st.set;
        installed = IntSet.add i st.installed}
     in
-    if debug then print_prob st;
+    if debug_problems () then print_prob st;
     (* Make sure that there is at least one piece in conflict for all
        dependencies, then consider all possible additions *)
     Disj.fold
@@ -144,8 +159,9 @@ if debug then Format.printf "Try to add %a => %a@." (Package.print_name st.dist)
                 (Conflict.of_package st.confl p) st))
       d
       (fun st ->
-if debug then Format.printf "Considering all possible additions in %d: %a...@."
-i (Disj.print st.dist) d;
+         if debug_problems () then
+           Format.printf "Considering all possible additions in %d: %a...@."
+             i (Disj.print st.dist) d;
         Disj.fold
          (fun p cont ->
             PSet.fold
@@ -155,7 +171,11 @@ i (Disj.print st.dist) d;
               (Conflict.of_package st.confl p) cont)
            d cont st)
       st
-  end
+  end else
+    if debug_problems () then
+      Format.printf "Could not add %a => %a@."
+        (Package.print_name st.dist) p (Disj.print st.dist) d;
+
 
 and do_add_piece st i cont =
   if IntSet.mem i st.installed then begin
@@ -481,14 +501,13 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
       deps2
   in
 
-  (*
-  Graph.output "/tmp/update.dot"
-    ~package_weight:(fun p ->
-      if Formula.implies (Formula.lit p) (PTbl.get deps2 p) then
-        (if PTbl.get pred p = -1 then 1. else 10.)
-      else 1000.)
-    (Quotient.trivial dist2) deps2 confl2';
-  *)
+  if debug_problem_graph () then
+    Graph.output "/tmp/newdeps.dot"
+      ~package_weight:(fun p ->
+        if Formula.implies (Formula.lit p) (PTbl.get deps2 p) then
+          (if PTbl.get pred p = -1 then 1. else 10.)
+        else 1000.)
+      (Quotient.trivial dist2) deps2 confl2';
 
   if debug_time () then Format.eprintf "  Init: %f@." (Timer.stop t);
 
