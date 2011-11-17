@@ -1870,13 +1870,6 @@ let rec collect_assumptions solver id =
 
 let analyze_migration
       uids solver id_of_source id_offsets t u l get_name_arch nm =
-  let print_package f id =
-    let (name, arch) = get_name_arch id in
-    if arch = "source" then
-      Format.fprintf f "%s" name
-    else
-      Format.fprintf f "%s/%s" name arch
-  in
   let id =
     try
       Hashtbl.find id_of_source nm
@@ -1888,6 +1881,13 @@ let analyze_migration
   if debug_migration () then
     Format.eprintf "%s (%d) : %b@." nm id (BitVect.test assign id);
   let lst = ref [] in
+  let print_package f id =
+    let (name, arch) = get_name_arch id in
+    if arch = "source" then
+      Format.fprintf f "%s" name
+    else
+      Format.fprintf f "%s/%s" name arch
+  in
   let output_hints () =
     if !hint_file = "" then hint_file := "-";
     let source_bugs = Hashtbl.create 17 in
@@ -1973,19 +1973,21 @@ let analyze_migration
         HornSolver.retract_assumptions solver p;
         migrate ()
       end
-    end else if !lst = [] then begin
-      Format.printf "The package %s can already migrate.@." nm;
-      output_hints ()
     end else begin
-      (* We have removed some constraints, so we may have to consider
-         a larger set of packages. *)
+      (* We need to check whether there are additional constraints to
+         consider.  First clear the state: we may have removed some
+         constraints, so we may have to consider a larger set of
+         packages. *)
       clear_upgrade_states l;
       find_all_coinst_constraints solver id_offsets l;
       if BitVect.test assign id then
         migrate ()
       else begin
-        Format.printf "Successful:@.";
-        output_hints ();
+        if !lst = [] then
+          Format.printf "The package %s can already migrate.@." nm
+        else
+          Format.printf "Successful:@.";
+        output_hints ()
       end
     end
   in
