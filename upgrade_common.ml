@@ -721,19 +721,27 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
                  neg = problematic_packages
                          dist2_state.dist dist dist1_state.dist r }
              in
-             if debug_coinst () then
-               Format.eprintf ">>> %a@." print_clause clause;
              problems := (clause, StringSet.singleton p.M.package) :: !problems)
            l
        end)
     dist.M.packages_by_num;
+  if debug_coinst () then
+    Format.eprintf ">>> %a@."
+      (Util.print_list (fun ch (cl, _) -> print_clause ch cl) ", ") !problems;
   if debug_time () then Format.eprintf "  Clearly broken: %f@." (Timer.stop t);
   !problems
 
 let analyze_installability dist1_state dist dist2_state =
+  let t = Timer.start () in
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
+  if debug_time () then
+    Format.eprintf "      Deps and confls: %f@." (Timer.stop t);
   let (deps', confl') = Coinst.flatten_and_simplify dist deps confl in
+  let t' = Timer.start () in
   let st = Coinst.generate_rules (Quotient.trivial dist) deps' confl' in
+  if debug_time () then
+    Format.eprintf "      Generate rules: %f@." (Timer.stop t');
+  if debug_time () then Format.eprintf "    Preparing: %f@." (Timer.stop t);
   let package_name p =
     (Hashtbl.find dist.M.packages_by_num (Package.index p)).M.package in
   let is_installable p =
@@ -761,25 +769,33 @@ let analyze_installability dist1_state dist dist2_state =
        then
          broken_pkgs := PSet.add p !broken_pkgs)
     deps';
-  if PSet.is_empty !broken_pkgs then
-    []
-  else begin
-    let st_init =
-      M.generate_rules_restricted dist (pset_indices !broken_pkgs) in
-    PSet.fold
-      (fun p l ->
-         let i = Package.index p in
-         let res = M.Solver.solve st_init i in
-         assert (not res);
-         let r = M.Solver.collect_reasons st_init i in
-         M.Solver.reset st_init;
-         ({ pos = problematic_packages
-                    dist1_state.dist dist dist2_state.dist r;
-            neg = problematic_packages
-                    dist2_state.dist dist dist1_state.dist r },
-          StringSet.singleton (package_name p)) :: l)
-      !broken_pkgs []
-  end
+  let pr_t = Timer.start () in
+  let problems =
+    if PSet.is_empty !broken_pkgs then
+      []
+    else begin
+      let st_init =
+        M.generate_rules_restricted dist (pset_indices !broken_pkgs) in
+      PSet.fold
+        (fun p l ->
+           let i = Package.index p in
+           let res = M.Solver.solve st_init i in
+           assert (not res);
+           let r = M.Solver.collect_reasons st_init i in
+           M.Solver.reset st_init;
+           ({ pos = problematic_packages
+                      dist1_state.dist dist dist2_state.dist r;
+              neg = problematic_packages
+                      dist2_state.dist dist dist1_state.dist r },
+            StringSet.singleton (package_name p)) :: l)
+        !broken_pkgs []
+    end
+  in
+  if debug_time () then begin
+    Format.eprintf "    Computing problems: %f@." (Timer.stop pr_t);
+    Format.eprintf "  Finding non-inst packages: %f@." (Timer.stop t)
+  end;
+  problems
 
 (****)
 
@@ -835,8 +851,13 @@ let rec find_non_inst_packages dist1_state dist2_state is_preserved =
   let problems = get_clearly_broken_packages dist1_state dist dist2_state in
   if List.exists (fun (cl, _) -> StringSet.cardinal cl.pos = 1) problems then
     problems
-  else
-    analyze_installability dist1_state dist dist2_state
+  else begin
+    let problems = analyze_installability dist1_state dist dist2_state in
+    if debug_coinst () then
+      Format.eprintf ">>> %a@."
+        (Util.print_list (fun ch (cl, _) -> print_clause ch cl) ", ") problems;
+    problems
+  end
 
 (****)
 
