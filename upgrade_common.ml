@@ -230,6 +230,99 @@ type state =
 
 (****)
 
+type pkg_ref = string * bool * bool
+type reason =
+    R_depends of pkg_ref * M.dep * pkg_ref list
+  | R_conflict of pkg_ref * M.dep * pkg_ref
+type clause = { pos : StringSet.t; neg : StringSet.t }
+
+let problematic_packages dist1 dist dist2 reasons =
+  let resolve_dep dist l =
+    List.fold_left
+      (fun s cstr ->
+         List.fold_left
+           (fun s p -> StringSet.add p.M.package s)
+           s (M.resolve_package_dep_raw dist cstr))
+      StringSet.empty l
+  in
+  let (s1, s2, lst) =
+    List.fold_left
+      (fun (s1, s2, lst) r ->
+         match r with
+           M.R_depends (n, l) ->
+             let p = Hashtbl.find dist.M.packages_by_num n in
+             let nm = p.M.package in
+             let d = resolve_dep dist l in
+             let d1 = resolve_dep dist1 l in
+             let d2 = resolve_dep dist2 l in
+             let s1 = StringSet.union (StringSet.diff d1 d) s1 in
+             let s2 = StringSet.union (StringSet.diff d2 d) s2 in
+             let unchanged_dep dist =
+               match ListTbl.find dist.M.packages_by_name nm with
+                 [] ->
+                   false
+               | [q] ->
+                   M.compare_version q.M.version p.M.version = 0
+                     ||
+                   List.exists
+                     (fun l' ->
+                        let d1' = resolve_dep dist1 l' in
+                        StringSet.subset d1' d1
+                          &&
+                        let d2' = resolve_dep dist2 l' in
+                        StringSet.subset d2' d2)
+                     (q.M.pre_depends @ q.M.depends)
+               | _ ->
+                   assert false
+             in
+             let u1 = unchanged_dep dist1 in
+             let u2 = unchanged_dep dist2 in
+             let s1 = if u1 then s1 else StringSet.add nm s1 in
+             let s2 = if u2 then s2 else StringSet.add nm s2 in
+             let pkgs =
+               List.map
+                 (fun nm -> (nm, StringSet.mem nm d1, StringSet.mem nm d2))
+                 (StringSet.elements (StringSet.union d1 d2))
+             in
+             (s1, s2, R_depends ((nm, u1, u2), l, pkgs) :: lst)
+         | M.R_conflict (j, k, Some (i, l)) ->
+             let i' = if i = j then k else j in
+             let p = Hashtbl.find dist.M.packages_by_num i in
+             let p' = Hashtbl.find dist.M.packages_by_num i' in
+             let nm = p.M.package in
+             let nm' = p'.M.package in
+             let c1 = resolve_dep dist1 l in
+             let c2 = resolve_dep dist2 l in
+             let u1' = StringSet.mem nm' c1 in
+             let s1 = if u1' then s1 else StringSet.add nm' s1 in
+             let u2' = StringSet.mem nm' c2 in
+             let s2 = if u2' then s2 else StringSet.add nm' s2 in
+             let unchanged_cfl dist =
+               match ListTbl.find dist.M.packages_by_name nm with
+                 [] ->
+                   false
+               | [q] ->
+                   M.compare_version q.M.version p.M.version = 0
+                     ||
+                   (let l' = List.flatten (q.M.breaks @ q.M.conflicts) in
+                    StringSet.mem nm' (resolve_dep dist1 l')
+                      &&
+                    StringSet.mem nm' (resolve_dep dist2 l'))
+               | _ ->
+                   assert false
+             in
+             let u1 = unchanged_cfl dist1 in
+             let u2 = unchanged_cfl dist2 in
+             let s1 = if u1 then s1 else StringSet.add nm s1 in
+             let s2 = if u2 then s2 else StringSet.add nm s2 in
+             (s1, s2, R_conflict ((nm, u1, u2), l, (nm', u1', u2')) :: lst)
+         | M.R_conflict (_, _, None) ->
+             assert false)
+      (StringSet.empty, StringSet.empty, []) reasons
+  in
+  ({pos = s1; neg = s2}, List.rev lst)
+
+(*
 let problematic_packages dist1 dist dist2 reasons =
   let resolve_dep dist l =
     List.fold_left
@@ -300,13 +393,15 @@ let problematic_packages dist1 dist dist2 reasons =
        | M.R_conflict (_, _, None) ->
            assert false)
     StringSet.empty reasons
+*)
 
 (****)
 
-type clause = { pos : StringSet.t; neg : StringSet.t }
 type graph =
   { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
-type issue = { i_issue : PSet.t; i_clause : clause; i_graph : graph }
+type issue =
+  { i_issue : PSet.t; i_clause : clause;
+    i_graph : graph; i_explain : reason list }
 
 let print_clause ch clause =
   Util.print_list (fun f -> Format.fprintf f "-%s") " | " ch
@@ -631,23 +726,21 @@ if debug_coinst () then M.show_reasons dist2 r;
                           (Formula.of_disj (Disj.lit_disj l))))
               r;
             all_pkgs := PSet.union !all_pkgs !pkgs;
-            let (pos, neg) =
+            let (clause, explanation) =
               match reference with
                 Some dist2_state ->
-                  (problematic_packages
-                     dist1_state.dist dist2 dist2_state.dist r,
-                   problematic_packages
-                     dist2_state.dist dist2 dist1_state.dist r)
+                  problematic_packages
+                    dist1_state.dist dist2 dist2_state.dist r
               | None ->
-                  (problematic_packages dist1_state.dist dist2 dist2 r,
-                   StringSet.empty)
+                  problematic_packages dist1_state.dist dist2 dist2 r
             in
  (*
  PSet.iter (fun p -> Format.printf " %a" (Package.print_name dist2) p) s;
  Format.printf "==> %a@." (Formula.print dist1) ppkgs;
  *)
-            { i_issue = s; i_clause = { pos = pos; neg = neg };
-              i_graph = { g_nodes = !pkgs; g_deps = deps; g_confl = confl }})
+            { i_issue = s; i_clause = clause;
+              i_graph = { g_nodes = !pkgs; g_deps = deps; g_confl = confl };
+              i_explain = explanation })
          (PSetSet.elements !results),
        PSet.fold
          (fun p s ->
@@ -659,20 +752,18 @@ if debug_coinst () then M.show_reasons dist2 r;
 (*
 if debug_coinst () then M.show_reasons dist2 r;
 *)
-            let (pos, neg) =
+            let (clause, explanation) =
               match reference with
                 Some dist2_state ->
-                  (problematic_packages
-                     dist1_state.dist dist2 dist2_state.dist r,
-                   problematic_packages
-                     dist2_state.dist dist2 dist1_state.dist r)
+                  problematic_packages
+                    dist1_state.dist dist2 dist2_state.dist r
               | None ->
-                  (problematic_packages dist1_state.dist dist2 dist2 r,
-                   StringSet.empty)
+                  problematic_packages dist1_state.dist dist2 dist2 r
             in
             assert
-              (StringSet.mem (M.package_name dist2 (Package.index p)) pos);
-            (p, { pos = pos; neg = neg }) :: s)
+              (StringSet.mem (M.package_name dist2 (Package.index p))
+                 clause.pos);
+            (p, clause, explanation) :: s)
          !broken_new_packages [])
     end
   in
@@ -715,19 +806,18 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
                   (Package.print dist) (Package.of_index p.M.num)
                   M.print_package_dependency [d];
              let r = [M.R_depends (p.M.num, d)] in
-             let clause =
-               { pos = problematic_packages
-                         dist1_state.dist dist dist2_state.dist r;
-                 neg = problematic_packages
-                         dist2_state.dist dist dist1_state.dist r }
-             in
-             problems := (clause, StringSet.singleton p.M.package) :: !problems)
+             let (clause, explanation) =
+               problematic_packages dist1_state.dist dist dist2_state.dist r in
+             problems :=
+               (clause, StringSet.singleton p.M.package, explanation)
+               :: !problems)
            l
        end)
     dist.M.packages_by_num;
   if debug_coinst () then
     Format.eprintf ">>> %a@."
-      (Util.print_list (fun ch (cl, _) -> print_clause ch cl) ", ") !problems;
+      (Util.print_list (fun ch (cl, _, _) -> print_clause ch cl) ", ")
+      !problems;
   if debug_time () then Format.eprintf "  Clearly broken: %f@." (Timer.stop t);
   !problems
 
@@ -798,11 +888,9 @@ let analyze_installability dist1_state dist dist2_state =
            assert (not res);
            let r = M.Solver.collect_reasons st_init i in
            M.Solver.reset st_init;
-           ({ pos = problematic_packages
-                      dist1_state.dist dist dist2_state.dist r;
-              neg = problematic_packages
-                      dist2_state.dist dist dist1_state.dist r },
-            StringSet.singleton (package_name p)) :: l)
+           let (clause, explanation) =
+             problematic_packages dist1_state.dist dist dist2_state.dist r in
+           (clause, StringSet.singleton (package_name p), explanation) :: l)
         !broken_pkgs []
     end
   in
@@ -823,7 +911,9 @@ let rec find_problematic_packages
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
   let problems = get_clearly_broken_packages dist1_state dist2 dist2_state in
-  if List.exists (fun (cl, _) -> StringSet.cardinal cl.pos = 1) problems then
+  if
+    List.exists (fun (cl, _, _) -> StringSet.cardinal cl.pos = 1) problems
+  then
     problems
   else
   let (deps1, deps2, pred, st2,
@@ -834,24 +924,27 @@ let rec find_problematic_packages
 let t = Timer.start () in
   let problems =
     List.fold_left
-      (fun f { i_issue = s; i_clause = clause } ->
+      (fun f { i_issue = s; i_clause = clause; i_explain = explanation } ->
         (clause,
          PSet.fold
            (fun p s ->
              StringSet.add (M.package_name dist2 (Package.index p)) s)
-           s StringSet.empty) :: f)
+           s StringSet.empty,
+         explanation) :: f)
       [] graphs
   in
   let problems =
     List.fold_left
-      (fun f (p, ppkgs) ->
+      (fun f (p, ppkgs, explanation) ->
          (ppkgs,
-          StringSet.singleton (M.package_name dist2 (Package.index p))) :: f)
+          StringSet.singleton (M.package_name dist2 (Package.index p)),
+          explanation) :: f)
       problems broken_new_packages
   in
   if debug_coinst () then
     Format.eprintf ">>> %a@."
-      (Util.print_list (fun ch (cl, _) -> print_clause ch cl) ", ") problems;
+      (Util.print_list (fun ch (cl, _, _) -> print_clause ch cl) ", ")
+      problems;
   if debug_time () then
     Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
   problems
@@ -864,13 +957,16 @@ let rec find_non_inst_packages dist1_state dist2_state is_preserved =
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
   let problems = get_clearly_broken_packages dist1_state dist dist2_state in
-  if List.exists (fun (cl, _) -> StringSet.cardinal cl.pos = 1) problems then
+  if
+    List.exists (fun (cl, _, _) -> StringSet.cardinal cl.pos = 1) problems
+  then
     problems
   else begin
     let problems = analyze_installability dist1_state dist dist2_state in
     if debug_coinst () then
       Format.eprintf ">>> %a@."
-        (Util.print_list (fun ch (cl, _) -> print_clause ch cl) ", ") problems;
+        (Util.print_list (fun ch (cl, _, _) -> print_clause ch cl) ", ")
+        problems;
     problems
   end
 

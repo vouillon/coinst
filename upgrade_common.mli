@@ -31,10 +31,16 @@ type state =
 
 val prepare_analyze : pool -> state
 
+type pkg_ref = string * bool * bool
+type reason =
+    R_depends of pkg_ref * Deb_lib.dep * pkg_ref list
+  | R_conflict of pkg_ref * Deb_lib.dep * pkg_ref
 type clause = { pos : Util.StringSet.t; neg : Util.StringSet.t }
 type graph =
   { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
-type issue = { i_issue : PSet.t; i_clause : clause; i_graph : graph }
+type issue =
+  { i_issue : PSet.t; i_clause : clause;
+    i_graph : graph; i_explain : reason list }
 
 val analyze :
   ?check_new_packages:bool ->
@@ -43,14 +49,16 @@ val analyze :
   Formula.t PTbl.t * Formula.t PTbl.t *
   Deb_lib.Solver.var PTbl.t * Deb_lib.Solver.state * PSetSet.t *
   PSet.t * Conflict.t * PSet.t PTbl.t *
-  issue list * (Package.t * clause) list
+  issue list * (Package.t * clause * reason list) list
 
 val find_problematic_packages :
   ?check_new_packages:bool ->
-  state -> state -> (string -> bool) -> (clause * Util.StringSet.t) list
+  state -> state -> (string -> bool) ->
+  (clause * Util.StringSet.t * reason list) list
 
 val find_non_inst_packages :
-  state -> state -> (string -> bool) -> (clause * Util.StringSet.t) list
+  state -> state -> (string -> bool) ->
+  (clause * Util.StringSet.t * reason list) list
 
 val find_clusters :
   state -> state -> (string -> bool) ->

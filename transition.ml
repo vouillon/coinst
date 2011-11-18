@@ -367,10 +367,31 @@ type reason =
   (* Both *)
   | More_bugs of StringSet.t
   (* Binaries *)
-  | Conflict of IntSet.t * IntSet.t
+  | Conflict of IntSet.t * IntSet.t * Upgrade_common.reason list
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated
   | Atomic
+
+let print_pkg_ref f (nm, t, u) =
+  match t, u with
+    true,  true  -> Format.fprintf f "%s" nm
+  | true,  false -> Format.fprintf f "%s (testing)" nm
+  | false, true  -> Format.fprintf f "%s (sid)" nm
+  | false, false -> assert false
+
+let print_cstr f r =
+  match r with
+    Upgrade_common.R_depends (pkg, dep, pkgs) ->
+      Format.fprintf f "%a depends on %a {%a}"
+        print_pkg_ref pkg M.print_package_dependency [dep]
+        (Util.print_list print_pkg_ref ", ") pkgs
+  | Upgrade_common.R_conflict (pkg, confl, pkg') ->
+      Format.fprintf f "%a conflicts with %a {%a}"
+        print_pkg_ref pkg
+        M.print_package_dependency (List.map (fun c -> [c]) confl)
+        print_pkg_ref pkg'
+
+let print_explanation f expl = Util.print_list print_cstr "; " f expl
 
 let print_reason get_name_arch f (lits, reason) =
   match reason with
@@ -385,7 +406,7 @@ let print_reason get_name_arch f (lits, reason) =
       Format.fprintf f "has new bugs: %a"
         (Util.print_list (fun f s -> Format.fprintf f "#%s" s) ", ")
         (StringSet.elements s)
-  | Conflict (s, s') ->
+  | Conflict (s, s', explanation) ->
       begin match IntSet.cardinal s with
         0 ->
           Format.fprintf f "a dependency cannot be satisfied"
@@ -398,11 +419,12 @@ let print_reason get_name_arch f (lits, reason) =
             (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s
       end;
       if IntSet.cardinal s' > 1 || not (IntSet.mem lits.(0) s') then begin
-        Format.fprintf f " (would break";
+        Format.fprintf f " (would break co-installability of packages";
         IntSet.iter
           (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s';
         Format.fprintf f ")"
-      end
+      end;
+      Format.fprintf f ": %a" print_explanation explanation
   | Not_yet_built (src, v1, v2) ->
       Format.fprintf f "not yet rebuilt (source %s %a rather than %a)"
         src M.print_version v1 M.print_version v2
@@ -424,8 +446,8 @@ module HornSolver = Horn.F (struct type t = reason type reason = t end)
 
 let learnt_rules = ref []
 
-let learn_rule r neg s =
-  learnt_rules := (r, neg, s) :: !learnt_rules
+let learn_rule r neg s expl =
+  learnt_rules := (r, neg, s, expl) :: !learnt_rules
 
 let coinst_rules = ref []
 
@@ -438,12 +460,12 @@ let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
   let (rules, _) =
-    Cache.cached [] cache ("version 4\n" ^ uids) (fun () -> []) in
+    Cache.cached [] cache ("version 5\n" ^ uids) (fun () -> []) in
   List.iter
-    (fun (r, neg, s) ->
+    (fun (r, neg, s, expl) ->
        let n = IntSet.cardinal s in
        if !check_coinstallability || n = 1 then begin
-         let r = HornSolver.add_rule solver r (Conflict (neg, s)) in
+         let r = HornSolver.add_rule solver r (Conflict (neg, s, expl)) in
          if n > 1 then coinst_rules := r :: !coinst_rules
        end)
     rules;
@@ -452,7 +474,7 @@ let load_rules solver uids =
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  ignore (Cache.cached ~force:true [] cache ("version 4\n" ^ uids)
+  ignore (Cache.cached ~force:true [] cache ("version 5\n" ^ uids)
             (fun () -> List.rev !learnt_rules))
 
 (**** Global state for per-architecture processes ****)
@@ -526,7 +548,7 @@ let output_reasons l solver source_of_id id_offsets filename =
                   List.iter
                     (fun (lits, reason) ->
                        match reason with
-                         Conflict (s, s') ->
+                         Conflict (s, s', _) ->
                            binaries :=
                              IntSet.union (IntSet.union s s') !binaries
                        | _ ->
@@ -681,7 +703,8 @@ let output_reasons l solver source_of_id id_offsets filename =
                (fun r ->
                   if interesting_reason solver r then
                   match snd r with
-                    Conflict (s, s') ->
+                    Conflict (s, s', explanation) ->
+(*XXXXXXXXXXXX*)
                       begin match IntSet.cardinal s with
                         0 ->
                           Format.fprintf f "<li>Dependency not satisfied"
@@ -705,7 +728,8 @@ let output_reasons l solver source_of_id id_offsets filename =
                             print_binary (IntSet.choose s')
                         end
                       end else begin
-                        Format.fprintf f ": would break binary packages";
+                        Format.fprintf f
+                          ": would break co-installability of binary packages";
                         IntSet.iter
                           (fun id -> Format.fprintf f " %a" print_binary id)
                           s';
@@ -1562,12 +1586,12 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
   let t = Timer.start () in
   let has_singletons =
     List.exists
-      (fun (cl, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
+      (fun (cl, _, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
       problems
   in
   let changes = ref [] in
   List.iter
-    (fun ({Upgrade_common.pos = pos;  neg = neg}, s) ->
+    (fun ({Upgrade_common.pos = pos;  neg = neg}, s, expl) ->
        let n = StringSet.cardinal pos in
        if not (has_singletons && n > 1) then begin
          let to_ids s =
@@ -1580,7 +1604,7 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
          let id = Hashtbl.find st.id_of_bin (StringSet.choose pos) in
          let r = Array.of_list (id :: IntSet.elements neg) in
          let can_learn = n = 1 in
-         changes := (r, neg, s, can_learn) :: !changes
+         changes := (r, neg, s, expl, can_learn) :: !changes
        end)
     problems;
   if debug_time () then begin
@@ -1624,7 +1648,7 @@ let find_all_coinst_constraints solver id_offsets l =
       Array.fill changed 0 c true;
       let (_, offset, _) = Hashtbl.find id_offsets (fst a.(i)) in
       List.iter
-        (fun (r, neg, s, can_learn) ->
+        (fun (r, neg, s, expl, can_learn) ->
            let r = Array.map (fun id -> id + offset) r in
            let offset_set ids =
              IntSet.fold (fun id s -> IntSet.add (id + offset) s)
@@ -1632,9 +1656,9 @@ let find_all_coinst_constraints solver id_offsets l =
            in
            let neg = offset_set neg in
            let s = offset_set s in
-           let r' = HornSolver.add_rule solver r (Conflict (neg, s)) in
+           let r' = HornSolver.add_rule solver r (Conflict (neg, s, expl)) in
            if IntSet.cardinal s > 1 then coinst_rules := r' :: !coinst_rules;
-           if can_learn then learn_rule r neg s)
+           if can_learn then learn_rule r neg s expl)
         changes
     end;
     running.(i) <- false;
@@ -1884,11 +1908,11 @@ let generate_hints
   in
   let print_hint f l =
     let should_show =
-      !all_hints || List.length l > 1 || subset_opt <> None
-          ||
+      (!all_hints || List.length l > 1 || subset_opt <> None)
+          &&
       match pkg_opt with
         Some pkg -> List.mem_assoc pkg l
-      | None     -> false
+      | None     -> true
     in
     if should_show then begin
       Format.fprintf f "easy";

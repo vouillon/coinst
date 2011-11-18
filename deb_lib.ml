@@ -168,7 +168,8 @@ let common_string s =
 
 type rel = SE | E | EQ | L | SL
 type version = int * string * string option
-type dep = (string * (rel * version) option) list list
+type dep = (string * (rel * version) option) list
+type deps = dep list
 type p =
   { mutable num : int;
     mutable package : string;
@@ -176,15 +177,15 @@ type p =
     mutable source : string * version;
     mutable section : string;
     mutable architecture : string;
-    mutable depends : dep;
-    mutable recommends : dep;
-    mutable suggests : dep;
-    mutable enhances : dep;
-    mutable pre_depends : dep;
-    mutable provides : dep;
-    mutable conflicts : dep;
-    mutable breaks : dep;
-    mutable replaces : dep }
+    mutable depends : deps;
+    mutable recommends : deps;
+    mutable suggests : deps;
+    mutable enhances : deps;
+    mutable pre_depends : deps;
+    mutable provides : deps;
+    mutable conflicts : deps;
+    mutable breaks : deps;
+    mutable replaces : deps }
 
 let dummy_version = (-1, "", None)
 

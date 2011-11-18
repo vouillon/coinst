@@ -24,7 +24,8 @@ type deb_reason =
     of int * int * (int * (string * (rel * version) option) list) option
   | R_depends
     of int * (string * (rel * version) option) list
-type dep = (string * (rel * version) option) list list
+type dep = (string * (rel * version) option) list
+type deps = dep list
 
 type p =
   { mutable num : int;
@@ -33,15 +34,15 @@ type p =
     mutable source : string * version;
     mutable section : string;
     mutable architecture : string;
-    mutable depends : dep;
-    mutable recommends : dep;
-    mutable suggests : dep;
-    mutable enhances : dep;
-    mutable pre_depends : dep;
-    mutable provides : dep;
-    mutable conflicts : dep;
-    mutable breaks : dep;
-    mutable replaces : dep }
+    mutable depends : deps;
+    mutable recommends : deps;
+    mutable suggests : deps;
+    mutable enhances : deps;
+    mutable pre_depends : deps;
+    mutable provides : deps;
+    mutable conflicts : deps;
+    mutable breaks : deps;
+    mutable replaces : deps }
 
 type deb_pool =
   { mutable size : int;
@@ -88,4 +89,4 @@ val src_only_latest : s_pool -> s_pool
 
 val generate_rules_restricted : pool -> Util.IntSet.t -> Solver.state
 
-val print_package_dependency : Format.formatter -> dep -> unit
+val print_package_dependency : Format.formatter -> deps -> unit
