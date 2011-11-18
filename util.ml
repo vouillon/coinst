@@ -156,6 +156,7 @@ module BitVect = struct
   let test vect x = vect.[x] <> 'F'
   let set vect x = vect.[x] <- 'T'
   let clear vect x = vect.[x] <- 'F'
+  let copy = String.copy
   let extend vect n v = string_extend vect n (if v then 'T' else 'F')
   let sub = String.sub
   let implies vect1 vect2 =
@@ -167,6 +168,29 @@ module BitVect = struct
        implies_rec vect1 vect2 (i + 1) l)
     in
     implies_rec vect1 vect2 0 l
+  let lnot vect =
+    let l = String.length vect in
+    let vect' = String.make l 'F' in
+    for i = 0 to l - 1 do
+      vect'.[i] <- if vect.[i] = 'F' then 'T' else 'F'
+    done;
+    vect'
+  let (land) vect1 vect2 =
+    let l = String.length vect1 in
+    assert (String.length vect2 = l);
+    let vect = String.make l 'F' in
+    for i = 0 to l - 1 do
+      vect.[i] <- if vect1.[i] = 'F' || vect2.[i] = 'F' then 'F' else 'T'
+    done;
+    vect
+  let (lor) vect1 vect2 =
+    let l = String.length vect1 in
+    assert (String.length vect2 = l);
+    let vect = String.make l 'F' in
+    for i = 0 to l - 1 do
+      vect.[i] <- if vect1.[i] = 'F' && vect2.[i] = 'F' then 'F' else 'T'
+    done;
+    vect
 end
 
 (****)

@@ -28,6 +28,8 @@ module type SOLVER = sig
 
   type var = int
 
+  type id
+
   val initialize : ?signal_assign:(var array -> reason -> unit) -> int -> state
   val extend : state -> int -> unit
   val set_var_printer : state -> (Format.formatter -> var -> unit) -> unit
@@ -37,8 +39,9 @@ module type SOLVER = sig
   val reason : state -> var -> (var array * reason) option
   val assumptions : state -> var -> reason list
 
-  val add_rule : state -> var array -> reason -> unit
+  val add_rule : state -> var array -> reason -> id
   val assume : state -> var -> reason -> unit
+  val retract_rule : state -> id -> unit
   val retract_assumptions : state -> var -> unit
 end
 

@@ -74,7 +74,12 @@ module BitVect : sig
   val set : t -> int -> unit
   val clear : t -> int -> unit
   val sub : t -> int -> int -> t
+  val copy : t -> t
   val extend : t -> int -> bool -> t
+  val implies : t -> t -> bool
+  val lnot : t -> t
+  val (land) : t -> t -> t
+  val (lor) : t -> t -> t
 end
 
 val sort_and_uniq : ('a -> 'a -> int) -> 'a list -> 'a list

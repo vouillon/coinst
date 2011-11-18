@@ -37,9 +37,6 @@ PRIORITIES
       - dependency targets may be in testing, sid, or both
       - same thing for each side of a conflict (!)
       indicate which set of packages are made non-coinstallable
-
-  ==> option to indicate which packages would be propagated by britney
-      but not by this tool
   ==> add possibility to migrate packages with co-installability issues
       given appropriate user-provided hints (find out the right kind of
       hints)
@@ -59,6 +56,10 @@ LATER
 - urgency information is huge; can we reduce it?
   (filter, depending on source informations...)
 - interactive mode
+- reducing size with installability:
+  ===> flatten a superposition of testing and sid
+  ===> needs to be very conservative!!
+  packages with no deps after flattening do not need deps before that
 *)
 
 
@@ -105,6 +106,7 @@ let offset = ref 0
 let all_hints = ref false
 let to_migrate = ref None
 let check_coinstallability = ref true
+let equivocal = ref false
 
 (**** Debug options ****)
 
@@ -425,6 +427,13 @@ let learnt_rules = ref []
 let learn_rule r neg s =
   learnt_rules := (r, neg, s) :: !learnt_rules
 
+let coinst_rules = ref []
+
+let switch_to_installability solver =
+  assert !check_coinstallability;
+  List.iter (fun r -> HornSolver.retract_rule solver r) !coinst_rules;
+  check_coinstallability := false
+
 let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
@@ -432,8 +441,11 @@ let load_rules solver uids =
     Cache.cached [] cache ("version 4\n" ^ uids) (fun () -> []) in
   List.iter
     (fun (r, neg, s) ->
-       if !check_coinstallability || IntSet.cardinal s = 1 then
-         HornSolver.add_rule solver r (Conflict (neg, s)))
+       let n = IntSet.cardinal s in
+       if !check_coinstallability || n = 1 then begin
+         let r = HornSolver.add_rule solver r (Conflict (neg, s)) in
+         if n > 1 then coinst_rules := r :: !coinst_rules
+       end)
     rules;
   learnt_rules := rules
 
@@ -754,9 +766,9 @@ let allow_smooth_updates p =
 
 (**** Per arch. information on which packages are not propagated ****)
 
-let extract_unchanged_bin solver id_offsets arch =
+let extract_unchanged_bin solver id_offsets arch unch =
   let (first, offset, len) = Hashtbl.find id_offsets arch in
-  BitVect.sub (HornSolver.assignment solver) (first + offset) len
+  BitVect.sub unch (first + offset) len
 
 let is_unchanged st unch nm =
   BitVect.test unch (Hashtbl.find st.id_of_bin nm - st.first_bin_id)
@@ -943,14 +955,14 @@ let reduce_for_coinstallability st unchanged =
     t.M.packages_by_num;
   pkgs
 
-let prepare_repository st unchanged =
+let prepare_repository st unchanged check_coinstallability =
   let t = st.testing in
   let u = st.unstable in
 
   let red_t = Timer.start () in
 
   let pkgs =
-    if !check_coinstallability then 
+    if check_coinstallability then 
       reduce_for_coinstallability st unchanged
     else
       reduce_for_installability st unchanged
@@ -975,11 +987,11 @@ let prepare_repository st unchanged =
   st.upgrade_state <-
     Some (Upgrade_common.prepare_analyze t', Upgrade_common.prepare_analyze u')
 
-let rec get_upgrade_state st unchanged =
+let rec get_upgrade_state st unchanged check_coinstallability =
   match st.upgrade_state with
     Some state -> state
-  | None       -> prepare_repository st unchanged;
-                  get_upgrade_state st unchanged
+  | None       -> prepare_repository st unchanged check_coinstallability;
+                  get_upgrade_state st unchanged check_coinstallability
 
 let clear_upgrade_state = Task.funct (fun st () -> st.upgrade_state <- None)
 
@@ -1366,7 +1378,7 @@ let initial_constraints
   let deferred_constraints = ref [] in
   let produce_excuses = !excuse_file <> "" in
   let implies id1 id2 reason =
-    HornSolver.add_rule solver [|id2; id1|] reason in
+    ignore (HornSolver.add_rule solver [|id2; id1|] reason) in
   let assume_deferred id reason =
     if produce_excuses then
       deferred_constraints := (id, reason) :: !deferred_constraints
@@ -1400,7 +1412,7 @@ let initial_constraints
        let id = Hashtbl.find id_of_source nm in
        (* We only propagate source packages with a larger version *)
        if no_new_source t u nm then
-         HornSolver.add_rule solver [|id|] Unchanged
+         ignore (HornSolver.add_rule solver [|id|] Unchanged)
        else begin
          (* Do not propagate a source package requested to be blocked *)
          if is_blocked nm v then
@@ -1495,7 +1507,7 @@ let initial_constraints
                 Assume (id, reason) ->
                   begin match reason with
                     Unchanged ->
-                      HornSolver.add_rule solver [|offset id|] reason
+                      ignore (HornSolver.add_rule solver [|offset id|] reason)
                   | Too_young _ | More_bugs _ ->
                       assume_deferred (offset id) reason
                   | Not_yet_built _ ->
@@ -1516,7 +1528,9 @@ let initial_constraints
   Hashtbl.iter
     (fun nm s ->
        if not (Hashtbl.mem source_has_binaries nm) then
-         HornSolver.add_rule solver [|Hashtbl.find id_of_source nm|] No_binary)
+         ignore
+           (HornSolver.add_rule solver
+              [|Hashtbl.find id_of_source nm|] No_binary))
     u.M.s_packages;
   load_rules solver uids;
   if debug_time () then
@@ -1526,18 +1540,18 @@ let initial_constraints
 
 (**** Find constraints due to co-installability issues ****)
 
-let find_coinst_constraints st unchanged =
+let find_coinst_constraints st (unchanged, check_coinstallability) =
   Gc.set { (Gc.get ()) with Gc.space_overhead = 80 };
   if debug_gc () then begin
     Gc.full_major (); Gc.print_stat stderr; flush stderr
   end;
   let arch = st.arch in
-  let (t', u') = get_upgrade_state st unchanged in
+  let (t', u') = get_upgrade_state st unchanged check_coinstallability in
   if debug_coinst () then
     Format.eprintf "==================== %s@." arch;
   let step_t = Timer.start () in
   let problems =
-    if !check_coinstallability then
+    if check_coinstallability then
       Upgrade_common.find_problematic_packages
         ~check_new_packages:true t' u'
         (fun nm -> is_unchanged st unchanged nm)
@@ -1597,7 +1611,9 @@ let find_all_coinst_constraints solver id_offsets l =
       let (arch, st) = a.(i) in
       Task.async scheduler 
         (find_coinst_constraints st
-           (extract_unchanged_bin solver id_offsets arch))
+           (extract_unchanged_bin
+              solver id_offsets arch (HornSolver.assignment solver),
+            !check_coinstallability))
         (fun changes -> stop c i changes);
       if !n < max_proc then begin
         start c 0 0
@@ -1616,7 +1632,8 @@ let find_all_coinst_constraints solver id_offsets l =
            in
            let neg = offset_set neg in
            let s = offset_set s in
-           HornSolver.add_rule solver r (Conflict (neg, s));
+           let r' = HornSolver.add_rule solver r (Conflict (neg, s)) in
+           if IntSet.cardinal s > 1 then coinst_rules := r' :: !coinst_rules;
            if can_learn then learn_rule r neg s)
         changes
     end;
@@ -1662,8 +1679,7 @@ let output_arch_changes st unchanged =
 
 let output_arch_changes = Task.funct output_arch_changes
 
-let output_outcome solver id_of_source id_offsets t u l =
-  let unchanged = HornSolver.assignment solver in
+let output_outcome solver id_of_source id_offsets t u l unchanged =
   let is_unchanged src =
     BitVect.test unchanged (Hashtbl.find id_of_source src) in
   Hashtbl.iter
@@ -1687,17 +1703,17 @@ let output_outcome solver id_of_source id_offsets t u l =
   List.iter
     (fun (arch, st) ->
        Task.wait (output_arch_changes st
-                    (extract_unchanged_bin solver id_offsets arch)))
+                    (extract_unchanged_bin solver id_offsets arch unchanged)))
     l
 
 (**** Hint output ****)
 
-let cluster_packages st (unchanged, clusters) =
+let cluster_packages st (unchanged, clusters, check_coinstallability) =
   let clusters =
     List.map (fun (lst, id) -> (lst, (id, Union_find.elt id))) clusters
   in
   let merge (_, e1) (_, e2) = Union_find.merge e1 e2 min in
-  let (t, u) = get_upgrade_state st unchanged in
+  let (t, u) = get_upgrade_state st unchanged check_coinstallability in
   Upgrade_common.find_clusters t u
     (fun nm -> is_unchanged st unchanged nm) clusters merge;
   List.map (fun (_, (id, elt)) -> (id, Union_find.get elt)) clusters
@@ -1710,14 +1726,16 @@ type 'a easy_hint =
     mutable h_live : bool;
     h_id : int }
 
-let generate_small_hints solver id_offsets l buckets =
+let generate_small_hints solver id_offsets l buckets subset_opt =
   let to_consider = ref [] in
   let buckets_by_id = Hashtbl.create 17 in
   let n = ref 0 in
   ListTbl.iter
     (fun (src, arch) lst ->
        let info =
-         { h_names = [(src, arch)]; h_pkgs = lst; h_live = true; h_id = !n } in
+         { h_names = [((src, arch), List.for_all snd lst)];
+           h_pkgs = List.map fst lst; h_live = true; h_id = !n }
+       in
        let elt = Union_find.elt info in
        Hashtbl.add buckets_by_id !n elt;
        incr n;
@@ -1737,7 +1755,10 @@ let generate_small_hints solver id_offsets l buckets =
 
   Task.iter l
     (fun (arch, st) ->
-       let unchanged = extract_unchanged_bin solver id_offsets arch in
+       let unchanged =
+         extract_unchanged_bin
+           solver id_offsets arch (HornSolver.assignment solver)
+       in
        let clusters = ref [] in
        List.iter
          (fun (info, elt) ->
@@ -1745,9 +1766,10 @@ let generate_small_hints solver id_offsets l buckets =
               List.filter (fun (_, arch') -> arch = arch') info.h_pkgs in
             if l <> [] then
               clusters :=
-                (List.map fst l, (Union_find.get elt).h_id) :: !clusters)
+                (List.map (fun (nm, _) -> nm) l, (Union_find.get elt).h_id)
+                :: !clusters)
          !to_consider;
-       cluster_packages st (unchanged, !clusters))
+       cluster_packages st (unchanged, !clusters, !check_coinstallability))
     (fun lst ->
        List.iter
          (fun (id, id') ->
@@ -1755,9 +1777,7 @@ let generate_small_hints solver id_offsets l buckets =
                   (Hashtbl.find buckets_by_id id'))
          lst);
 
-  let lst =
-    List.filter (fun info -> info.h_live) (List.map fst !to_consider) in
-  let lst = List.map (fun info -> info.h_names) lst in
+  let (++) x f = f x in
   let compare_elt = Util.compare_pair compare compare in
   let rec compare_lst l1 l2 =
     match l1, l2 with
@@ -1770,11 +1790,20 @@ let generate_small_hints solver id_offsets l buckets =
     | v1 :: r1, v2 :: r2 ->
         let c = compare_elt v1 v2 in if c = 0 then compare_lst r1 r2 else c
   in
-  let lst = List.map (fun names -> List.sort compare_elt names) lst in
-  let lst = List.sort compare_lst lst in
-  List.stable_sort (fun l l' -> compare (List.length l) (List.length l')) lst
+  !to_consider
+  ++ List.map fst
+  ++ List.filter (fun info -> info.h_live)
+  ++ List.map
+       (fun info ->
+          info.h_names
+          ++ List.filter (fun (_, hide) -> not hide)
+          ++ List.map fst
+          ++ List.sort compare_elt)
+  ++ List.filter (fun l -> l <> [])
+  ++ List.sort compare_lst
+  ++ List.stable_sort (fun l l' -> compare (List.length l) (List.length l'))
 
-let collect_changes st unchanged =
+let collect_changes st (unchanged, subset) =
   let changes = ref [] in
   let u' = st.unstable in
   let t' = st.testing in
@@ -1783,7 +1812,7 @@ let collect_changes st unchanged =
        let nm = p.M.package in
        if not (is_unchanged st unchanged nm) then begin
          let (src, v) = p.M.source in
-         changes := (src, nm) :: !changes
+         changes := (src, nm, is_unchanged st subset nm) :: !changes
        end)
     u'.M.packages_by_num;
   Hashtbl.iter
@@ -1795,24 +1824,30 @@ let collect_changes st unchanged =
          not (ListTbl.mem u'.M.packages_by_name nm)
        then begin
          let (src, v) = p.M.source in
-         changes := (src, nm) :: !changes
+         changes := (src, nm, is_unchanged st subset nm) :: !changes
        end)
     t'.M.packages_by_num;
   List.rev !changes
 
 let collect_changes = Task.funct collect_changes
 
-let generate_hints solver id_of_source id_offsets t u l extra_lines pkg_opt =
+let generate_hints
+      solver id_of_source id_offsets t u l extra_lines pkg_opt subset_opt =
   let hint_t = Timer.start () in
+  let unchanged = HornSolver.assignment solver in
+  let subset = match subset_opt with Some s -> s | None -> unchanged in
   let changes = ListTbl.create 101 in
   Task.iteri l
     (fun (arch, st) ->
        (arch,
-        collect_changes st (extract_unchanged_bin solver id_offsets arch)))
+        collect_changes st
+          (extract_unchanged_bin solver id_offsets arch unchanged,
+           extract_unchanged_bin solver id_offsets arch subset)))
     (fun arch lst ->
-       List.iter (fun (src, nm) -> ListTbl.add changes src (nm, arch)) lst);
+       List.iter
+         (fun (src, nm, hide) -> ListTbl.add changes src ((nm, arch), hide))
+         lst);
   let buckets = ListTbl.create 101 in
-  let unchanged = HornSolver.assignment solver in
   let is_unchanged src =
     BitVect.test unchanged (Hashtbl.find id_of_source src) in
   ListTbl.iter
@@ -1823,11 +1858,12 @@ let generate_hints solver id_of_source id_offsets t u l extra_lines pkg_opt =
            l
        else
          List.iter
-           (fun ((_, arch) as info) ->
+           (fun (((_, arch), _) as info) ->
               ListTbl.add buckets (src, arch) info)
            l)
     changes;
-  let hints = generate_small_hints solver id_offsets l buckets in
+  let hints =
+    generate_small_hints solver id_offsets l buckets subset_opt in
   if debug_time () then
     Format.eprintf "Generating hints: %f@." (Timer.stop hint_t);
   let print_pkg f src arch =
@@ -1848,11 +1884,11 @@ let generate_hints solver id_of_source id_offsets t u l extra_lines pkg_opt =
   in
   let print_hint f l =
     let should_show =
-      (!all_hints || List.length l > 1)
-        &&
+      !all_hints || List.length l > 1 || subset_opt <> None
+          ||
       match pkg_opt with
         Some pkg -> List.mem_assoc pkg l
-      | None     -> true
+      | None     -> false
     in
     if should_show then begin
       Format.fprintf f "easy";
@@ -1909,7 +1945,8 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
   Task.iter_ordered
     (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l)
     (fun (arch, st) ->
-       heidi_arch st (extract_unchanged_bin solver id_offsets arch))
+       heidi_arch st (extract_unchanged_bin
+                        solver id_offsets arch (HornSolver.assignment solver)))
     (fun lines -> output_string ch lines);
   let unchanged = HornSolver.assignment solver in
   let is_unchanged src =
@@ -1992,7 +2029,6 @@ let analyze_migration
       Format.fprintf f "%s/%s" name arch
   in
   let output_hints () =
-    if !hint_file = "" then hint_file := "-";
     let source_bugs = Hashtbl.create 17 in
     List.iter
       (fun (p, reason) ->
@@ -2051,7 +2087,8 @@ let analyze_migration
         (List.rev !lst)
     in
     let lst = List.filter (fun s -> s <> "") lst in
-    generate_hints solver id_of_source id_offsets t u l lst (Some nm)
+    if !hint_file = "" then hint_file := "-";
+    generate_hints solver id_of_source id_offsets t u l lst (Some nm) None
   in
   let rec migrate () =
     if BitVect.test assign id then begin
@@ -2101,16 +2138,38 @@ let analyze_migration
 
 (**** Main part of the program ****)
 
+let print_equivocal_packages uids solver id_of_source id_offsets t u l =
+  assert !check_coinstallability;
+  find_all_coinst_constraints solver id_offsets l;
+  let coinst_unchanged = BitVect.copy (HornSolver.assignment solver) in
+  switch_to_installability solver;
+  clear_upgrade_states l;
+  find_all_coinst_constraints solver id_offsets l;
+  save_rules uids;
+  let inst_unchanged = HornSolver.assignment solver in
+  assert (BitVect.implies inst_unchanged coinst_unchanged);
+  let equivocal_pkgs =
+    BitVect.(lor) (BitVect.lnot coinst_unchanged) inst_unchanged in
+  if debug_outcome () then
+    output_outcome solver id_of_source id_offsets t u l equivocal_pkgs;
+  if !hint_file = "" then hint_file := "-";
+  generate_hints solver id_of_source id_offsets t u l
+    ["# equivocal packages:"] None (Some equivocal_pkgs)
+
 let f () =
   Util.enable_messages false;
   let (dates, urgencies, hints, t, u, testing_bugs, unstable_bugs, l,
        id_of_source, source_of_id, src_uid) as info =
     load_all_files () in
 
+  if !equivocal then check_coinstallability := true;
+
   let (uids, solver, perform_deferred, is_fake, id_offsets, get_name_arch) =
     initial_constraints info in
 
-  begin match !to_migrate with
+  if !equivocal then
+    print_equivocal_packages uids solver id_of_source id_offsets t u l
+  else begin match !to_migrate with
     Some p ->
       analyze_migration
         uids solver id_of_source id_offsets t u l get_name_arch p
@@ -2121,10 +2180,11 @@ let f () =
       save_rules uids;
 
       if debug_outcome () then
-        output_outcome solver id_of_source id_offsets t u l;
+        output_outcome solver id_of_source id_offsets t u l
+          (HornSolver.assignment solver);
 
       if compute_hints () then
-        generate_hints solver id_of_source id_offsets t u l [] None;
+        generate_hints solver id_of_source id_offsets t u l [] None None;
 
       if !heidi_file <> "" then
         print_heidi solver id_of_source id_offsets is_fake l t u;
@@ -2186,6 +2246,9 @@ let spec =
    "--migrate",
    Arg.String (fun p -> to_migrate := Some p),
    "PACKAGE Explain what it takes to migrate PACKAGE";
+   "--equivocal",
+   Arg.Unit (fun () -> equivocal := true),
+   " List packages whose behavior depends on the migration policy";
    "--offset",
    Arg.Int (fun n -> offset := n),
    "N Move N days into the future";
@@ -2234,8 +2297,8 @@ then begin
   exit 1
 end;
 if
-  !heidi_file = "" && !hint_file = "" &&
-  !excuse_file = "" && !to_migrate = None
+  !heidi_file = "" && !hint_file = "" && !excuse_file = "" &&
+  !to_migrate = None && not !equivocal
 then
   Format.eprintf "Warning: no output option has been provided.@.";
 f ()

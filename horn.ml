@@ -48,6 +48,8 @@ module type SOLVER = sig
 
   type var = int
 
+  type id
+
   val initialize : ?signal_assign:(var array -> reason -> unit) -> int -> state
   val extend : state -> int -> unit
   val set_var_printer : state -> (Format.formatter -> var -> unit) -> unit
@@ -57,12 +59,13 @@ module type SOLVER = sig
   val reason : state -> var -> (var array * reason) option
   val assumptions : state -> var -> reason list
 
-  val add_rule : state -> var array -> reason -> unit
+  val add_rule : state -> var array -> reason -> id
   val assume : state -> var -> reason -> unit
+  val retract_rule : state -> id -> unit
   val retract_assumptions : state -> var -> unit
 end
 
-module F (X : S) : SOLVER  with type reason = X.reason = struct
+module F (X : S) : SOLVER with type reason = X.reason = struct
 
 (* Variables *)
 type var = int
@@ -72,6 +75,8 @@ type reason = X.reason
 type clause =
   { lits : var array;
     reason : reason }
+
+type id = clause
 
 type explanation = Assumption of reason | Clause of clause | Unconstrained
 
@@ -144,7 +149,8 @@ if len <= 10 then d.(len - 1) <- d.(len - 1) + 1;
   done;
   let p = lits.(0) in
   st.st_backward.(p) <- r :: st.st_backward.(p);
-  propagate_in_clause st r
+  propagate_in_clause st r;
+  r
 
 let assume st p reason =
 incr n2;
@@ -163,18 +169,39 @@ let rec propagate_retraction st l p =
          Format.eprintf "Considering rule %a:@." (print_clause st) r;
        match st.st_reason.(r.lits.(0)) with
          Assumption _ | Unconstrained ->
-           if debug_retract () then
-             Format.eprintf "  does not apply.@.";
+           if debug_retract () then Format.eprintf "  does not apply.@.";
            l
-       | Clause r' ->
-           if debug_retract () then
-             Format.eprintf "  rule %a was applied; still unit: %b.@."
-               (print_clause st) r' (is_unit st r');
-           if not (is_unit st r') then
-             propagate_retraction st l r'.lits.(0)
-           else
-             l)
+       | Clause r' when r' != r ->
+           if debug_retract () then Format.eprintf "  does not apply.@.";
+           l
+       | Clause _ ->
+           if debug_retract () then Format.eprintf "  the rule was applied.@.";
+           propagate_retraction st l r.lits.(0))
     l st.st_forward.(p)
+
+let update_after_retraction st p =
+  let l = propagate_retraction st [] p in
+  (* Then, we see whether other rules apply instead. *)
+  List.iter
+    (fun q ->
+       if st.st_reason.(q) = Unconstrained then
+         List.iter (fun r -> propagate_in_clause st r) st.st_backward.(q))
+    l;
+  if debug_retract () then
+    List.iter
+      (fun q ->
+         match st.st_reason.(q) with
+           Unconstrained ->
+             ()
+         | Assumption _ ->
+             Format.eprintf
+               "Variable %a constrained for another reason (assumption).@."
+               (print_var st) q
+         | Clause r ->
+             Format.eprintf
+               "Variable %a constrained for another reason (%a).@."
+               (print_var st) q (print_clause st) r)
+      l
 
 let retract_assumptions st p =
   (* We remove all the assumptions associated to variable p *)
@@ -182,30 +209,24 @@ let retract_assumptions st p =
   match st.st_reason.(p) with
     Assumption _ ->
       (* If variable p were directly constrained by an assumption,
-         we recursevely cancel the consequences of the this
+         we recursively cancel the consequences of the this
          assumption. *)
-      let l = propagate_retraction st [] p in
-      (* Then, we see whether other rules apply instead. *)
-      List.iter
-        (fun q ->
-           if st.st_reason.(q) = Unconstrained then
-             List.iter (fun r -> propagate_in_clause st r) st.st_backward.(q))
-        l;
-      if debug_retract () then
-        List.iter
-          (fun q ->
-             match st.st_reason.(q) with
-               Unconstrained ->
-                 ()
-             | Assumption _ ->
-                 Format.eprintf
-                   "Variable %a constrained for another reason (assumption).@."
-                   (print_var st) q
-             | Clause r ->
-                 Format.eprintf
-                   "Variable %a constrained for another reason (%a).@."
-                   (print_var st) q (print_clause st) r)
-          l
+      update_after_retraction st p
+  | _ ->
+      ()
+
+let retract_rule st r =
+  let lits = r.lits in
+  let l = Array.length lits in
+  for i = 1 to l - 1 do
+    let p = lits.(i) in
+    st.st_forward.(p) <- List.filter (fun r' -> r' != r) st.st_forward.(p)
+  done;
+  let p = lits.(0) in
+  st.st_backward.(p) <- List.filter (fun r' -> r' != r) st.st_backward.(p);
+  match st.st_reason.(p) with
+    Clause r' when r == r' ->
+      update_after_retraction st p
   | _ ->
       ()
 
