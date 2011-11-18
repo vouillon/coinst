@@ -761,14 +761,29 @@ let analyze_installability dist1_state dist dist2_state =
         assert false
   in
   let broken_pkgs = ref PSet.empty in
+
+  let to_consider = ListTbl.create 101 in
+  let add_package p f =
+    let f = Formula.normalize f in
+    ListTbl.add to_consider f p
+  in
   PTbl.iteri
     (fun p f ->
        if
          not (Formula.implies Formula._true f) &&
-         not (is_installable p) && was_installable p
+         (Formula.implies f Formula._false ||
+          Formula.fold (fun _ n -> n + 1) f 0 > 1)
        then
-         broken_pkgs := PSet.add p !broken_pkgs)
+         add_package p f)
     deps';
+  ListTbl.iter
+    (fun f l ->
+       let p = List.hd l in
+       if not (is_installable p) then begin
+         let l = List.filter was_installable l in
+         broken_pkgs := List.fold_right PSet.add l !broken_pkgs
+       end)
+    to_consider;
   let pr_t = Timer.start () in
   let problems =
     if PSet.is_empty !broken_pkgs then
