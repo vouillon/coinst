@@ -18,6 +18,7 @@
  *)
 
 (*
+- prioritize rules? (i386 first)
 - remove hint: just remove the package from unstable
   ===> temporarily assume this package is not supported!
        (big warning)
@@ -372,71 +373,111 @@ type reason =
   | Source_not_propagated
   | Atomic
 
-let print_pkg_ref f (nm, t, u) =
+module L = Layout
+let (&) = L.(&)
+
+let print_pkg_ref (nm, t, u) =
   match t, u with
-    true,  true  -> Format.fprintf f "%s" nm
-  | true,  false -> Format.fprintf f "%s (testing)" nm
-  | false, true  -> Format.fprintf f "%s (sid)" nm
+    true,  true  -> L.s nm
+  | true,  false -> L.s nm & L.s " (testing)"
+  | false, true  -> L.s nm & L.s " (sid)"
   | false, false -> assert false
 
-let print_cstr f r =
+let print_cstr r =
   match r with
     Upgrade_common.R_depends (pkg, dep, pkgs) ->
-      Format.fprintf f "%a depends on %a {%a}"
-        print_pkg_ref pkg M.print_package_dependency [dep]
-        (Util.print_list print_pkg_ref ", ") pkgs
+      print_pkg_ref pkg & L.s " depends on " &
+      L.format M.print_package_dependency [dep] &
+      L.s " {" & L.seq ", " print_pkg_ref pkgs & L.s "}"
   | Upgrade_common.R_conflict (pkg, confl, pkg') ->
-      Format.fprintf f "%a conflicts with %a {%a}"
-        print_pkg_ref pkg
-        M.print_package_dependency (List.map (fun c -> [c]) confl)
-        print_pkg_ref pkg'
+      print_pkg_ref pkg & L.s " conflicts with " &
+      L.format M.print_package_dependency (List.map (fun c -> [c]) confl) &
+      L.s " {" & print_pkg_ref pkg' & L.s "}"
 
-let print_explanation f expl = Util.print_list print_cstr "; " f expl
+let print_explanation expl =
+  L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl)
 
-let print_reason get_name_arch f (lits, reason) =
+let (++) x f = f x
+
+let print_binaries conj print_binary s =
+  let l =
+    IntSet.elements s
+    ++ List.map print_binary
+    ++ List.sort (Util.compare_pair compare compare)
+    ++ List.map snd
+  in
+  match l with
+    []     -> L.emp
+  | [p]    -> p
+  | [p; q] -> p & L.s " " & L.s conj & L.s " " & q
+  | _      -> L.seq ", " (fun x -> x)
+                (l
+                 ++ List.rev
+                 ++ (fun l ->
+                       match l with
+                         [] | [_]           -> l
+                       | p :: (_ :: _ as r) -> (L.s conj & L.s " " & p) :: r)
+                 ++ List.rev)
+
+let print_reason capitalize print_binary print_source lits reason =
+  let c = if capitalize then String.capitalize else String.uncapitalize in
   match reason with
     Unchanged ->
-      Format.fprintf f "no update"
+      L.s (c "No update")
   | Blocked (kind, who) ->
-      Format.fprintf f "not touching package due to %s request by %s" kind who
+      L.s (c "Left unchanged due to ") & L.s kind &
+      L.s " request by " & L.s who & L.s "."
   | Too_young (cur_ag, req_ag) ->
-      Format.fprintf f "only %d days old; must be %d days old to go in"
-        cur_ag req_ag
+      L.s (c "Only ") & L.i cur_ag & L.s " days old; must be " & L.i req_ag &
+      L.s " days old to go in."
   | More_bugs s ->
-      Format.fprintf f "has new bugs: %a"
-        (Util.print_list (fun f s -> Format.fprintf f "#%s" s) ", ")
-        (StringSet.elements s)
+      L.s (c "Has new bugs: ") &
+      L.seq ", " (fun s -> L.anchor (bug_url ^ s) (L.s "#" & L.s s))
+        (StringSet.elements s) &
+      L.s "."
   | Conflict (s, s', explanation) ->
       begin match IntSet.cardinal s with
         0 ->
-          Format.fprintf f "a dependency cannot be satisfied"
+          L.s (c "A dependency cannot be satisfied")
       | 1 ->
-          Format.fprintf f "needs binary package %s"
-            (fst (get_name_arch (IntSet.choose s)));
+          L.s (c "Needs binary package ") &
+          snd (print_binary (IntSet.choose s))
       | _ ->
-          Format.fprintf f "needs one of the binary packages";
-          IntSet.iter
-            (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s
-      end;
-      if IntSet.cardinal s' > 1 || not (IntSet.mem lits.(0) s') then begin
-        Format.fprintf f " (would break co-installability of packages";
-        IntSet.iter
-          (fun id -> Format.fprintf f " %s" (fst (get_name_arch id))) s';
-        Format.fprintf f ")"
-      end;
-      Format.fprintf f ": %a" print_explanation explanation
+          L.s (c "Needs one of the binary packages ") &
+          print_binaries "or" print_binary s
+      end
+        &
+      begin
+        if IntSet.cardinal s' > 1 || not (IntSet.mem lits.(0) s') then begin
+          if IntSet.cardinal s' = 1 then begin
+            L.s " (would break installability of package " &
+            snd (print_binary (IntSet.choose s')) & L.s ")"
+          end else begin
+            L.s " (would break co-installability of packages " &
+            print_binaries "and" print_binary s' & L.s ")"
+          end
+        end else
+          L.emp
+      end
+        &
+      L.s ":" & print_explanation explanation
   | Not_yet_built (src, v1, v2) ->
-      Format.fprintf f "not yet rebuilt (source %s %a rather than %a)"
-        src M.print_version v1 M.print_version v2
+      L.s (c "Not yet rebuilt (source ") &
+      L.s src & L.s " version " & L.format M.print_version v1 &
+      L.s " rather than " & L.format M.print_version v2 & L.s ")."
   | Source_not_propagated ->
-      let (nm, _) = get_name_arch lits.(1) in
-      Format.fprintf f "source package %s cannot be propagated" nm
+      L.s (c "Source package ") & print_source lits.(1) &
+      L.s " cannot be propagated."
   | Atomic | Binary_not_propagated ->
-      let (bin, arch) = get_name_arch lits.(1) in
-      Format.fprintf f "binary package %s/%s cannot be propagated"
-        bin arch
+      L.s (c "Binary package ") & snd (print_binary lits.(1)) &
+      L.s " cannot be propagated."
   | No_binary ->
-      Format.fprintf f "no associated binary package"
+      L.s (c "No associated binary package.")
+
+let print_reason' get_name_arch lits reason =
+  let print_binary id = let (nm, _) = get_name_arch id in (nm, L.s nm) in
+  let print_source id = let (nm, _) = get_name_arch id in L.s nm in
+  print_reason false print_binary print_source lits reason
 
 (**** Constraint solver ****)
 
@@ -469,7 +510,7 @@ let load_rules solver uids =
          if n > 1 then coinst_rules := r :: !coinst_rules
        end)
     rules;
-  learnt_rules := rules
+  learnt_rules := List.rev rules
 
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
@@ -527,8 +568,6 @@ let binary_names = Task.funct binary_names
 
 let output_reasons l solver source_of_id id_offsets filename =
   let t = Timer.start () in
-  let ch = if filename = "-" then stdout else open_out filename in
-  let f = Format.formatter_of_out_channel ch in
 
   let blocked_source = Hashtbl.create 1024 in
   let sources = ref [] in
@@ -576,66 +615,51 @@ let output_reasons l solver source_of_id id_offsets filename =
          (fun (id, nm, src) -> Hashtbl.add name_of_binary id (nm, arch, src))
          l);
 
-  let print_binary f id =
+  let print_binary id =
     let (nm, arch, source) = Hashtbl.find name_of_binary id in
-    if not (Hashtbl.mem blocked_source source) then begin
+    let txt =
       if source = nm then
-        Format.fprintf f "%s" nm
+        L.s nm
       else
-        Format.fprintf f "%s (from %s)" nm source
-    end else begin
-      if source = nm then
-        Format.fprintf f "<a href=\"#%s\">%s</a>" source nm
-      else
-        Format.fprintf f "<a href=\"#%s\">%s (from %s)</a>" source nm source
-    end
+        (L.s nm & L.s " (from " & L.s source & L.s ")")
+    in
+    if not (Hashtbl.mem blocked_source source) then (nm, txt) else
+    (nm, L.anchor ("#" ^ source) txt)
   in
+  let print_source id = assert false in
 
-  if !sources <> [] then begin
-    Format.fprintf f "<ul>@.";
-    List.iter
+  let lst =
+    L.dl (L.list
       (fun (nm, reasons) ->
-         Format.fprintf f "<li><a id=\"%s\">%s</a>@." nm nm;
-         Format.fprintf f "<ul>@.";
-         let binaries = ref [] in
-         List.iter
-           (fun r ->
-              if interesting_reason solver r then
-              match snd r with
-                Blocked (kind, who) ->
-                  Format.fprintf f
-                    "<li>Left unchanged due to %s request by %s.@." kind who
-              | Too_young (cur_ag, req_ag) ->
-                  Format.fprintf f
-                    "<li>Only %d days old. Must be %d days old to go in.@."
-                    cur_ag req_ag
-              | Binary_not_propagated ->
-                  binaries := (fst r).(1) :: !binaries
-              | More_bugs s ->
-                  Format.fprintf f "<li>Has new bugs: %a.@."
-                    (Util.print_list
-                       (fun f s ->
-                          Format.fprintf f "<a href=\"%s%s\">#%s</a>"
-                            bug_url s s)
-                       ", ")
-                    (StringSet.elements s)
-              | No_binary ->
-                  Format.fprintf f "<li>No associated binary package.@."
-              | _ ->
-                  assert false)
-           reasons;
-         let binaries = Util.sort_and_uniq compare !binaries in
-         let binaries =
-           List.map
-             (fun id ->
-                let (name, arch, _) = Hashtbl.find name_of_binary id in
-                (name, (arch, id)))
-             binaries
+         let src_reasons =
+           L.list
+             (fun r ->
+                if
+                  interesting_reason solver r
+                    &&
+                  snd r <> Binary_not_propagated
+                then
+                  L.li (print_reason true print_binary print_source
+                          (fst r) (snd r))
+                else
+                  L.emp)
+             reasons
          in
+         let (++) v f = f v in
          let binaries =
-           List.sort
-             (Util.compare_pair compare (Util.compare_pair compare compare))
-             binaries
+           reasons
+           ++ List.filter
+                (fun r ->
+                   interesting_reason solver r &&
+                   snd r = Binary_not_propagated)
+           ++ List.map (fun (lits, _) -> lits.(1))
+           ++ Util.sort_and_uniq compare
+           ++ List.map
+                (fun id ->
+                   let (name, arch, _) = Hashtbl.find name_of_binary id in
+                   (name, (arch, id)))
+           ++ List.sort
+                (Util.compare_pair compare (Util.compare_pair compare compare))
          in
          let not_yet_built =
            Util.group compare
@@ -647,14 +671,14 @@ let output_reasons l solver source_of_id id_offsets filename =
                     (HornSolver.direct_reasons solver id))
                 binaries)
          in
-         List.iter
-           (fun (nm', l) ->
-              Format.fprintf f "<li>Binary package %s not yet built on %a.@."
-                nm'
-                (Util.print_list
-                   (fun f (arch, _) -> Format.fprintf f "%s" arch) ", ")
-                l)
-           not_yet_built;
+         let build_reasons =
+           L.list
+             (fun (nm', l) ->
+                L.li (L.s "Binary package " & L.s nm' &
+                      L.s " not yet built on " &
+                      L.seq ", " (fun (arch, _) -> L.s arch) l & L.s "."))
+             not_yet_built
+         in
          let with_new_bugs =
            Util.group compare
              (List.flatten
@@ -669,19 +693,21 @@ let output_reasons l solver source_of_id id_offsets filename =
                            (HornSolver.direct_reasons solver id)))
                    binaries))
          in
-         List.iter
-           (fun (nm', s) ->
-              let s = List.hd s in (* Same bugs on all archs. *)
-              if nm' <> nm then
-                Format.fprintf f "<li>Binary package %s has new bugs: %a.@."
-                  nm'
-                  (Util.print_list
-                     (fun f s ->
-                        Format.fprintf f "<a href=\"%s%s\">#%s</a>"
-                          bug_url s s)
-                     ", ")
-                  (StringSet.elements s))
-           with_new_bugs;
+         let bug_reasons =
+           L.list
+             (fun (nm', s) ->
+                let s = List.hd s in (* Same bugs on all archs. *)
+                if nm' <> nm then
+                  L.li (L.s "Binary package " & L.s nm' &
+                        L.s " has new bugs: " &
+                        L.seq ", "
+                          (fun s -> L.anchor (bug_url ^ s) (L.s "#" & L.s s))
+                          (StringSet.elements s) &
+                        L.s ".")
+                else
+                  L.emp)
+           with_new_bugs
+         in
          let binaries =
            List.filter
              (fun (_, (_, bin)) ->
@@ -694,60 +720,34 @@ let output_reasons l solver source_of_id id_offsets filename =
                   (HornSolver.direct_reasons solver bin))
                 binaries
          in
-         List.iter
-           (fun (nm, (arch, id)) ->
-              Format.fprintf f "<li>Binary package %s/%s not propagated:@."
-                nm arch;
-             Format.fprintf f "<ul>@.";
-             List.iter
-               (fun r ->
-                  if interesting_reason solver r then
-                  match snd r with
-                    Conflict (s, s', explanation) ->
-(*XXXXXXXXXXXX*)
-                      begin match IntSet.cardinal s with
-                        0 ->
-                          Format.fprintf f "<li>Dependency not satisfied"
-                      | 1 ->
-                          Format.fprintf f "<li>Needs binary package %a"
-                            print_binary (IntSet.choose s)
-                      | _ ->
-                          Format.fprintf f
-                            "<li>Needs one of the binary packages";
-                          IntSet.iter
-                            (fun id ->
-                               Format.fprintf f " %a" print_binary id)
-                            s
-                      end;
-                      if IntSet.cardinal s' = 1 then begin
-                        if IntSet.mem id s' then
-                          Format.fprintf f ".@."
-                        else begin
-                          Format.fprintf f
-                            ": would break binary package %a.@."
-                            print_binary (IntSet.choose s')
-                        end
-                      end else begin
-                        Format.fprintf f
-                          ": would break co-installability of binary packages";
-                        IntSet.iter
-                          (fun id -> Format.fprintf f " %a" print_binary id)
-                          s';
-                        Format.fprintf f ".@."
-                      end
-                  | More_bugs _ ->
-                      ()
-                  | Not_yet_built _ ->
-                      ()
-                  | _ ->
-                      assert false)
-               (HornSolver.direct_reasons solver id);
-             Format.fprintf f "</ul>@.")
-           binaries;
-         Format.fprintf f "</ul>@.")
-      (List.sort (fun (nm1, _) (nm2, _) -> compare nm1 nm2) !sources);
-    Format.fprintf f "</ul>@."
-  end;
+         let bin_reasons =
+           L.list
+             (fun (nm, (arch, id)) ->
+                let reasons =
+               L.list
+                 (fun r ->
+                    if not (interesting_reason solver r) then L.emp else
+                    match snd r with
+                      Conflict (s, s', explanation) ->
+                        L.li (print_reason true print_binary print_source
+                                (fst r) (snd r))
+                    | More_bugs _ | Not_yet_built _ ->
+                        L.emp
+                    | _ ->
+                        assert false)
+                 (HornSolver.direct_reasons solver id);
+                in
+                L.li (L.s "Binary package " & L.s nm & L.s "/" & L.s arch &
+                      L.s " not propagated:" & L.ul reasons))
+             binaries
+         in
+         L.dli ~id:nm (L.s nm)
+           (L.ul (src_reasons & build_reasons & bug_reasons & bin_reasons)))
+      (List.sort (fun (nm1, _) (nm2, _) -> compare nm1 nm2) !sources))
+  in
+
+  let ch = if filename = "-" then stdout else open_out filename in
+  L.print (new L.html_printer ch "Explanations") lst;
   if filename <> "-" then close_out ch;
   if debug_time () then
     Format.eprintf "Writing excuse file: %f@." (Timer.stop t)
@@ -1313,8 +1313,10 @@ let initial_constraints
     if reason <> Unchanged && verbose () then begin
       let id = r.(0) in
       let (nm, arch) = get_name_arch id in
-      Format.eprintf "Skipping %d - %s (%s): %a@."
-        id nm arch (print_reason get_name_arch) (r, reason)
+      L.print (new L.format_printer Format.err_formatter)
+        (L.s "Skipping " & L.i id & L.s " - " &
+         L.s nm & L.s "/" & L.s arch & L.s ": " &
+         print_reason' get_name_arch r reason)
     end
   in
   let solver =
@@ -2000,26 +2002,28 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
 
 (**** Migration analyze ****)
 
-let rec collect_reasons solver s get_name_arch print_package id =
+let rec collect_reasons solver get_name_arch print_package id =
   match HornSolver.reason solver id with
     None ->
       let l = HornSolver.assumptions solver id in
-      let s = if List.length l > 1 then " " ^ s else s in
-      List.iter
-        (fun r ->
-           Format.printf "%sPackage %a: %a.@." s
-             print_package id
-             (print_reason get_name_arch) ([|id|], r))
-        l
+      L.s "Package " & L.format print_package id & L.s ": " &
+      print_reason' get_name_arch [|id|] (List.hd (List.rev l))
   | Some (l, r) ->
-      Format.printf "%sPackage %a: %a.@." s
-        print_package id
-        (print_reason get_name_arch) (l, r);
-      let len  = Array.length l in
-      let s = if len > 2 then s ^ "  " else s in
-      for i = 1 to len - 1 do
-        collect_reasons solver s get_name_arch print_package l.(i)
-      done
+      let cur =
+        L.s "Package " & L.format print_package id & L.s ": " &
+        print_reason' get_name_arch l r
+      in
+      let len = Array.length l in
+      let rem sep =
+        L.list
+          (fun id ->
+             sep (collect_reasons solver get_name_arch print_package id))
+          (Array.to_list (Array.sub l 1 (len - 1)))
+      in
+      if len <= 2 then
+        (cur & rem (fun x -> L.p & x))
+      else
+        (cur & L.ul (rem L.li))
 
 let rec collect_assumptions solver id =
   match HornSolver.reason solver id with
@@ -2118,21 +2122,26 @@ let analyze_migration
     if BitVect.test assign id then begin
       let s = collect_assumptions solver id in
       if IntSet.is_empty s then begin
-        Format.printf "Package %s cannot be migrated:@." nm;
-        collect_reasons solver "  " get_name_arch print_package id
+        L.print (new L.format_printer Format.std_formatter)
+          (L.s "Package " & L.s nm & L.s " cannot be migrated:" & L.p &
+           L.ul ~prefix:"  "
+             (L.li (collect_reasons solver get_name_arch print_package id)))
       end else begin
         if debug_migration () then
-          collect_reasons solver "  " get_name_arch print_package id;
+          L.print (new L.format_printer Format.err_formatter)
+            (collect_reasons solver get_name_arch print_package id);
         let p = IntSet.choose s in
         let ass = HornSolver.assumptions solver p in
         lst := List.rev_append (List.map (fun reason -> (p, reason)) ass) !lst;
         if debug_migration () then begin
-          Format.eprintf "Need the following:@.";
-          List.iter
-            (fun r ->
-               Format.eprintf "- %a: %a@."
-                 print_package p (print_reason get_name_arch) ([|p|], r))
-            ass
+          L.print (new L.format_printer Format.err_formatter)
+            (L.s "Need the following:" &
+             L.ul
+               (L.list
+                  (fun r ->
+                     L.li (L.format print_package p & L.s ": " &
+                           print_reason' get_name_arch [|p|] r))
+                  ass))
         end;
         HornSolver.retract_assumptions solver p;
         migrate ()

@@ -44,7 +44,7 @@ let compute_dependencies_and_conflicts dist =
       (fun p ->
          Formula.conjl
            (List.map (fun l' -> Formula.lit_disj (Package.of_index_list l'))
-           d.(Package.index p)))
+              d.(Package.index p)))
   in
   (deps, confl)
 

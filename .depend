@@ -33,6 +33,7 @@
 ./quotient.cmo: util.cmi repository.cmi ./quotient.cmi
 ./quotient.cmx: util.cmx repository.cmx ./quotient.cmi
 ./debug.cmi:
+./layout.cmi:
 ./bytearray.cmo: ./bytearray.cmi
 ./bytearray.cmx: ./bytearray.cmi
 ./parallel.cmo: task.cmi file.cmi deb_lib.cmi
@@ -42,6 +43,8 @@
 ./api.cmx: solver.cmx ./api.cmi
 ./horn.cmo: util.cmi debug.cmi ./horn.cmi
 ./horn.cmx: util.cmx debug.cmx ./horn.cmi
+./layout.cmo: ./layout.cmi
+./layout.cmx: ./layout.cmi
 ./conflicts.cmo: repository.cmi quotient.cmi
 ./conflicts.cmx: repository.cmx quotient.cmx
 ./coinst_common.cmo: repository.cmi quotient.cmi debug.cmi api.cmi \
@@ -72,6 +75,6 @@
 ./graph.cmx: repository.cmx quotient.cmx conflicts.cmx ./graph.cmi
 ./solver.cmi:
 ./transition.cmo: util.cmi upgrade_common.cmi task.cmi repository.cmi \
-    horn.cmi file.cmi debug.cmi deb_lib.cmi cache.cmi
+    layout.cmi horn.cmi file.cmi debug.cmi deb_lib.cmi cache.cmi
 ./transition.cmx: util.cmx upgrade_common.cmx task.cmx repository.cmx \
-    horn.cmx file.cmx debug.cmx deb_lib.cmx cache.cmx
+    layout.cmx horn.cmx file.cmx debug.cmx deb_lib.cmx cache.cmx

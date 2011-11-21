@@ -612,10 +612,8 @@ let normalize_set (l : int list) =
 (****)
 
 type deb_reason =
-    R_conflict
-    of int * int * (int * (string * (rel * version) option) list) option
-  | R_depends
-    of int * (string * (rel * (int * string * string option)) option) list
+    R_conflict of int * int * (int * dep) option
+  | R_depends of int * dep
 
 type reason = deb_reason
 
@@ -728,16 +726,18 @@ let generate_rules pool =
        (* Conflicts *)
        let c = List.map (fun p -> single p) p.conflicts in
        List.iter
-         (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
-         (normalize_set
-             (List.flatten
-                (List.map (fun p -> resolve_package_dep pool p) c)));
+         (fun cstr ->
+            List.iter
+              (fun n -> add_conflict pr (Some (p.num, [cstr])) [p.num; n])
+              (normalize_set (resolve_package_dep pool cstr)))
+         c;
        let c = List.map (fun p -> single p) p.breaks in
        List.iter
-         (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
-         (normalize_set
-             (List.flatten
-                (List.map (fun p -> resolve_package_dep pool p) c))))
+         (fun cstr ->
+            List.iter
+              (fun n -> add_conflict pr (Some (p.num, [cstr])) [p.num; n])
+              (normalize_set (resolve_package_dep pool cstr)))
+         c)
     pool.packages;
   Common.stop_generate st;
   Solver.propagate pr;
@@ -769,16 +769,18 @@ let generate_rules_restricted pool s =
     (* Conflicts *)
     let c = List.map (fun p -> single p) p.conflicts in
     List.iter
-      (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
-      (normalize_set
-          (List.flatten
-             (List.map (fun p -> resolve_package_dep pool p) c)));
+      (fun cstr ->
+         List.iter
+           (fun n -> add_conflict pr (Some (p.num, [cstr])) [p.num; n])
+           (normalize_set (resolve_package_dep pool cstr)))
+      c;
     let c = List.map (fun p -> single p) p.breaks in
     List.iter
-      (fun n -> add_conflict pr (Some (p.num, c)) [p.num; n])
-      (normalize_set
-          (List.flatten
-             (List.map (fun p -> resolve_package_dep pool p) c)))
+      (fun cstr ->
+         List.iter
+           (fun n -> add_conflict pr (Some (p.num, [cstr])) [p.num; n])
+           (normalize_set (resolve_package_dep pool cstr)))
+      c
   done;
   (* Cannot install two packages with the same name *)
   ListTbl.iter

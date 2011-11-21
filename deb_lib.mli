@@ -19,13 +19,11 @@
 
 type rel
 type version = int * string * string option
-type deb_reason =
-    R_conflict
-    of int * int * (int * (string * (rel * version) option) list) option
-  | R_depends
-    of int * (string * (rel * version) option) list
 type dep = (string * (rel * version) option) list
 type deps = dep list
+type deb_reason =
+    R_conflict of int * int * (int * dep) option
+  | R_depends of int * dep
 
 type p =
   { mutable num : int;
