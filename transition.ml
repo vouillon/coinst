@@ -42,7 +42,6 @@ PRIORITIES
       hints)
 
 EXPLANATIONS
-  ==> try to group packages dependencies from several architectures
   ==> three step: no age/bug constraints, bugs added, all
   ==> summaries; in particular, show packages that only wait for age,
       for bugs
@@ -143,6 +142,8 @@ module Timer = Util.Timer
 module ListTbl = Util.ListTbl
 module BitVect = Util.BitVect
 module Union_find = Util.Union_find
+
+let (>>) v f = f v
 
 (*XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX*)
 let _ =
@@ -405,14 +406,12 @@ let print_cstr r =
 let print_explanation expl =
   L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl)
 
-let (++) x f = f x
-
 let print_binaries conj print_binary s =
   let l =
     IntSet.elements s
-    ++ List.map print_binary
-    ++ List.sort (Util.compare_pair compare compare)
-    ++ List.map snd
+    >> List.map print_binary
+    >> List.sort (Util.compare_pair compare compare)
+    >> List.map snd
   in
   match l with
     []     -> L.emp
@@ -420,12 +419,12 @@ let print_binaries conj print_binary s =
   | [p; q] -> p & L.s " " & L.s conj & L.s " " & q
   | _      -> L.seq ", " (fun x -> x)
                 (l
-                 ++ List.rev
-                 ++ (fun l ->
+                 >> List.rev
+                 >> (fun l ->
                        match l with
                          [] | [_]           -> l
                        | p :: (_ :: _ as r) -> (L.s conj & L.s " " & p) :: r)
-                 ++ List.rev)
+                 >> List.rev)
 
 let print_reason capitalize print_binary print_source lits reason =
   let c = if capitalize then String.capitalize else String.uncapitalize in
@@ -745,37 +744,36 @@ let output_reasons
                   L.emp)
              reasons
          in
-         let (++) v f = f v in
          let binaries =
            reasons
-           ++ List.filter
+           >> List.filter
                 (fun r ->
                    interesting_reason solver r &&
                    snd r = Binary_not_propagated)
-           ++ List.map (fun (lits, _) -> lits.(1))
-           ++ Util.sort_and_uniq compare
-           ++ List.map
+           >> List.map (fun (lits, _) -> lits.(1))
+           >> Util.sort_and_uniq compare
+           >> List.map
                 (fun id ->
                    let (name, arch, _) = Hashtbl.find name_of_binary id in
                    (name, (arch, id)))
-           ++ List.sort
+           >> List.sort
                 (Util.compare_pair compare (Util.compare_pair compare compare))
          in
          let not_yet_built =
            binaries
-           ++
+           >>
            List.filter
              (fun (_, (_, id)) ->
                 List.exists
                   (fun (_, r) ->
                      match r with Not_yet_built _ -> true | _ -> false)
                   (HornSolver.direct_reasons solver id))
-           ++ List.map (fun (name, (arch, _)) -> (name, arch))
-           ++ List.sort (Util.compare_pair compare compare)
-           ++ Util.group compare
-           ++ List.map (fun (name, l) -> (l, name))
-           ++ List.sort (Util.compare_pair (Util.compare_list compare) compare)
-           ++ Util.group (Util.compare_list compare)
+           >> List.map (fun (name, (arch, _)) -> (name, arch))
+           >> List.sort (Util.compare_pair compare compare)
+           >> Util.group compare
+           >> List.map (fun (name, l) -> (l, name))
+           >> List.sort (Util.compare_pair (Util.compare_list compare) compare)
+           >> Util.group (Util.compare_list compare)
          in
          let build_reasons =
            L.list
@@ -819,38 +817,58 @@ let output_reasons
                   L.emp)
            with_new_bugs
          in
+         let compare_conflict r r' =
+           match r, r' with
+             Conflict (s1, s1', e1), Conflict (s2, s2', e2) ->
+               compare e1 e2
+           | _ ->
+               assert false
+         in
+         let compare_reason =
+           Util.compare_pair (fun x y -> 0) compare_conflict in
          let binaries =
-           List.filter
-             (fun (_, (_, bin)) ->
-                List.exists
-                  (fun r ->
-                     interesting_reason solver r &&
-                     match snd r with
-                       Not_yet_built _ | More_bugs _ -> false
-                     | _                             -> true)
-                  (HornSolver.direct_reasons solver bin))
-                binaries
+           binaries >> Util.group compare >>
+           List.map
+             (fun (nm, l) ->
+                l >>
+                List.map
+                  (fun (arch, id) ->
+                     (HornSolver.direct_reasons solver id
+                        >>
+                      List.filter
+                        (fun r ->
+                           interesting_reason solver r &&
+                           match snd r with
+                             Not_yet_built _ | More_bugs _ -> false
+                           | Conflict _                    -> true
+                           | _                             -> assert false)
+                         >>
+                      List.sort compare_reason,
+                      arch)) >>
+                List.sort (Util.compare_pair
+                             (Util.compare_list compare_reason) compare) >>
+                Util.group (Util.compare_list compare_reason) >>
+                List.map (fun (archs, l) -> (nm, (archs, l)))) >>
+           List.flatten
          in
          let bin_reasons =
            L.list
-             (fun (nm, (arch, id)) ->
+             (fun (nm, (reasons, archs)) ->
+                if reasons =  [] then L.emp else
                 let reasons =
-               L.list
-                 (fun r ->
-                    if not (interesting_reason solver r) then L.emp else
-                    match snd r with
-                      Conflict (s, s', explanation) ->
-                        L.li (print_reason true print_binary print_source
-                                (fst r) (snd r))
-                    | More_bugs _ | Not_yet_built _ ->
-                        L.emp
-                    | _ ->
-                        assert false)
-                 (HornSolver.direct_reasons solver id);
+                  L.list
+                    (fun (lits, r) ->
+                       match r with
+                         Conflict (s, s', explanation) ->
+                           L.li (print_reason true print_binary print_source
+                                   lits r)
+                       | _ ->
+                           assert false)
+                    reasons
                 in
-                L.li (L.s "Binary package " &
-                      L.code (L.s nm & L.s "/" & L.s arch) &
-                      L.s " not propagated:" & L.ul reasons))
+                L.li (L.s "Binary package " & L.code (L.s nm) &
+                      L.s " not propagated (on " & L.seq ", " L.s archs &
+                      L.s " at least):" & L.ul reasons))
              binaries
          in
          let version dist nm =
@@ -1853,20 +1871,19 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
                   (Hashtbl.find buckets_by_id id'))
          lst);
 
-  let (++) x f = f x in
   let compare_elt = Util.compare_pair compare compare in
   !to_consider
-  ++ List.map fst
-  ++ List.filter (fun info -> info.h_live)
-  ++ List.map
+  >> List.map fst
+  >> List.filter (fun info -> info.h_live)
+  >> List.map
        (fun info ->
           info.h_names
-          ++ List.filter (fun (_, hide) -> not hide)
-          ++ List.map fst
-          ++ List.sort compare_elt)
-  ++ List.filter (fun l -> l <> [])
-  ++ List.sort (Util.compare_list compare_elt)
-  ++ List.stable_sort (fun l l' -> compare (List.length l) (List.length l'))
+          >> List.filter (fun (_, hide) -> not hide)
+          >> List.map fst
+          >> List.sort compare_elt)
+  >> List.filter (fun l -> l <> [])
+  >> List.sort (Util.compare_list compare_elt)
+  >> List.stable_sort (fun l l' -> compare (List.length l) (List.length l'))
 
 let collect_changes st (unchanged, subset) =
   let changes = ref [] in
