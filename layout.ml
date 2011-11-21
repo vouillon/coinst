@@ -3,6 +3,8 @@ class type printer = object
   method start_doc : unit -> unit
   method end_doc : unit -> unit
   method text : string -> unit
+  method start_code : unit -> unit
+  method end_code : unit -> unit
   method change_p : unit -> unit
   method start_ul : string -> unit
   method li : unit -> unit
@@ -40,6 +42,8 @@ let formatter = Format.formatter_of_buffer buf
 let format f v p =
   Buffer.clear buf; f formatter v; Format.pp_print_flush formatter ();
   p#text (Buffer.contents buf)
+
+let code contents p = p#start_code (); contents p; p#end_code ()
 
 type in_anchor
 type outside_anchor
@@ -140,9 +144,17 @@ class html_printer ch title : printer = object (self)
     end;
     at_list_start <- false
   method start_a l =
-    if not in_p then self#change_p ();
+    if not in_p then begin
+      self#break (); output_string ch "<p>"; in_p <- true
+    end;
     output_string ch ("<a href=\"" ^ l ^ "\">")
   method end_a () = output_string ch "</a>"
+  method start_code () =
+    if not in_p then begin
+      self#break (); output_string ch "<p>"; in_p <- true
+    end;
+    output_string ch ("<code>")
+  method end_code () = output_string ch "</code>"
   method start_dl () = at_list_start <- true
   method dt id =
     if at_list_start then begin
@@ -220,6 +232,8 @@ class format_printer f : printer = object
     at_list_start <- false; in_p <- false
   method start_a l = ()
   method end_a l = ()
+  method start_code l = ()
+  method end_code l = ()
   method start_dl () = at_list_start <- true; assert false
   method dt id =
     if at_list_start then begin

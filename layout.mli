@@ -14,6 +14,7 @@ val s : string -> _ phrasing t
 val i : int -> _ phrasing t
 val format : (Format.formatter -> 'a -> unit) -> 'a -> _ phrasing t
 val seq : string -> ('a -> _ phrasing t) -> 'a list -> _ phrasing t
+val code : _ phrasing t -> _ phrasing t
 
 type in_anchor
 type outside_anchor
@@ -41,6 +42,8 @@ class type printer = object
   method end_doc : unit -> unit
   method text : string -> unit
   method change_p : unit -> unit
+  method start_code : unit -> unit
+  method end_code : unit -> unit
   method start_ul : string -> unit
   method li : unit -> unit
   method end_ul : unit -> unit

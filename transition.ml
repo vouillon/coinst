@@ -18,7 +18,6 @@
  *)
 
 (*
-- prioritize rules? (i386 first)
 - remove hint: just remove the package from unstable
   ===> temporarily assume this package is not supported!
        (big warning)
@@ -43,24 +42,25 @@ PRIORITIES
       hints)
 
 EXPLANATIONS
-  ==> link to build logs / merge packages
-  ==> link to http://packages.qa.debian.org (for source files)
-  ==> show source and binary versions
+  ==> try to group packages dependencies from several architectures
   ==> three step: no age/bug constraints, bugs added, all
   ==> summaries; in particular, show packages that only wait for age,
       for bugs
-  ==> explanation of co-installability issues
+  ==> can we try to remove binaries? (can be very verbose! also, expansive)
 
 LATER
-- for migration, is it possible to focus on a small part of
-  the repositories
-- urgency information is huge; can we reduce it?
-  (filter, depending on source informations...)
-- interactive mode
-- reducing size with installability:
-  ===> flatten a superposition of testing and sid
-  ===> needs to be very conservative!!
-  packages with no deps after flattening do not need deps before that
+==> user interaction
+    - interactive mode
+    - prioritize rules? (i386 first)
+==> performance
+    - for migration, is it possible to focus on a small part of
+      the repositories?
+    - urgency information is huge; can we reduce it?
+      (filter, depending on source informations...)
+    - reducing size with installability:
+      ===> flatten a superposition of testing and sid
+      ===> needs to be very conservative!!
+      packages with no deps after flattening do not need deps before that
 *)
 
 
@@ -86,7 +86,14 @@ let get_option key def =
 let testing () = get_option "TESTING" (Filename.concat !dir "testing")
 let unstable () = get_option "UNSTABLE" (Filename.concat !dir "unstable")
 
-let bug_url = "http://bugs.debian.org/cgi-bin/bugreport.cgi?bug="
+let bug_url n = "http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=" ^ n
+let pts_url nm =
+  Format.sprintf
+    "http://packages.qa.debian.org/%s/%s.html" (String.sub nm 0 1) nm
+let build_log_url nm arch =
+  Format.sprintf
+    "https://buildd.debian.org/status/logs.php?arch=%s&pkg=%s" arch nm
+
 let cache_dir = Filename.concat (Sys.getenv "HOME") ".coinst"
 
 let urgency_delay u =
@@ -378,20 +385,21 @@ let (&) = L.(&)
 
 let print_pkg_ref (nm, t, u) =
   match t, u with
-    true,  true  -> L.s nm
-  | true,  false -> L.s nm & L.s " (testing)"
-  | false, true  -> L.s nm & L.s " (sid)"
+    true,  true  -> L.code (L.s nm)
+  | true,  false -> L.code (L.s nm) & L.s " (testing)"
+  | false, true  -> L.code (L.s nm) & L.s " (sid)"
   | false, false -> assert false
 
 let print_cstr r =
   match r with
     Upgrade_common.R_depends (pkg, dep, pkgs) ->
       print_pkg_ref pkg & L.s " depends on " &
-      L.format M.print_package_dependency [dep] &
+      L.code (L.format M.print_package_dependency [dep]) &
       L.s " {" & L.seq ", " print_pkg_ref pkgs & L.s "}"
   | Upgrade_common.R_conflict (pkg, confl, pkg') ->
       print_pkg_ref pkg & L.s " conflicts with " &
-      L.format M.print_package_dependency (List.map (fun c -> [c]) confl) &
+      L.code
+        (L.format M.print_package_dependency (List.map (fun c -> [c]) confl)) &
       L.s " {" & print_pkg_ref pkg' & L.s "}"
 
 let print_explanation expl =
@@ -432,7 +440,7 @@ let print_reason capitalize print_binary print_source lits reason =
       L.s " days old to go in."
   | More_bugs s ->
       L.s (c "Has new bugs: ") &
-      L.seq ", " (fun s -> L.anchor (bug_url ^ s) (L.s "#" & L.s s))
+      L.seq ", " (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
         (StringSet.elements s) &
       L.s "."
   | Conflict (s, s', explanation) ->
@@ -450,7 +458,7 @@ let print_reason capitalize print_binary print_source lits reason =
       begin
         if IntSet.cardinal s' > 1 || not (IntSet.mem lits.(0) s') then begin
           if IntSet.cardinal s' = 1 then begin
-            L.s " (would break installability of package " &
+            L.s " (would break package " &
             snd (print_binary (IntSet.choose s')) & L.s ")"
           end else begin
             L.s " (would break co-installability of packages " &
@@ -566,8 +574,8 @@ let binary_names st (offset, l) =
     l
 let binary_names = Task.funct binary_names
 
-let output_reasons l solver source_of_id id_offsets filename =
-  let t = Timer.start () in
+let output_reasons l solver source_of_id id_offsets filename t u =
+  let reason_t = Timer.start () in
 
   let blocked_source = Hashtbl.create 1024 in
   let sources = ref [] in
@@ -576,7 +584,7 @@ let output_reasons l solver source_of_id id_offsets filename =
     (fun id nm ->
        let reasons = HornSolver.direct_reasons solver id in
        if List.exists (interesting_reason solver) reasons then begin
-         sources := (nm, reasons) :: !sources;
+         sources := (nm, (id, reasons)) :: !sources;
          Hashtbl.add blocked_source nm ();
          List.iter
            (fun (lits, reason) ->
@@ -619,9 +627,9 @@ let output_reasons l solver source_of_id id_offsets filename =
     let (nm, arch, source) = Hashtbl.find name_of_binary id in
     let txt =
       if source = nm then
-        L.s nm
+        L.code (L.s nm)
       else
-        (L.s nm & L.s " (from " & L.s source & L.s ")")
+        (L.code (L.s nm) & L.s " (from " & L.code (L.s source) & L.s ")")
     in
     if not (Hashtbl.mem blocked_source source) then (nm, txt) else
     (nm, L.anchor ("#" ^ source) txt)
@@ -630,7 +638,7 @@ let output_reasons l solver source_of_id id_offsets filename =
 
   let lst =
     L.dl (L.list
-      (fun (nm, reasons) ->
+      (fun (nm, (id, reasons)) ->
          let src_reasons =
            L.list
              (fun r ->
@@ -662,21 +670,32 @@ let output_reasons l solver source_of_id id_offsets filename =
                 (Util.compare_pair compare (Util.compare_pair compare compare))
          in
          let not_yet_built =
-           Util.group compare
-             (List.filter
-                (fun (_, (_, id)) ->
-                  List.exists
-                    (fun (_, r) ->
-                       match r with Not_yet_built _ -> true | _ -> false)
-                    (HornSolver.direct_reasons solver id))
-                binaries)
+           binaries
+           ++
+           List.filter
+             (fun (_, (_, id)) ->
+                List.exists
+                  (fun (_, r) ->
+                     match r with Not_yet_built _ -> true | _ -> false)
+                  (HornSolver.direct_reasons solver id))
+           ++ List.map (fun (name, (arch, _)) -> (name, arch))
+           ++ List.sort (Util.compare_pair compare compare)
+           ++ Util.group compare
+           ++ List.map (fun (name, l) -> (l, name))
+           ++ List.sort (Util.compare_pair (Util.compare_list compare) compare)
+           ++ Util.group (Util.compare_list compare)
          in
          let build_reasons =
            L.list
-             (fun (nm', l) ->
-                L.li (L.s "Binary package " & L.s nm' &
-                      L.s " not yet built on " &
-                      L.seq ", " (fun (arch, _) -> L.s arch) l & L.s "."))
+             (fun (al, bl) ->
+                L.li (L.s (if List.length bl = 1 then "Binary package "
+                           else "Binary packages ") &
+                      L.seq ", " (fun nm -> L.code (L.s nm)) bl &
+                      L.s " not yet rebuilt on " &
+                      L.seq ", "
+                        (fun arch ->
+                           L.anchor (build_log_url nm arch) (L.s arch)) al &
+                      L.s "."))
              not_yet_built
          in
          let with_new_bugs =
@@ -701,7 +720,7 @@ let output_reasons l solver source_of_id id_offsets filename =
                   L.li (L.s "Binary package " & L.s nm' &
                         L.s " has new bugs: " &
                         L.seq ", "
-                          (fun s -> L.anchor (bug_url ^ s) (L.s "#" & L.s s))
+                          (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
                           (StringSet.elements s) &
                         L.s ".")
                 else
@@ -737,11 +756,28 @@ let output_reasons l solver source_of_id id_offsets filename =
                         assert false)
                  (HornSolver.direct_reasons solver id);
                 in
-                L.li (L.s "Binary package " & L.s nm & L.s "/" & L.s arch &
+                L.li (L.s "Binary package " &
+                      L.code (L.s nm & L.s "/" & L.s arch) &
                       L.s " not propagated:" & L.ul reasons))
              binaries
          in
-         L.dli ~id:nm (L.s nm)
+         let version dist nm =
+           match Hashtbl.find_all dist.M.s_packages nm with
+             [p] -> L.format M.print_version p.M.s_version
+           | []  -> L.s "-"
+           | _   -> assert false
+         in
+         let versions nm =
+           if
+             List.exists (fun (_, r) -> r = Unchanged)
+               (HornSolver.direct_reasons solver id)
+           then
+             version t nm
+           else
+             (version t nm & L.s " to " & version u nm)
+         in
+         L.dli ~id:nm (L.anchor (pts_url nm) (L.code (L.s nm)) &
+                       L.s " (" & versions nm & L.s ")")
            (L.ul (src_reasons & build_reasons & bug_reasons & bin_reasons)))
       (List.sort (fun (nm1, _) (nm2, _) -> compare nm1 nm2) !sources))
   in
@@ -750,7 +786,7 @@ let output_reasons l solver source_of_id id_offsets filename =
   L.print (new L.html_printer ch "Explanations") lst;
   if filename <> "-" then close_out ch;
   if debug_time () then
-    Format.eprintf "Writing excuse file: %f@." (Timer.stop t)
+    Format.eprintf "Writing excuse file: %f@." (Timer.stop reason_t)
 
 (****)
 
@@ -1805,17 +1841,6 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
 
   let (++) x f = f x in
   let compare_elt = Util.compare_pair compare compare in
-  let rec compare_lst l1 l2 =
-    match l1, l2 with
-      [], [] ->
-        0
-    | [], _ ->
-        -1
-    | _, [] ->
-        1
-    | v1 :: r1, v2 :: r2 ->
-        let c = compare_elt v1 v2 in if c = 0 then compare_lst r1 r2 else c
-  in
   !to_consider
   ++ List.map fst
   ++ List.filter (fun info -> info.h_live)
@@ -1826,7 +1851,7 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
           ++ List.map fst
           ++ List.sort compare_elt)
   ++ List.filter (fun l -> l <> [])
-  ++ List.sort compare_lst
+  ++ List.sort (Util.compare_list compare_elt)
   ++ List.stable_sort (fun l l' -> compare (List.length l) (List.length l'))
 
 let collect_changes st (unchanged, subset) =
@@ -2223,7 +2248,7 @@ let f () =
         print_heidi solver id_of_source id_offsets is_fake l t u;
 
       if !excuse_file <> "" then
-        output_reasons l solver source_of_id id_offsets !excuse_file
+        output_reasons l solver source_of_id id_offsets !excuse_file t u
   end;
 
   List.iter (fun (_, t) -> Task.kill t) l

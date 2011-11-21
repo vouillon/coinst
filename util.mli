@@ -85,6 +85,7 @@ end
 val sort_and_uniq : ('a -> 'a -> int) -> 'a list -> 'a list
 val compare_pair :
   ('a -> 'b -> int) -> ('c -> 'd -> int) -> 'a * 'c -> 'b * 'd -> int
+val compare_list : ('a -> 'b -> int) -> 'a list -> 'b list -> int
 val group : ('a -> 'a -> int) -> ('a * 'b) list -> ('a * 'b list) list
 
 module Union_find : sig

@@ -209,6 +209,17 @@ let compare_pair compare1 compare2 (a1, a2) (b1, b2) =
   let c = compare1 a1 b1 in
   if c = 0 then compare2 a2 b2 else c
 
+let rec compare_list compare l1 l2 =
+  match l1, l2 with
+    [], [] ->
+      0
+  | [], _ ->
+      -1
+  | _, [] ->
+      1
+  | v1 :: r1, v2 :: r2 ->
+      let c = compare v1 v2 in if c = 0 then compare_list compare r1 r2 else c
+
 let group compare l =
   match l with
     [] ->
