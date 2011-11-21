@@ -46,7 +46,7 @@ EXPLANATIONS
   ==> three step: no age/bug constraints, bugs added, all
   ==> summaries; in particular, show packages that only wait for age,
       for bugs
-  ==> can we try to remove binaries? (can be very verbose! also, expansive)
+  ==> can we try to remove binaries? (can be very verbose! also, expensive)
 
 LATER
 ==> user interaction
@@ -542,6 +542,84 @@ type st =
       (Upgrade_common.state * Upgrade_common.state) option;
     uid : string }
 
+(**** Misc. useful functions ****)
+
+let source_version src nm =
+  try
+    Some (Hashtbl.find src.M.s_packages nm).M.s_version
+  with Not_found ->
+    None
+let same_source_version t u nm =
+  match source_version t nm, source_version u nm with
+    None, None      -> true
+  | Some v, Some v' -> M.compare_version v v' = 0
+  | _               -> false
+let no_new_source t u nm =
+  match source_version t nm, source_version u nm with
+    None, None      -> true
+  | Some v, Some v' -> M.compare_version v v' >= 0
+  | _               -> false
+
+let bin_version dist nm =
+  match ListTbl.find dist.M.packages_by_name nm with
+    p :: _ -> Some p.M.version
+  | []     -> None
+let same_bin_version t u nm =
+  match bin_version t nm, bin_version u nm with
+    None, None      -> true
+  | Some v, Some v' -> M.compare_version v v' = 0
+  | _               -> false
+let no_new_bin t u nm =
+  match bin_version t nm, bin_version u nm with
+    None, None      -> true
+  | Some v, Some v' -> M.compare_version v v' >= 0
+  | _               -> false
+
+let allow_smooth_updates p =
+  List.mem "ALL" !smooth_updates || List.mem p.M.section !smooth_updates
+
+let compute_ages dates urgencies hints nm uv tv =
+  let d =
+    try
+      let (v, d) = Hashtbl.find dates nm in
+      if M.compare_version uv v = 0 then d else now
+    with Not_found ->
+      now
+  in
+  let u =
+    if
+      try
+        M.compare_version uv (Hashtbl.find hints.h_urgent nm) = 0
+      with Not_found ->
+        false
+    then
+      0
+    else
+      try
+        let (v, d) = Hashtbl.find hints.h_age_days nm in
+        if
+          match v with
+            Some v -> M.compare_version v uv <> 0
+          | None   -> false
+        then
+          raise Not_found;
+        d
+      with Not_found ->
+        match tv with
+          None ->
+            default_urgency
+        | Some v ->
+            let l =
+              List.filter
+                (fun (v', d) ->
+                   M.compare_version v v' < 0 &&
+                   M.compare_version v' uv <= 0)
+                (Hashtbl.find_all urgencies nm)
+            in
+            List.fold_left (fun u (_, u') -> min u u') default_urgency l
+  in
+  (now + !offset - d, u)
+
 (**** Writing of an excuse file ****)
 
 let rec interesting_reason solver (lits, reason) =
@@ -574,7 +652,8 @@ let binary_names st (offset, l) =
     l
 let binary_names = Task.funct binary_names
 
-let output_reasons l solver source_of_id id_offsets filename t u =
+let output_reasons
+      l dates urgencies hints solver source_of_id id_offsets filename t u =
   let reason_t = Timer.start () in
 
   let blocked_source = Hashtbl.create 1024 in
@@ -640,6 +719,19 @@ let output_reasons l solver source_of_id id_offsets filename t u =
     L.dl (L.list
       (fun (nm, (id, reasons)) ->
          let src_reasons =
+           begin match Hashtbl.find_all u.M.s_packages nm with
+             []  -> L.emp
+           | [p] ->
+               let (cur_ag, req_ag) =
+                 compute_ages dates urgencies hints
+                      nm p.M.s_version (source_version t nm)
+               in
+               if cur_ag < req_ag then L.emp else
+               L.li (L.s "Package is " & L.i cur_ag &
+                     L.s " days old (needed " & L.i req_ag & L.s " days).")
+           | _   -> assert false
+           end
+             &
            L.list
              (fun r ->
                 if
@@ -788,42 +880,6 @@ let output_reasons l solver source_of_id id_offsets filename t u =
   if debug_time () then
     Format.eprintf "Writing excuse file: %f@." (Timer.stop reason_t)
 
-(****)
-
-let source_version src nm =
-  try
-    Some (Hashtbl.find src.M.s_packages nm).M.s_version
-  with Not_found ->
-    None
-let same_source_version t u nm =
-  match source_version t nm, source_version u nm with
-    None, None      -> true
-  | Some v, Some v' -> M.compare_version v v' = 0
-  | _               -> false
-let no_new_source t u nm =
-  match source_version t nm, source_version u nm with
-    None, None      -> true
-  | Some v, Some v' -> M.compare_version v v' >= 0
-  | _               -> false
-
-let bin_version dist nm =
-  match ListTbl.find dist.M.packages_by_name nm with
-    p :: _ -> Some p.M.version
-  | []     -> None
-let same_bin_version t u nm =
-  match bin_version t nm, bin_version u nm with
-    None, None      -> true
-  | Some v, Some v' -> M.compare_version v v' = 0
-  | _               -> false
-let no_new_bin t u nm =
-  match bin_version t nm, bin_version u nm with
-    None, None      -> true
-  | Some v, Some v' -> M.compare_version v v' >= 0
-  | _               -> false
-
-let allow_smooth_updates p =
-  List.mem "ALL" !smooth_updates || List.mem p.M.section !smooth_updates
-
 (**** Per arch. information on which packages are not propagated ****)
 
 let extract_unchanged_bin solver id_offsets arch unch =
@@ -850,7 +906,7 @@ let compute_reverse_dependencies st d id_tbl =
               rdeps.(i) <- src_id :: rdeps.(i))
            (ListTbl.find d.M.provided_packages (fst cstr)))
       dep
-         
+
   in
   Hashtbl.iter
     (fun _ p ->
@@ -1022,7 +1078,7 @@ let prepare_repository st unchanged check_coinstallability =
   let red_t = Timer.start () in
 
   let pkgs =
-    if check_coinstallability then 
+    if check_coinstallability then
       reduce_for_coinstallability st unchanged
     else
       reduce_for_installability st unchanged
@@ -1358,48 +1414,6 @@ let initial_constraints
   let solver =
     HornSolver.initialize ~signal_assign (Array.length source_of_id) in
   HornSolver.set_var_printer solver print_package;
-  let compute_ages nm uv tv =
-    let d =
-      try
-        let (v, d) = Hashtbl.find dates nm in
-        if M.compare_version uv v = 0 then d else now
-      with Not_found ->
-        now
-    in
-    let u =
-      if
-        try
-          M.compare_version uv (Hashtbl.find hints.h_urgent nm) = 0
-        with Not_found ->
-          false
-      then
-        0
-      else
-        try
-          let (v, d) = Hashtbl.find hints.h_age_days nm in
-          if
-            match v with
-              Some v -> M.compare_version v uv <> 0
-            | None   -> false
-          then
-            raise Not_found;
-          d
-        with Not_found ->
-          match tv with
-            None ->
-              default_urgency
-          | Some v ->
-              let l =
-                List.filter
-                  (fun (v', d) ->
-                     M.compare_version v v' < 0 &&
-                     M.compare_version v' uv <= 0)
-                  (Hashtbl.find_all urgencies nm)
-              in
-              List.fold_left (fun u (_, u') -> min u u') default_urgency l
-    in
-    (now + !offset - d, u)
-  in
   let get_bugs src bugs p =
     try Hashtbl.find bugs p with Not_found -> StringSet.empty
   in
@@ -1481,7 +1495,7 @@ let initial_constraints
            assume_deferred id (Blocked (blocked_reason nm v));
          (* Do not propagate a source package if not old enough *)
          let v' = source_version t nm in
-         let (cur_ag, req_ag) = compute_ages nm v v' in
+         let (cur_ag, req_ag) = compute_ages dates urgencies hints nm v v' in
          if cur_ag < req_ag then
            assume_deferred id (Too_young (cur_ag, req_ag));
          (* Do not propagate a source package if it has new bugs *)
@@ -2248,7 +2262,8 @@ let f () =
         print_heidi solver id_of_source id_offsets is_fake l t u;
 
       if !excuse_file <> "" then
-        output_reasons l solver source_of_id id_offsets !excuse_file t u
+        output_reasons l dates urgencies hints
+          solver source_of_id id_offsets !excuse_file t u
   end;
 
   List.iter (fun (_, t) -> Task.kill t) l
