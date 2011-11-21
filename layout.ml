@@ -119,7 +119,7 @@ class html_printer ch title : printer = object (self)
   method private break () = if need_break then output_char ch '\n'
   method start_doc () =
     output_string ch
-      "<!DOCTYPE html>\n<meta charset=\"utf-8\">\n<title>";
+      "<!DOCTYPE html>\n<meta charset='utf-8'>\n<title>";
     output_string ch (html_escape title);
     output_string ch "</title>\n"
   method end_doc () = ()
@@ -147,7 +147,7 @@ class html_printer ch title : printer = object (self)
     if not in_p then begin
       self#break (); output_string ch "<p>"; in_p <- true
     end;
-    output_string ch ("<a href=\"" ^ l ^ "\">")
+    output_string ch ("<a href='" ^ html_escape l ^ "'>")
   method end_a () = output_string ch "</a>"
   method start_code () =
     if not in_p then begin
@@ -164,7 +164,7 @@ class html_printer ch title : printer = object (self)
     end;
     begin match id with
       None    -> self#break (); output_string ch "<dt>"
-    | Some id -> self#break (); output_string ch ("<dt id=\"" ^ id ^ "\">")
+    | Some id -> self#break (); output_string ch ("<dt id='" ^ id ^ "'>")
     end;
     in_p <- true
   method dd () = self#break (); output_string ch "<dd>"; in_p <- false
