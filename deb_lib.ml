@@ -410,6 +410,21 @@ let remove_package pool p =
        | _           -> assert false)
     p.provides
 
+let replace_package pool q p =
+  let p = {p with num = q.num} in
+  remove_package pool q;
+  assert (not (Hashtbl.mem pool.packages (p.package, p.version)));
+  Hashtbl.add pool.packages (p.package, p.version) p;
+  Hashtbl.add pool.packages_by_num p.num p;
+  ListTbl.add pool.packages_by_name p.package p;
+  ListTbl.add pool.provided_packages p.package p;
+  List.iter
+    (fun l ->
+       match l with
+         [(n, None)] -> ListTbl.add pool.provided_packages n p
+       | _           -> assert false)
+    p.provides
+
 let parse_packages pool ignored_packages ch =
   let info = Common.start_parsing true ch in
   let st = from_channel ch in

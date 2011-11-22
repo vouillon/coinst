@@ -1329,8 +1329,23 @@ let arch_constraints st produce_excuses =
        if source_changed || produce_excuses then
          implies id (source_id p) Binary_not_propagated)
     u'.M.packages_by_num;
-  (* Remove not up to date binaries from sid. *)
-  List.iter (fun p -> M.remove_package u' p) st.outdated_binaries;
+  (* Remove not up to date binaries from sid. The idea is that removing
+     the 'Not_yet_build' constraint then makes it possible to test whether
+     these packages can be removed without breaking anything. To allow smooth
+     updates, libraries in sid are rather replaced by their counterpart in
+     testing. This way, the 'Binary_not_propagated' constraint just above
+     can always be satisfied when the 'Not_yet_build' constraint is removed. *)
+  List.iter
+    (fun p ->
+       if
+         allow_smooth_updates p &&
+         ListTbl.mem t'.M.packages_by_name p.M.package
+       then
+         M.replace_package u' p
+           (List.hd (ListTbl.find t'.M.packages_by_name p.M.package))
+       else
+         M.remove_package u' p)
+    st.outdated_binaries;
   Hashtbl.iter
     (fun _ p ->
        let id = bin_id p in
@@ -1352,8 +1367,15 @@ let arch_constraints st produce_excuses =
        let source_changed =
          not (same_source_version t u nm) in
        (* We only propagate binary packages with a larger version.
-          Faux packages are not propagated. *)
-       if no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm then
+          Faux packages are not propagated. Outdated packages are
+          never consider to be unchanged, so that we can test smooth
+          upgrades. *)
+       if
+         not (List.exists (fun q -> q.M.package = p.M.package)
+                st.outdated_binaries)
+           &&
+         (no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm)
+       then
          assume id Unchanged
        else begin
          (* Binary packages without source of the same version can
