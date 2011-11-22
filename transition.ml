@@ -719,6 +719,7 @@ let output_reasons
            begin match Hashtbl.find_all u.M.s_packages nm with
              []  -> L.emp
            | [p] ->
+               if same_source_version t u nm then L.emp else
                let (cur_ag, req_ag) =
                  compute_ages dates urgencies hints
                       nm p.M.s_version (source_version t nm)
