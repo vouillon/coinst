@@ -86,9 +86,7 @@ let testing () = get_option "TESTING" (Filename.concat !dir "testing")
 let unstable () = get_option "UNSTABLE" (Filename.concat !dir "unstable")
 
 let bug_url n = "http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=" ^ n
-let pts_url nm =
-  Format.sprintf
-    "http://packages.qa.debian.org/%s/%s.html" (String.sub nm 0 1) nm
+let pts_url nm = Format.sprintf "http://packages.qa.debian.org/%s" nm
 let build_log_url nm arch =
   Format.sprintf
     "https://buildd.debian.org/status/logs.php?arch=%s&pkg=%s" arch nm
