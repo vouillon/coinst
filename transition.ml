@@ -18,13 +18,11 @@
  *)
 
 (*
+- improve '--migrate option': multiple files, bin_nmus
+- could the 'migrate' option generate removal hints?
 - remove hint: just remove the package from unstable
   ===> temporarily assume this package is not supported!
        (big warning)
-- find_coinst_constraints: check whether we have a larger set
-  of unconstrained packages and automatically recompute the set
-  of packages to consider in that case
-- improve '--migrate option': multiple files, bin_nmus
 - parse more options from britney config file (in particular, hint files)
 
 PRIORITIES
@@ -42,10 +40,8 @@ PRIORITIES
       hints)
 
 EXPLANATIONS
-  ==> three step: no age/bug constraints, bugs added, all
   ==> summaries; in particular, show packages that only wait for age,
       for bugs
-  ==> can we try to remove binaries? (can be very verbose! also, expensive)
 
 LATER
 ==> user interaction
@@ -60,6 +56,10 @@ LATER
       ===> flatten a superposition of testing and sid
       ===> needs to be very conservative!!
       packages with no deps after flattening do not need deps before that
+===> robustness
+    - find_coinst_constraints: check whether we have a larger set
+      of unconstrained packages and automatically recompute the set
+      of packages to consider in that case
 *)
 
 
@@ -369,7 +369,7 @@ type reason =
     (* Source *)
   | Blocked of (string * string)
   | Too_young of int * int
-  | Binary_not_propagated
+  | Binary_not_added | Binary_not_removed
   | No_binary
   (* Both *)
   | More_bugs of StringSet.t
@@ -443,7 +443,7 @@ let print_reason capitalize print_binary print_source lits reason =
   | Conflict (s, s', explanation) ->
       begin match IntSet.cardinal s with
         0 ->
-          L.s (c "A dependency cannot be satisfied")
+          L.s (c "A dependency would not be satisfied")
       | 1 ->
           L.s (c "Needs binary package ") &
           snd (print_binary (IntSet.choose s))
@@ -473,7 +473,7 @@ let print_reason capitalize print_binary print_source lits reason =
   | Source_not_propagated ->
       L.s (c "Source package ") & print_source lits.(1) &
       L.s " cannot be propagated."
-  | Atomic | Binary_not_propagated ->
+  | Atomic | Binary_not_added | Binary_not_removed ->
       L.s (c "Binary package ") & snd (print_binary lits.(1)) &
       L.s " cannot be propagated."
   | No_binary ->
@@ -623,7 +623,7 @@ let rec interesting_reason solver (lits, reason) =
   match reason with
     Unchanged ->
       false
-  | Binary_not_propagated ->
+  | Binary_not_added | Binary_not_removed ->
       List.exists (interesting_reason solver)
         (HornSolver.direct_reasons solver lits.(1))
   | Source_not_propagated ->
@@ -665,7 +665,7 @@ let output_reasons
          List.iter
            (fun (lits, reason) ->
               match reason with
-                Binary_not_propagated ->
+                Binary_not_added | Binary_not_removed ->
                   let id = lits.(1) in
                   binaries := IntSet.add id !binaries;
                   List.iter
@@ -715,6 +715,11 @@ let output_reasons
   let lst =
     L.dl (L.list
       (fun (nm, (id, reasons)) ->
+         let about_bin (_, r) =
+           match r with
+             Binary_not_added | Binary_not_removed -> true
+           | _                                     -> false
+         in
          let src_reasons =
            begin match Hashtbl.find_all u.M.s_packages nm with
              []  -> L.emp
@@ -732,11 +737,7 @@ let output_reasons
              &
            L.list
              (fun r ->
-                if
-                  interesting_reason solver r
-                    &&
-                  snd r <> Binary_not_propagated
-                then
+                if interesting_reason solver r && not (about_bin r) then
                   L.li (print_reason true print_binary print_source
                           (fst r) (snd r))
                 else
@@ -746,15 +747,16 @@ let output_reasons
          let binaries =
            reasons
            >> List.filter
-                (fun r ->
-                   interesting_reason solver r &&
-                   snd r = Binary_not_propagated)
-           >> List.map (fun (lits, _) -> lits.(1))
-           >> Util.sort_and_uniq compare
+                (fun r -> interesting_reason solver r && about_bin r)
+           >> List.map (fun (lits, r) -> (lits.(1), r))
+           >> List.sort (Util.compare_pair compare compare)
+           >> Util.group compare
            >> List.map
-                (fun id ->
+                (fun (id, l) ->
                    let (name, arch, _) = Hashtbl.find name_of_binary id in
-                   (name, (arch, id)))
+                   let is_removal =
+                     List.for_all (fun r -> r = Binary_not_removed) l in
+                   (name, (arch, (id, is_removal))))
            >> List.sort
                 (Util.compare_pair compare (Util.compare_pair compare compare))
          in
@@ -762,7 +764,7 @@ let output_reasons
            binaries
            >>
            List.filter
-             (fun (_, (_, id)) ->
+             (fun (_, (_, (id, _))) ->
                 List.exists
                   (fun (_, r) ->
                      match r with Not_yet_built _ -> true | _ -> false)
@@ -791,7 +793,7 @@ let output_reasons
            Util.group compare
              (List.flatten
                 (List.map
-                   (fun (nm, (_, id)) ->
+                   (fun (nm, (_, (id, _))) ->
                       List.flatten
                         (List.map
                            (fun (_, reason) ->
@@ -831,7 +833,7 @@ let output_reasons
              (fun (nm, l) ->
                 l >>
                 List.map
-                  (fun (arch, id) ->
+                  (fun (arch, (id, is_removal)) ->
                      (HornSolver.direct_reasons solver id
                         >>
                       List.filter
@@ -843,7 +845,7 @@ let output_reasons
                            | _                             -> assert false)
                          >>
                       List.sort compare_reason,
-                      arch)) >>
+                      (arch, is_removal))) >>
                 List.sort (Util.compare_pair
                              (Util.compare_list compare_reason) compare) >>
                 Util.group (Util.compare_list compare_reason) >>
@@ -852,8 +854,10 @@ let output_reasons
          in
          let bin_reasons =
            L.list
-             (fun (nm, (reasons, archs)) ->
+             (fun (nm, (reasons, archs_and_removals)) ->
                 if reasons =  [] then L.emp else
+                let is_removal = List.for_all snd archs_and_removals in
+                let archs = List.map fst archs_and_removals in
                 let reasons =
                   L.list
                     (fun (lits, r) ->
@@ -866,8 +870,10 @@ let output_reasons
                     reasons
                 in
                 L.li (L.s "Binary package " & L.code (L.s nm) &
-                      L.s " not propagated (on " & L.seq ", " L.s archs &
-                      L.s " at least):" & L.ul reasons))
+                      L.s " cannot be " &
+                      L.s (if is_removal then "removed" else "propagated") &
+                      L.s " (" & L.seq ", " L.s archs & L.s "):" &
+                      L.ul reasons))
              binaries
          in
          let version dist nm =
@@ -1299,7 +1305,8 @@ let arch_constraints st produce_excuses =
        let source_changed = not (same_source_version t u nm) in
        (* Do not add a binary package if its source is not
           the most up to date source file. *)
-       if M.compare_version v v' <> 0 then begin
+       let outdated = M.compare_version v v' <> 0 in
+       if outdated then begin
          st.outdated_binaries <- p :: st.outdated_binaries;
          assume id (Not_yet_built (nm, v, v'))
        end else begin
@@ -1327,7 +1334,8 @@ let arch_constraints st produce_excuses =
        (* If a source is propagated, all its binaries should
           be propagated as well *)
        if source_changed || produce_excuses then
-         implies id (source_id p) Binary_not_propagated)
+         implies id (source_id p)
+           (if outdated then Binary_not_removed else Binary_not_added))
     u'.M.packages_by_num;
   (* Remove not up to date binaries from sid. The idea is that removing
      the 'Not_yet_build' constraint then makes it possible to test whether
@@ -1400,7 +1408,7 @@ let arch_constraints st produce_excuses =
            &&
          not (allow_smooth_updates p && Hashtbl.mem u.M.s_packages nm)
        then
-         implies id (source_id p) Binary_not_propagated)
+         implies id (source_id p) Binary_not_removed)
     t'.M.packages_by_num;
   (* All binaries packages from a same source are propagated
      atomically on any given architecture. *)
@@ -1490,24 +1498,33 @@ let initial_constraints
       Some who -> ("block", who)
     | None     -> ("block-udeb", Hashtbl.find hints.h_block_udeb nm)
   in
-  let deferred_constraints = ref [] in
+  let block_constraints = ref [] in
+  let age_constraints = ref [] in
+  let bug_constraints = ref [] in
+  let outdated_constraints = ref [] in
   let produce_excuses = !excuse_file <> "" in
   let implies id1 id2 reason =
     ignore (HornSolver.add_rule solver [|id2; id1|] reason) in
-  let assume_deferred id reason =
+  let assume_deferred lst id reason =
     if produce_excuses then
-      deferred_constraints := (id, reason) :: !deferred_constraints
+      lst := (id, reason) :: !lst
     else
       HornSolver.assume solver id reason
   in
-  let perform_deferred () =
-    if !deferred_constraints <> [] then begin
+  let perform_deferred lst =
+    if !lst <> [] then begin
       List.iter (fun (id, reason) -> HornSolver.assume solver id reason)
-        !deferred_constraints;
-      deferred_constraints := [];
+        !lst;
+      lst := [];
       true
     end else
       false
+  in
+  let deferred_constraints =
+    List.map
+      (fun lst () -> perform_deferred lst)
+      [bug_constraints; outdated_constraints;
+       age_constraints; block_constraints]
   in
   let all_or_none ids reason =
     match ids with
@@ -1531,18 +1548,18 @@ let initial_constraints
        else begin
          (* Do not propagate a source package requested to be blocked *)
          if is_blocked nm v then
-           assume_deferred id (Blocked (blocked_reason nm v));
+           assume_deferred block_constraints id (Blocked (blocked_reason nm v));
          (* Do not propagate a source package if not old enough *)
          let v' = source_version t nm in
          let (cur_ag, req_ag) = compute_ages dates urgencies hints nm v v' in
          if cur_ag < req_ag then
-           assume_deferred id (Too_young (cur_ag, req_ag));
+           assume_deferred age_constraints id (Too_young (cur_ag, req_ag));
          (* Do not propagate a source package if it has new bugs *)
          let is_new = v' = None in
          if
            not (no_new_bugs is_new nm && no_new_bugs is_new ("src:" ^ nm))
          then
-           assume_deferred id
+           assume_deferred bug_constraints id
              (More_bugs (StringSet.union
                            (new_bugs is_new nm)
                            (new_bugs is_new ("src:" ^ nm))))
@@ -1556,7 +1573,7 @@ let initial_constraints
            let id =
              try Hashtbl.find id_of_source nm with Not_found -> assert false
            in
-           assume_deferred id (Blocked ("blocked", who))
+           assume_deferred block_constraints id (Blocked ("blocked", who))
          with Not_found ->
            ())
     t.M.s_packages;
@@ -1623,12 +1640,14 @@ let initial_constraints
                   begin match reason with
                     Unchanged ->
                       ignore (HornSolver.add_rule solver [|offset id|] reason)
-                  | Too_young _ | More_bugs _ ->
-                      assume_deferred (offset id) reason
+                  | Too_young _ ->
+                      assume_deferred age_constraints (offset id) reason
+                  | More_bugs _ ->
+                      assume_deferred bug_constraints (offset id) reason
                   | Not_yet_built _ ->
-                      HornSolver.assume solver (offset id) reason
-                  | Blocked _ | Binary_not_propagated | No_binary
-                  | Conflict _ | Source_not_propagated | Atomic ->
+                      assume_deferred outdated_constraints (offset id) reason
+                  | Blocked _ | Binary_not_added | Binary_not_removed
+                  | No_binary | Conflict _ | Source_not_propagated | Atomic ->
                       assert false
                   end
               | Implies (id1, id2, reason) ->
@@ -1651,7 +1670,7 @@ let initial_constraints
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
-  (uids, solver, perform_deferred, is_fake, id_offsets, get_name_arch)
+  (uids, solver, deferred_constraints, is_fake, id_offsets, get_name_arch)
 
 (**** Find constraints due to co-installability issues ****)
 
@@ -2185,7 +2204,7 @@ let analyze_migration
                  end
                end
            | Conflict _ | Atomic | Source_not_propagated | No_binary
-           | Binary_not_propagated | Unchanged ->
+           | Binary_not_added | Binary_not_removed | Unchanged ->
                assert false
            end;
            Buffer.contents b)
@@ -2274,7 +2293,7 @@ let f () =
 
   if !equivocal then check_coinstallability := true;
 
-  let (uids, solver, perform_deferred, is_fake, id_offsets, get_name_arch) =
+  let (uids, solver, deferred_constraints, is_fake, id_offsets, get_name_arch) =
     initial_constraints info in
 
   if !equivocal then
@@ -2285,8 +2304,11 @@ let f () =
         uids solver id_of_source id_offsets t u l get_name_arch p
   | None ->
       find_all_coinst_constraints solver id_offsets l;
-      if perform_deferred () then
-        find_all_coinst_constraints solver id_offsets l;
+      List.iter
+        (fun f ->
+           if f () then
+             find_all_coinst_constraints solver id_offsets l)
+        deferred_constraints;
       save_rules uids;
 
       if debug_outcome () then
