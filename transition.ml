@@ -808,7 +808,7 @@ let output_reasons
              (fun (nm', s) ->
                 let s = List.hd s in (* Same bugs on all archs. *)
                 if nm' <> nm then
-                  L.li (L.s "Binary package " & L.s nm' &
+                  L.li (L.s "Binary package " & L.code (L.s nm') &
                         L.s " has new bugs: " &
                         L.seq ", "
                           (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
