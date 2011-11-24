@@ -16,10 +16,10 @@ OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 
 all: $(COINST) $(UPGRADE) $(TRANS)
 
-$(COINST): $(OBJS) main.cmx
+$(COINST): $(OBJS) coinst.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(COINST).byte: $(OBJS:.cmx=.cmo) main.cmo
+$(COINST).byte: $(OBJS:.cmx=.cmo) coinst.cmo
 	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 $(UPGRADE): $(OBJS) upgrade_common.cmx upgrade.cmx
