@@ -28,7 +28,7 @@ let path_extent ctx fill stroke =
 let compute_extent ctx e =
   Cairo.new_path ctx;
   match e with
-    Path (cmd, fill, stroke) ->
+    Path (cmd, fill, stroke, _) ->
       Array.iter
         (fun c ->
            match c with

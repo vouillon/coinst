@@ -61,9 +61,10 @@ let rect_array_stringify = array_stringify rect_stringify
 
 let element_stringify ch e =
   match e with
-    Path (cmds, fill, stroke) ->
-      Format.fprintf ch "@[<1>[0,@,%a,@,%a,@,%a]@]"
+    Path (cmds, fill, stroke, style) ->
+      Format.fprintf ch "@[<1>[0,@,%a,@,%a,@,%a,@,%a]@]"
         commands_stringify cmds color_stringify fill color_stringify stroke
+        string_stringify style
   | Polygon (l, fill, stroke) ->
       Format.fprintf ch "@[<1>[1,@,%a,@,%a,@,%a]@]"
         points_stringify l color_stringify fill color_stringify stroke

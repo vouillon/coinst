@@ -28,8 +28,8 @@ let offset_command x y c =
 
 let offset_element x y e =
   match e with
-    Path (cmds, c1, c2) ->
-      Path (Array.map (fun c -> offset_command x y c) cmds, c1, c2)
+    Path (cmds, c1, c2, style) ->
+      Path (Array.map (fun c -> offset_command x y c) cmds, c1, c2, style)
   | Polygon (pts, c1, c2) ->
       Polygon (Array.map (fun (x1, y1) -> (x1 -. x, y1 -. y)) pts, c1, c2)
   | Ellipse (cx, cy, rx, ry, c1, c2) ->

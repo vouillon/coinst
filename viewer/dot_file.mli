@@ -34,6 +34,8 @@ and statement =
 
 type t = { kind : kind; strict : bool; graph : graph }
 
+val node : ?port:string -> string -> [`Node of node | `Graph of graph]
+
 val graph : kind -> ?strict:bool -> string -> statement list -> t
 
 val print : Format.formatter -> t -> unit

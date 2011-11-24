@@ -427,7 +427,7 @@ let render_spline l =
     (x, y) :: r -> Array.of_list (Scene.Move_to (x, y) :: render_spline_rec r)
   | _           -> raise Not_found
 
-let parse_spline scene s color arrow_size =
+let parse_spline scene s color arrow_size style =
   let l = Str.split semi_re s in
   List.iter
     (fun s ->
@@ -458,7 +458,7 @@ let parse_spline scene s color arrow_size =
          Some u -> add_arrow scene (start_point l) u color arrow_size
        | None   -> ()
        end;
-       Scene.add scene (Scene.Path (render_spline l, None, color)))
+       Scene.add scene (Scene.Path (render_spline l, None, color, style)))
     l
 
 let add_rect_margin (x1, y1, x2, y2) w =
@@ -545,8 +545,12 @@ let f g =
           parse_float (StringMap.find "arrowsize" e.G.edge_attr)
         with Not_found -> 1.
       in
+      let style =
+        try StringMap.find "style" e.G.edge_attr with Not_found -> ""
+      in
 
-      parse_spline scene (StringMap.find "pos" e.G.edge_attr) color arrow_size;
+      parse_spline scene (StringMap.find "pos" e.G.edge_attr)
+        color arrow_size style;
     ())
     g.G.edges.G.seq;
 

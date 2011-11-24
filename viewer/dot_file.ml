@@ -36,9 +36,11 @@ type t = { kind : kind; strict : bool; graph : graph }
 
 (****)
 
-let subgraph ?name body = { graph_name = name; body = body }
+let graph' ?name body = { graph_name = name; body = body }
 let graph kind ?(strict = false) name body =
-   { kind = kind; strict = strict; graph = subgraph ~name body }
+   { kind = kind; strict = strict; graph = graph' ~name body }
+let subgraph ?name body = `Graph (graph' ?name body)
+let node ?port name = `Node { name = name; port = port }
 
 (****)
 

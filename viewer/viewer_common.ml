@@ -147,7 +147,7 @@ let perform_draw ctx fill stroke =
 let draw_element ctx e =
   begin_path ctx;
   match e with
-    Path (cmd, fill, stroke) ->
+    Path (cmd, fill, stroke, _) ->
       Array.iter
         (fun c ->
            match c with
