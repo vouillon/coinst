@@ -335,6 +335,52 @@ let read_bugs () =
   let unstable_bugs = read_bugs (Filename.concat (unstable ()) "BugsV") in
   (testing_bugs, unstable_bugs)
 
+(**** Conversion from dot to svg ****)
+
+let send_to_dot_process (oc, _) s =
+Format.eprintf "%s@." s;
+  output_string oc s; flush oc
+let send_to_dot_process = Task.funct send_to_dot_process
+
+let shutdown_dot_process (oc, pid) () =
+  close_out oc;
+  ignore (Unix.waitpid [] pid)
+let shutdown_dot_process = Task.funct shutdown_dot_process
+
+let create_dot_process () =
+  let (out_read, out_write) = Unix.pipe () in
+  flush_all ();
+  let helper =
+    Task.spawn
+      (fun () ->
+         Unix.close out_read;
+         let (in_read, in_write) = Unix.pipe () in
+         match Unix.fork () with
+           0 ->
+             Unix.close in_write;
+             Unix.dup2 in_read Unix.stdin; Unix.dup2 out_write Unix.stdout;
+             Unix.close in_read; Unix.close out_write;
+             Unix.execv "/bin/sh" [| "/bin/sh"; "-c"; "dot" |]
+         | pid ->
+             Unix.close in_read;
+             (Unix.out_channel_of_descr in_write, pid))
+  in
+  Unix.close out_write;
+  (helper, Unix.in_channel_of_descr out_read)
+
+let dot_process = lazy (create_dot_process ())
+
+let dot_to_svg s =
+  let (t, ic) = Lazy.force dot_process in
+  let send = send_to_dot_process t s in
+  let (_, g) = Dot_graph.of_channel ic in
+  ignore (Task.wait send);
+  let (bbox, scene) = Dot_render.f g in
+  let l = Scene.get scene in
+  let b = Buffer.create 200 in
+  Scene_svg.format (Format.formatter_of_buffer b) (bbox, l);
+  Buffer.contents b
+
 (**** Parsing of Debian control files ****)
 
 module M = Deb_lib
@@ -407,14 +453,7 @@ let print_explanation expl =
   let conflict_graph () =
     let b = Buffer.create 200 in
     Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b) expl;
-    let ch = File.pipe_from_string (Buffer.contents b) "dot" in
-    let (_, g) = Dot_graph.of_channel ch in
-    close_in ch;
-    let (bbox, scene) = Dot_render.f g in
-    let l = Scene.get scene in
-    let b = Buffer.create 200 in
-    Scene_svg.format (Format.formatter_of_buffer b) (bbox, l);
-    Buffer.contents b
+    dot_to_svg (Buffer.contents b)
   in
   L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl) &
   (if !svg then L.raw_html conflict_graph else L.emp)
