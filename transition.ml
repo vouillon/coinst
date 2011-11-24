@@ -24,6 +24,7 @@
   ===> temporarily assume this package is not supported!
        (big warning)
 - parse more options from britney config file (in particular, hint files)
+- make Deb_lib more abstract...
 
 PRIORITIES
   ==> graphs for reporting co-installability issues:
@@ -112,6 +113,7 @@ let all_hints = ref false
 let to_migrate = ref None
 let check_coinstallability = ref true
 let equivocal = ref false
+let svg = ref false
 
 (**** Debug options ****)
 
@@ -402,7 +404,20 @@ let print_cstr r =
       L.s " {" & print_pkg_ref pkg' & L.s "}"
 
 let print_explanation expl =
-  L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl)
+  let conflict_graph () =
+    let b = Buffer.create 200 in
+    Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b) expl;
+    let ch = File.pipe_from_string (Buffer.contents b) "dot" in
+    let (_, g) = Dot_graph.of_channel ch in
+    close_in ch;
+    let (bbox, scene) = Dot_render.f g in
+    let l = Scene.get scene in
+    let b = Buffer.create 200 in
+    Scene_svg.format (Format.formatter_of_buffer b) (bbox, l);
+    Buffer.contents b
+  in
+  L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl) &
+  (if !svg then L.raw_html conflict_graph else L.emp)
 
 let print_binaries conj print_binary s =
   let l =
@@ -2376,6 +2391,9 @@ let spec =
    "--excuses",
    Arg.String (fun f -> excuse_file := f),
    "FILE Output excuses to FILE";
+   "--svg",
+   Arg.Unit (fun () -> svg := true),
+   "Include conflict graphs (in SVG) in excuse output";
    "--migrate",
    Arg.String (fun p -> to_migrate := Some p),
    "PACKAGE Explain what it takes to migrate PACKAGE";

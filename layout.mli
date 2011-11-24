@@ -16,6 +16,8 @@ val format : (Format.formatter -> 'a -> unit) -> 'a -> _ phrasing t
 val seq : string -> ('a -> _ phrasing t) -> 'a list -> _ phrasing t
 val code : _ phrasing t -> _ phrasing t
 
+val raw_html : (unit -> string) -> _ phrasing t
+
 type in_anchor
 type outside_anchor
 val anchor : string -> in_anchor phrasing t -> outside_anchor phrasing t
@@ -53,6 +55,7 @@ class type printer = object
   method dt : string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
+  method raw_html : (unit -> string) -> unit
 end
 
 class html_printer : out_channel -> string -> printer

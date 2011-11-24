@@ -22,3 +22,7 @@ val open_in : string -> in_channel
 val open_in_multiple : string list -> in_channel
 
 val has_magic : in_channel -> string -> bool
+
+val pipe : in_channel -> string -> in_channel
+val pipe_from_string : string -> string -> in_channel
+val pipe_gen : (out_channel -> unit) -> string -> in_channel

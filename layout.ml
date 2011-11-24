@@ -15,6 +15,7 @@ class type printer = object
   method dt : string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
+  method raw_html : (unit -> string) -> unit
 end
 
 type +'a t = printer -> unit
@@ -51,6 +52,8 @@ type outside_anchor
 let anchor link contents p = p#start_a link; contents p; p#end_a ()
 
 let p pr = pr#change_p ()
+
+let raw_html f pr = pr#raw_html f
 
 (****)
 
@@ -175,6 +178,12 @@ class html_printer ch title : printer = object (self)
       in_p <- false
     end;
     at_list_start <- false
+  method raw_html f =
+    if not in_p then begin
+      self#break (); output_string ch "<p>"; in_p <- true
+    end;
+    output_string ch (f ());
+    need_break <- true
 end
 
 let space = Str.regexp " "
@@ -244,4 +253,5 @@ class format_printer f : printer = object
   method dd () = Format.fprintf f "@]@ @["
   method end_dl () =
     if not at_list_start then Format.fprintf f "@]"
+  method raw_html f = ()
 end

@@ -6,13 +6,21 @@ TRANS=transition
 OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
 OCAMLDEP=ocamldep
+OCAMLYACC=ocamlyacc
+OCAMLLEX=ocamllex
 
 TASK = bytearray_stubs.o bytearray.cmx task_stubs.o task.cmx
+SVG=viewer/scene.cmx viewer/dot_parser.cmx viewer/dot_lexer.cmx \
+    viewer/dot_graph.cmx viewer/dot_render.cmx viewer/scene_svg.cmx \
+    viewer/dot_file.cmx
 OBJS = util.cmx file.cmx debug.cmx common.cmx cache.cmx layout.cmx \
        solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx \
        repository.cmx quotient.cmx conflicts.cmx graph.cmx coinst_common.cmx
-COMPFLAGS=-package unix,str,bigarray -g
+COMPFLAGS=-package unix,str,bigarray -g -I viewer
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
+
+OCAMLDEP=ocamlfind ocamldep
+DEPFLAGS = -package js_of_ocaml,js_of_ocaml.syntax -syntax camlp4o -I viewer
 
 all: $(COINST) $(UPGRADE) $(TRANS)
 
@@ -22,10 +30,10 @@ $(COINST): $(OBJS) coinst.cmx
 $(COINST).byte: $(OBJS:.cmx=.cmo) coinst.cmo
 	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(UPGRADE): $(OBJS) upgrade_common.cmx upgrade.cmx
+$(UPGRADE): $(OBJS) $(SVG) upgrade_common.cmx upgrade.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(TRANS): $(OBJS) $(TASK) upgrade_common.cmx horn.cmx transition.cmx
+$(TRANS): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx horn.cmx transition.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::
@@ -63,7 +71,7 @@ clean::
 	$(OCAMLC) -ccopt "-o $@" $(COMPFLAGS) -ccopt "$(CFLAGS)" -c $<
 
 depend:
-	find . -maxdepth 1 -name "*.ml" -o -name "*.mli" | \
+	ls *.ml *.mli viewer/*.ml viewer/*.mli | \
         grep -v download.ml | xargs $(OCAMLDEP) $(DEPFLAGS) > .depend
 
 include .depend

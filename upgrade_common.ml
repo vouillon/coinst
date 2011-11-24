@@ -1344,3 +1344,102 @@ Format.eprintf "New package %a ==> %a@."
                    d None))
        end)
     deps2'
+
+(****)
+
+(*
+type pkg_ref = string * bool * bool
+type reason =
+    R_depends of pkg_ref * M.dep * pkg_ref list
+  | R_conflict of pkg_ref * M.dep * pkg_ref
+*)
+
+module D = Dot_file
+
+let output_conflict_graph f reasons =
+  let i = ref 0 in
+  let pkg (nm, _, _) = nm in
+  let new_node () = incr i; D.node (string_of_int !i) in
+  let pkgs = Hashtbl.create 17 in
+  let pkg_node nm rem =
+    if Hashtbl.mem pkgs nm then rem else begin
+      Hashtbl.add pkgs nm ();
+      `Compound ([D.node nm], ["label", nm]) :: rem
+    end
+  in
+  let style (_, t, u) =
+    match t, u with
+      true, false -> ["style", "dotted"]
+    | false, true -> ["style", "dashed"]
+    | true, true  -> []
+    | _           -> assert false
+  in
+  let l =
+    `Attributes (`Graph, ["rankdir", "LR"]) ::
+    `Attributes
+      (`Node, ["fontsize", "8"; "margin", "0.05,0"; "height", "0.2";
+               "style", "rounded"]) ::
+    List.fold_right
+      (fun r l ->
+         match r with
+           R_depends (p, _, []) ->
+             let n = new_node () in
+             pkg_node (pkg p) (
+             `Compound
+               ([n], ["color", "blue"; "shape", "box"; "label", "NONE"]) ::
+             `Compound ([D.node (pkg p); n],
+                        style p @ ["color", "blue"; "minlen", "2"]) :: l)
+         | R_depends (p, _, [q]) ->
+             let pstyle = style p in
+             let qstyle = style q in
+             pkg_node (pkg p) (
+             pkg_node (pkg q) (
+             if pstyle = qstyle then begin
+               `Compound ([D.node (pkg p); D.node (pkg q)],
+                          pstyle @ ["color", "blue"; "minlen", "2"]) :: l
+             end else begin
+               let n = new_node () in
+               `Compound ([n], ["label", ""; "fixedsize", "true";
+                                "width", "0.0"; "height", "0";
+                                "shape", "none"]) ::
+               `Compound ([D.node (pkg p); n],
+                          pstyle @ ["color", "blue"; "dir", "none"]) ::
+               `Compound ([n; D.node (pkg q)],
+                          qstyle @ ["color", "blue"]) :: l
+             end))
+         | R_depends (p, _, pl) ->
+             let n = new_node () in
+             pkg_node (pkg p) (
+             List.fold_right (fun q rem -> pkg_node (pkg q) rem) pl (
+             `Compound
+               ([n],
+                ["label", "∨"; "shape", "circle";
+                 "color", "blue"; "fontcolor", "blue"]) ::
+             `Compound
+               ([D.node (pkg p); n],
+                style p @ ["color", "blue"; "dir", "none"]) ::
+             List.map
+               (fun p ->`Compound ([n; D.node (pkg p)],
+                                   style p @ ["color", "blue"]))
+               pl @
+             l))
+         | R_conflict (p1, _, p2) ->
+             let style1 = style p1 in
+             let style2 = style p2 in
+             let attrs = ["dir", "none"; "color", "red"] in
+             pkg_node (pkg p1) (
+             pkg_node (pkg p2) (
+             if style1 = style2 then begin
+               `Compound ([D.node (pkg p1); D.node (pkg p2)],
+                          ("minlen", "2") :: attrs) :: l
+             end else begin
+               let n = new_node () in
+               `Compound ([n], ["label", ""; "fixedsize", "true";
+                                "width", "0.0"; "height", "0";
+                                "shape", "none"]) ::
+               `Compound ([D.node (pkg p1); n], style1 @ attrs) ::
+               `Compound ([n; D.node (pkg p2)], style2 @ attrs) :: l
+             end)))
+      reasons []
+  in
+  D.print f (D.graph `Digraph "G" l)

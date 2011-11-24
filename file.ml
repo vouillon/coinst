@@ -49,7 +49,24 @@ let spawn ?(sync=false) f =
   end;
   read_fd
 
-let pipe cmd ic =
+let pipe_gen feeder cmd =
+  flush_all ();
+  let in_read =
+    (spawn ~sync:true
+       (fun in_write ->
+          let out_read =
+            spawn ~sync:false
+              (fun out_write ->
+                 feeder (Unix.out_channel_of_descr out_write); exit 0)
+          in
+          pipe_to_command cmd out_read in_write;
+          exit 0))
+  in
+  Unix.in_channel_of_descr in_read
+
+let pipe_from_string s cmd = pipe_gen (fun ch -> output_string ch s) cmd
+
+let pipe ic cmd =
   let in_read =
     (spawn ~sync:true
        (fun in_write ->
@@ -77,8 +94,8 @@ let has_magic ch s =
   !i = l && buf = s
 
 let filter ch =
-  if has_magic ch "\031\139" then pipe "exec gzip -cd" ch else
-  if has_magic ch "BZh" then pipe "exec bzcat" ch else
+  if has_magic ch "\031\139" then pipe ch "exec gzip -cd" else
+  if has_magic ch "BZh" then pipe ch "exec bzcat" else
   ch
 
 let open_in file = filter (open_in file)
