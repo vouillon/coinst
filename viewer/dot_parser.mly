@@ -19,19 +19,6 @@
 
 %{
 
-let attrlist = ref []
-
-(*XXX*)
-let attrstmt kind =
-  ()
-
-let subgraph _ _ =
-  ()
-
-let create_graph strict typ name = ()
-
-let add_node_list st l = (st, l)
-
 %}
 
 %token EOF

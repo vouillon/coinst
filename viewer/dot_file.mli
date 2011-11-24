@@ -33,3 +33,7 @@ and statement =
   [`Attributes of attr_type * attributes | `Compound of compound]
 
 type t = { kind : kind; strict : bool; graph : graph }
+
+val graph : kind -> ?strict:bool -> string -> statement list -> t
+
+val print : Format.formatter -> t -> unit
