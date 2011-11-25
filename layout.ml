@@ -229,7 +229,7 @@ class format_printer f : printer = object
       if in_p then Format.fprintf f "@]";
       Format.fprintf f "@]@ "
     end;
-    Format.fprintf f "@[<2>%s" (List.hd ul_prefixes);
+    Format.fprintf f "@[<v2>%s" (List.hd ul_prefixes);
     in_p <- false; at_list_start <- false; at_flow_start <- true
   method end_ul () =
     ul_prefixes <- List.tl ul_prefixes;
