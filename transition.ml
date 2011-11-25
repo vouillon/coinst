@@ -19,12 +19,11 @@
 
 (*
 - improve '--migrate option': multiple files, bin_nmus
-- could the 'migrate' option generate removal hints?
-- remove hint: just remove the package from unstable
-  ===> temporarily assume this package is not supported!
-       (big warning)
+- could the 'migrate' option automatically generate removal hints?
+  (seems difficult, as there can be many possible choices...)
 - parse more options from britney config file (in particular, hint files)
 - make Deb_lib more abstract...
+- SVG graphs: use CSS styles
 
 PRIORITIES
   ==> graphs for reporting co-installability issues:
@@ -111,6 +110,7 @@ let excuse_file = ref ""
 let offset = ref 0
 let all_hints = ref false
 let to_migrate = ref None
+let to_remove = ref []
 let check_coinstallability = ref true
 let equivocal = ref false
 let svg = ref false
@@ -133,6 +133,7 @@ let debug_migration =
   Debug.make "migration" "Debug migration option" ["normal"]
 let debug_gc =
   Debug.make "gc" "Output gc stats" []
+let debug_remove = Debug.make "remove" "Debug removal hints" ["normal"]
 
 (**** Useful modules from Util ****)
 
@@ -216,6 +217,7 @@ type hint =
     h_unblock : (string, Deb_lib.version) Hashtbl.t;
     h_unblock_udeb : (string, Deb_lib.version) Hashtbl.t;
     h_urgent : (string, Deb_lib.version) Hashtbl.t;
+    h_remove : (string, Deb_lib.version) Hashtbl.t;
     h_age_days : (string, Deb_lib.version option * int) Hashtbl.t }
 
 let debug_read_hints = Debug.make "read_hints" "Show input hints." ["normal"]
@@ -246,6 +248,7 @@ let read_hints dir =
       h_unblock = Hashtbl.create 16;
       h_unblock_udeb = Hashtbl.create 16;
       h_urgent = Hashtbl.create 16;
+      h_remove = Hashtbl.create 16;
       h_age_days = Hashtbl.create 16 }
   in
   if debug_read_hints () then
@@ -285,6 +288,14 @@ let read_hints dir =
                    (fun p ->
                       match Str.split slash p with
                         [nm; v] -> Hashtbl.replace hints.h_urgent
+                                     nm (Deb_lib.parse_version v)
+                      | _       -> ())
+                   l
+             | "remove" :: l ->
+                 List.iter
+                   (fun p ->
+                      match Str.split slash p with
+                        [nm; v] -> Hashtbl.replace hints.h_remove
                                      nm (Deb_lib.parse_version v)
                       | _       -> ())
                    l
@@ -1299,11 +1310,50 @@ type cstr =
 
 let compute_hints () = debug_hints () || !hint_file <> ""
 
-let arch_constraints st produce_excuses =
+let remove_sources central remove_hints t u =
+  let l = ref [] in
+  Hashtbl.iter
+    (fun nm v ->
+       match source_version t nm with
+         Some v' when M.compare_version v v' = 0 ->
+           if central && debug_remove () && Hashtbl.mem u.M.s_packages nm then
+             Format.eprintf "Trying to remove source package %s@." nm;
+           Hashtbl.remove u.M.s_packages nm;
+           l := nm :: !l
+         | _ ->
+           ())
+    remove_hints;
+ !l >> List.sort compare
+    >> fun l -> Marshal.to_string l []
+    >> Digest.string >> Digest.to_hex >> fun s -> String.sub s 0 16
+
+
+let arch_constraints st (produce_excuses, remove_hints) =
   let t = st.testing_srcs in
   let u = st.unstable_srcs in
   let t' = st.testing in
   let u' = st.unstable in
+
+  let removed_pkgs = ref [] in
+  Hashtbl.iter
+    (fun _ p ->
+       let (nm, _) = p.M.source in
+       try
+         let v = Hashtbl.find remove_hints nm in
+         let v' = (Hashtbl.find t.M.s_packages nm).M.s_version in
+         if M.compare_version v v' = 0 then begin
+           if debug_remove () then
+             Format.eprintf
+               "Trying to remove binary package %s/%s (source: %s)@."
+               p.M.package st.arch nm;
+           removed_pkgs := p :: !removed_pkgs
+         end
+       with Not_found ->
+         ())
+    u'.M.packages_by_num;
+  List.iter (fun p -> M.remove_package u' p) !removed_pkgs;
+  ignore (remove_sources false remove_hints t u);
+
   let fake_srcs = ref [] in
   let is_fake = Hashtbl.create 17 in
   let sources_with_binaries = ref [] in
@@ -1481,6 +1531,23 @@ let initial_constraints
       (dates, urgencies, hints, t, u,
        testing_bugs, unstable_bugs, l, id_of_source, source_of_id, src_uid) =
   let init_t = Timer.start () in
+
+  List.iter
+    (fun p ->
+       let l = Str.split slash p in
+       try
+         match l with
+           [nm; v] -> Hashtbl.replace hints.h_remove nm
+                        (Deb_lib.parse_version v)
+         | [nm]    -> Hashtbl.replace hints.h_remove nm
+                        (Hashtbl.find t.M.s_packages nm).M.s_version
+         | _       -> ()
+       with Not_found ->
+         Format.eprintf "No source package %s.@." (List.hd l);
+         exit 1)
+    !to_remove;
+  let rem_uid = remove_sources true hints.h_remove t u in
+
   let name_of_id =
     ref [("source", 0, Array.length source_of_id, source_of_id)] in
   let get_name_arch id =
@@ -1587,7 +1654,8 @@ let initial_constraints
   in
   let arch_results =
     List.map
-      (fun (arch, t) -> (arch, arch_constraints t produce_excuses)) l
+      (fun (arch, t) ->
+         (arch, arch_constraints t (produce_excuses, hints.h_remove))) l
   in
   Hashtbl.iter
     (fun nm s ->
@@ -1634,6 +1702,7 @@ let initial_constraints
   let id_offset = ref 0 in
   let id_offsets = Hashtbl.create 17 in
   let uids =
+    rem_uid ::
     src_uid ::
     List.map
       (fun (arch, r) ->
@@ -2442,6 +2511,9 @@ let spec =
    "--inst",
    Arg.Unit (fun () -> check_coinstallability := false),
    "Check for single package installability only";
+   "--remove",
+   Arg.String (fun p -> to_remove := p :: !to_remove),
+   "PACKAGE Attempt to remove the given source package";
    "--no-cache",
    Arg.Unit (fun () -> Cache.set_disabled true),
    " Disable on-disk caching";
