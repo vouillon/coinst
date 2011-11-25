@@ -528,8 +528,8 @@ let f g =
        in
        let font_family = "serif" in
        Scene.add scene
-         (Scene.Text (x, y +. height *. 0.1, label,
-                      (font_family, font_size), font_color, None));
+         (Scene.Text (x, y, label, (font_family, font_size),
+                      font_color, None));
     ()
     )
     g.G.nodes.G.seq;

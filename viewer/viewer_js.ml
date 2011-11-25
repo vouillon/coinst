@@ -58,6 +58,7 @@ module Common = Viewer_common.F (struct
   let draw_text (ctx:ctx) x y txt font fill_color stroke_color =
      ctx##font <- font;
      ctx##textAlign <- Js.string "center";
+     ctx##textBaseline <- Js.string "middle";
      begin match fill_color with
        Some c -> ctx##fillStyle <- c; ctx##fillText (txt, x, y)
      | None   -> ()

@@ -47,7 +47,8 @@ let format f ((x1, y1, x2, y2), scene) =
        | Text (x1, y1, txt, (font, size), fill, stroke) ->
            Format.fprintf f
              "<text x='%g' y='%g' font-family='%s' font-size='%g' \
-                 text-anchor='middle' fill='%s' stroke='%s'>\
+                 style='dominant-baseline:central' text-anchor='middle' \
+                 fill='%s' stroke='%s'>\
               %s</text>\n"
              x1 y1 font size (color fill) (color stroke) txt)
     scene;

@@ -110,9 +110,11 @@ module Common = Viewer_common.F (struct
      Cairo.select_font_face ctx font
        Cairo.FONT_SLANT_NORMAL Cairo.FONT_WEIGHT_NORMAL;
      Cairo.set_font_size ctx font_size;
+     let fext = Cairo.font_extents ctx in
      let ext = Cairo.text_extents ctx txt in
+     let dy = (fext.Cairo.ascent -. fext.Cairo.descent) /. 2. in
      Cairo.move_to ctx
-       (x -. ext.Cairo.x_bearing -. ext.Cairo.text_width /. 2.) y;
+       (x -. ext.Cairo.x_bearing -. ext.Cairo.text_width /. 2.) (y +. dy);
      Cairo.show_text ctx txt;
      perform_draw ctx fill stroke
 
