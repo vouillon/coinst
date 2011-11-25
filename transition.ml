@@ -18,6 +18,7 @@
  *)
 
 (*
+- allow breaking single packages (--force-break option?)
 - improve '--migrate option': multiple files, bin_nmus
 - could the 'migrate' option automatically generate removal hints?
   (seems difficult, as there can be many possible choices...)
@@ -35,9 +36,6 @@ PRIORITIES
       - dependency targets may be in testing, sid, or both
       - same thing for each side of a conflict (!)
       indicate which set of packages are made non-coinstallable
-  ==> add possibility to migrate packages with co-installability issues
-      given appropriate user-provided hints (find out the right kind of
-      hints)
 
 EXPLANATIONS
   ==> summaries; in particular, show packages that only wait for age,
@@ -114,6 +112,7 @@ let to_remove = ref []
 let check_coinstallability = ref true
 let equivocal = ref false
 let svg = ref false
+let broken_sets = ref []
 
 (**** Debug options ****)
 
@@ -554,8 +553,8 @@ module HornSolver = Horn.F (struct type t = reason type reason = t end)
 
 let learnt_rules = ref []
 
-let learn_rule r neg s expl =
-  learnt_rules := (r, neg, s, expl) :: !learnt_rules
+let learn_rule r neg s s' expl =
+  learnt_rules := (r, neg, s, s', expl) :: !learnt_rules
 
 let coinst_rules = ref []
 
@@ -568,11 +567,15 @@ let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
   let (rules, _) =
-    Cache.cached [] cache ("version 5\n" ^ uids) (fun () -> []) in
+    Cache.cached [] cache ("version 6\n" ^ uids) (fun () -> []) in
   List.iter
-    (fun (r, neg, s, expl) ->
+    (fun (r, neg, s, s', expl) ->
        let n = IntSet.cardinal s in
-       if !check_coinstallability || n = 1 then begin
+       if
+         (!check_coinstallability || n = 1)
+           &&
+         not (Upgrade_common.is_ignored_set !broken_sets s')
+       then begin
          let r = HornSolver.add_rule solver r (Conflict (neg, s, expl)) in
          if n > 1 then coinst_rules := r :: !coinst_rules
        end)
@@ -582,7 +585,7 @@ let load_rules solver uids =
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  ignore (Cache.cached ~force:true [] cache ("version 5\n" ^ uids)
+  ignore (Cache.cached ~force:true [] cache ("version 6\n" ^ uids)
             (fun () -> List.rev !learnt_rules))
 
 (**** Global state for per-architecture processes ****)
@@ -965,6 +968,31 @@ let output_reasons
   if debug_time () then
     Format.eprintf "Writing excuse file: %f@." (Timer.stop reason_t)
 
+(**** Breaking co-installability ****)
+
+let comma_re = Str.regexp "[ \t]*,[ \t]*"
+let bar_re = Str.regexp "[ \t]*|[ \t]*"
+
+let allow_broken_sets s =
+  let l = Str.split comma_re (Util.trim s) in
+  let ext = List.mem "_" l in
+  let l = List.filter (fun s -> s <> "_") l in
+  (* XXXX Should disallow specs such that a,a *)
+  let l =
+    List.fold_left
+      (fun l s ->
+         List.fold_left
+           (fun s nm -> StringSet.add nm s)
+           StringSet.empty (Str.split bar_re s)
+         :: l)
+      [] l
+  in
+  if (List.length l + if ext then 1 else 0) <= 1 then begin
+    Format.eprintf "Breaking single packages is not supported (yet).@.";
+    exit 1
+  end;
+  broken_sets := (l, ext) :: !broken_sets
+
 (**** Per arch. information on which packages are not propagated ****)
 
 let extract_unchanged_bin solver id_offsets arch unch =
@@ -1122,8 +1150,10 @@ let reduce_for_coinstallability st unchanged =
   (* Changed packages should be kept. *)
   Hashtbl.iter (fun p _ -> add_package p) changed_packages;
 
-  (* Packages unchanged but with stronger dependencies should be kept
-     as well *)
+  (* Packages unchanged but with stronger dependencies, or that may
+     depend on a package for which we ignore some co-installability
+     issues, should be kept as well. *)
+  let break_candidates = Upgrade_common.ignored_set_domain !broken_sets in
   let stronger_deps l =
     (* Check whether there is a package that satisfies the dependency,
        that might not satisfy the dependency anymore. *)
@@ -1133,21 +1163,31 @@ let reduce_for_coinstallability st unchanged =
            (fun cstr ->
               List.exists
                 (fun p ->
+                   StringSet.mem p.M.package break_candidates
+                     ||
                    (* If the package is left unchanged, the dependency
                       will remain satisfied *)
-                   Hashtbl.mem changed_packages p.M.package &&
-                   (* Otherwise, we check whether a replacement exists,
-                      that still satisfies the dependency *)
-                   List.for_all
-                     (fun cstr' ->
-                        List.for_all
-                          (fun p' -> p.M.package <> p'.M.package)
-                          (M.resolve_package_dep_raw u cstr'))
-                     d)
-                (M.resolve_package_dep_raw t cstr))
+                   (Hashtbl.mem changed_packages p.M.package &&
+                    (* Otherwise, we check whether a replacement exists,
+                       that still satisfies the dependency *)
+                    List.for_all
+                      (fun cstr' ->
+                         List.for_all
+                           (fun p' -> p.M.package <> p'.M.package)
+                           (M.resolve_package_dep_raw u cstr'))
+                      d))
+                (M.resolve_package_dep_raw t cstr)
+                   ||
+              (not (StringSet.is_empty break_candidates)
+                 &&
+               List.exists
+                 (fun p -> StringSet.mem p.M.package break_candidates)
+                 (M.resolve_package_dep_raw u cstr)))
            d)
       l
   in
+  (* Changed packages are already all in [pkgs], thus we only have to
+     look in testing. *)
   Hashtbl.iter
     (fun _ p ->
        if not (Hashtbl.mem pkgs p.M.package) then
@@ -1807,7 +1847,7 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
   let problems =
     if check_coinstallability then
       Upgrade_common.find_problematic_packages
-        ~check_new_packages:true t' u'
+        ~check_new_packages:true !broken_sets t' u'
         (fun nm -> is_unchanged st unchanged nm)
     else
       Upgrade_common.find_non_inst_packages
@@ -1830,11 +1870,11 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
              s IntSet.empty
          in
          let neg = to_ids neg in
-         let s = to_ids s in
+         let s' = to_ids s in
          let id = Hashtbl.find st.id_of_bin (StringSet.choose pos) in
          let r = Array.of_list (id :: IntSet.elements neg) in
          let can_learn = n = 1 in
-         changes := (r, neg, s, expl, can_learn) :: !changes
+         changes := (r, neg, s', s, expl, can_learn) :: !changes
        end)
     problems;
   if debug_time () then begin
@@ -1878,7 +1918,7 @@ let find_all_coinst_constraints solver id_offsets l =
       Array.fill changed 0 c true;
       let (_, offset, _) = Hashtbl.find id_offsets (fst a.(i)) in
       List.iter
-        (fun (r, neg, s, expl, can_learn) ->
+        (fun (r, neg, s, s', expl, can_learn) ->
            let r = Array.map (fun id -> id + offset) r in
            let offset_set ids =
              IntSet.fold (fun id s -> IntSet.add (id + offset) s)
@@ -1888,7 +1928,7 @@ let find_all_coinst_constraints solver id_offsets l =
            let s = offset_set s in
            let r' = HornSolver.add_rule solver r (Conflict (neg, s, expl)) in
            if IntSet.cardinal s > 1 then coinst_rules := r' :: !coinst_rules;
-           if can_learn then learn_rule r neg s expl)
+           if can_learn then learn_rule r neg s s' expl)
         changes
     end;
     running.(i) <- false;
@@ -2514,6 +2554,9 @@ let spec =
    "--remove",
    Arg.String (fun p -> to_remove := p :: !to_remove),
    "PACKAGE Attempt to remove the given source package";
+   "--break",
+   Arg.String allow_broken_sets,
+   "SETS Allows sets of packages to be broken by the migration";
    "--no-cache",
    Arg.Unit (fun () -> Cache.set_disabled true),
    " Disable on-disk caching";

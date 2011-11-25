@@ -94,3 +94,5 @@ module Union_find : sig
   val get : 'a t -> 'a
   val merge : 'a t -> 'a t -> ('a -> 'a -> 'a) -> unit
 end
+
+val trim : string -> string

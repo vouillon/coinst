@@ -47,7 +47,100 @@ module Timer = Util.Timer
 
 (****)
 
-let new_deps pred deps1 dist2 deps2 =
+(*XXXXXXXXXXXXX
+- get_clearly_broken_packages ===> ignore forced_packages
+- same for analyze_installability!
+- learnt rules should be filtered as well...
+- packages new in sid: only look at forced packages
+*)
+
+type ignored_sets = (Util.StringSet.t list * bool) list
+
+type ignored_sets_2 = (PSet.t list * bool) list
+
+let ignored_set_domain l =
+  List.fold_left
+    (fun s (l, ext) -> List.fold_left StringSet.union s l)
+    StringSet.empty l
+
+let forced_packages l =
+  List.fold_left
+    (fun s (l, ext) ->
+       match l with
+         [s'] when not ext -> StringSet.union s s'
+       | _                 -> s)
+    StringSet.empty l
+
+let intern_ignored_sets dist l =
+  List.fold_left
+    (fun r (l, ext) ->
+       let l =
+         List.map
+           (fun s ->
+              StringSet.fold
+                (fun nm s ->
+                   match M.parse_package_name dist nm with
+                     [p]    -> PSet.add (Package.of_index p) s
+                   | []     -> s
+                   | _ :: _ -> assert false)
+                s PSet.empty)
+           l
+       in
+       if List.exists PSet.is_empty l then r else (l, ext) :: r)
+    [] l
+
+let is_ignored_set l s =
+  List.exists
+    (fun (l, ext) ->
+       try
+         not
+           (StringSet.is_empty
+              (List.fold_left
+                 (fun s s' ->
+                    let p = StringSet.choose (StringSet.inter s s') in
+                    StringSet.remove p s)
+                 s l)
+              &&
+            ext)
+       with Not_found ->
+         false)
+    l
+
+let ignored_set_domain_2 l =
+  List.fold_left
+    (fun s (l, ext) -> List.fold_left PSet.union s l)
+    PSet.empty l
+
+let is_ignored_set_2 l s =
+  List.exists
+    (fun (l, ext) ->
+       try
+         not
+           (PSet.is_empty
+              (List.fold_left
+                 (fun s s' ->
+                    let p = PSet.choose (PSet.inter s s') in
+                    PSet.remove p s)
+                 s l)
+              &&
+            ext)
+       with Not_found ->
+         false)
+    l
+
+let print_ignore_spec dist f l =
+  Util.print_list
+    (fun f (l, ext) ->
+       Util.print_list
+         (fun f s ->
+            Util.print_list (Package.print_name dist) "|" f (PSet.elements s))
+         "," f l;
+       if ext then Format.fprintf f ",_")
+    " " f l
+
+(****)
+
+let new_deps pred possibly_ignored_packages deps1 dist2 deps2 =
   PTbl.mapi
     (fun p2 i ->
        if i = -1 then
@@ -60,6 +153,8 @@ let new_deps pred deps1 dist2 deps2 =
          let f2 =
            Formula.filter
              (fun d2 ->
+                Disj.exists (fun p -> PSet.mem p possibly_ignored_packages) d2
+                  ||
                 let d1 =
                   Disj.fold
                     (fun p2 d2 ->
@@ -430,7 +525,8 @@ let compute_predecessors dist1 dist2 =
        | _ ->
            assert false)
 
-let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
+let analyze ?(check_new_packages = false) ignored_sets
+      ?reference dist1_state dist2 =
   let
     { dist = dist1; deps = deps1; confl = confl1;
       deps' = deps1'; confl' = confl1'; st = st1 }
@@ -535,7 +631,9 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
     !new_conflicts;
 
   (* Only consider new dependencies. *)
-  let deps2 = new_deps pred deps1 dist2 deps2 in
+  let possibly_ignored_packages =
+    ignored_set_domain_2 ignored_sets in
+  let deps2 = new_deps pred possibly_ignored_packages deps1 dist2 deps2 in
   (* Compute the corresponding flattened dependencies. *)
   let deps2 =
     PTbl.mapi
@@ -550,7 +648,7 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
       deps2
   in
   (* Only keep those that are new... *)
-  let deps2 = new_deps pred deps1' dist2 deps2 in
+  let deps2 = new_deps pred PSet.empty deps1' dist2 deps2 in
   (* ...and that are indeed in the flattened repository *)
   let deps2 =
     PTbl.mapi
@@ -580,7 +678,15 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
               (PSet.mem p2 !dep_targets && PSet.mem q2 !dep_targets))
        then
          Conflict.remove confl2' p2 q2);
-  List.iter (fun (p2, q2) -> Conflict.remove confl2' p2 q2) !new_conflicts;
+  List.iter
+    (fun (p2, q2) ->
+       if
+         not (PSet.mem p2 possibly_ignored_packages
+                ||
+              PSet.mem p2 possibly_ignored_packages)
+       then
+         Conflict.remove confl2' p2 q2)
+    !new_conflicts;
   (* As a consequence, some new dependencies might not be relevant anymore. *)
   let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
 
@@ -652,6 +758,10 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
   if debug_time () then
     Format.eprintf "  Enumerating problems: %f@." (Timer.stop t);
 
+  let results =
+    PSetSet.filter (fun s -> not (is_ignored_set_2 ignored_sets s)) !results
+  in
+
   (****)
 
   let t = Timer.start () in
@@ -679,11 +789,13 @@ let analyze ?(check_new_packages = false) ?reference dist1_state dist2 =
       deps2
   end;
 
+  (****)
+
   let (graphs, broken_new_packages) =
-    if PSetSet.is_empty !results && PSet.is_empty !broken_new_packages then
+    if PSetSet.is_empty results && PSet.is_empty !broken_new_packages then
       ([], [])
     else begin
-      let s = PSetSet.fold PSet.union !results !broken_new_packages in
+      let s = PSetSet.fold PSet.union results !broken_new_packages in
       let t = Timer.start () in
       let st2init = M.generate_rules_restricted dist2 (pset_indices s) in
       if debug_time () then
@@ -741,7 +853,7 @@ if debug_coinst () then M.show_reasons dist2 r;
             { i_issue = s; i_clause = clause;
               i_graph = { g_nodes = !pkgs; g_deps = deps; g_confl = confl };
               i_explain = explanation })
-         (PSetSet.elements !results),
+         (PSetSet.elements results),
        PSet.fold
          (fun p s ->
             let i = Package.index p in
@@ -772,7 +884,7 @@ if debug_coinst () then M.show_reasons dist2 r;
     Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
 
   (deps1, deps2, pred, st2,
-   !results, !all_pkgs, all_conflicts, dep_src, graphs, broken_new_packages)
+   results, !all_pkgs, all_conflicts, dep_src, graphs, broken_new_packages)
 
 (****)
 
@@ -903,7 +1015,8 @@ let analyze_installability dist1_state dist dist2_state =
 (****)
 
 let rec find_problematic_packages
-          ?(check_new_packages = false) dist1_state dist2_state is_preserved =
+          ?(check_new_packages = false) ignored_sets
+          dist1_state dist2_state is_preserved =
   let t = Timer.start () in
   let dist2 = M.new_pool () in
   M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
@@ -919,7 +1032,8 @@ let rec find_problematic_packages
   let (deps1, deps2, pred, st2,
        results, all_pkgs, all_conflicts,
        dep_src, graphs, broken_new_packages) =
-    analyze ~check_new_packages ~reference:dist2_state dist1_state dist2
+    analyze ~check_new_packages (intern_ignored_sets dist2 ignored_sets)
+      ~reference:dist2_state dist1_state dist2
   in
 let t = Timer.start () in
   let problems =
@@ -1184,7 +1298,7 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
        end);
 
   (* Only consider new dependencies. *)
-  let deps2 = new_deps pred dist1_state.deps dist2 deps2 in
+  let deps2 = new_deps pred PSet.empty dist1_state.deps dist2 deps2 in
 
   (* Compute the corresponding flattened dependencies. *)
   let deps2 =
@@ -1201,7 +1315,7 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
   in
 
   (* Only keep those that are new... *)
-  let deps2 = new_deps pred dist1_state.deps' dist2 deps2 in
+  let deps2 = new_deps pred PSet.empty dist1_state.deps' dist2 deps2 in
 
   (* ...and that are indeed in the flattened repository *)
   let deps2 =

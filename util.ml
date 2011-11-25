@@ -273,3 +273,14 @@ let merge t t' f =
 let elt v = { state = Value v }
 
 end
+
+(****)
+
+let (>>) v f = f v
+
+let leading_whitespaces_re = Str.regexp "^[ \t\n]+"
+let trailing_whitespaces_re = Str.regexp "[ \t\n]+$"
+
+let trim s =
+  s >> Str.replace_first leading_whitespaces_re ""
+    >> Str.replace_first trailing_whitespaces_re ""
