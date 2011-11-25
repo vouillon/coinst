@@ -337,14 +337,11 @@ let read_bugs () =
 
 (**** Conversion from dot to svg ****)
 
-let send_to_dot_process (oc, _) s =
-Format.eprintf "%s@." s;
-  output_string oc s; flush oc
+let send_to_dot_process (oc, _) s = output_string oc s; flush oc
 let send_to_dot_process = Task.funct send_to_dot_process
 
 let shutdown_dot_process (oc, pid) () =
-  close_out oc;
-  ignore (Unix.waitpid [] pid)
+  close_out oc; ignore (Unix.waitpid [] pid)
 let shutdown_dot_process = Task.funct shutdown_dot_process
 
 let create_dot_process () =
