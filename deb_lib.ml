@@ -17,13 +17,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-module StringTbl =
-  Hashtbl.Make
-    (struct
-       type t = string
-       let hash = Hashtbl.hash
-       let equal (s : string) s' = s = s'
-     end)
+module ListTbl = Util.ListTbl
+module StringTbl = Util.StringTbl
+
+(****)
 
 let len = 4096
 type st =
@@ -186,9 +183,9 @@ let parse_simple_field_content st =
 
 (****)
 
-let strings = Hashtbl.create 101
+let strings = StringTbl.create 101
 let common_string s =
-  try Hashtbl.find strings s with Not_found -> Hashtbl.add strings s s; s
+  try StringTbl.find strings s with Not_found -> StringTbl.add strings s s; s
 
 (****)
 
@@ -217,7 +214,7 @@ let dummy_version = (-1, "", None)
 
 (****)
 
-let package_names = StringTbl.create 32768
+let package_names = Util.StringTbl.create 32768
 
 let parse_package st =
   start_token st;
@@ -242,9 +239,9 @@ let parse_package st =
   if !bad || String.length s < 2 then
     Util.print_warning (Format.sprintf "bad package name '%s'" s);
   try
-    StringTbl.find package_names s
+    Util.StringTbl.find package_names s
   with Not_found ->
-    StringTbl.add package_names s s;
+    Util.StringTbl.add package_names s s;
     s
 
 let parse_version_end st epoch n bad hyphen =
@@ -470,8 +467,6 @@ let print_version ch v =
 
 (****)
 
-module ListTbl = Util.ListTbl
-
 type deb_pool =
   { mutable size : int;
     packages_by_name : (string, p) ListTbl.t;
@@ -592,10 +587,10 @@ type s =
 
 type s_pool =
   { mutable s_size : int;
-    s_packages : (string, s) Hashtbl.t }
+    s_packages : s StringTbl.t }
 
 let new_src_pool () =
-  { s_size = 0; s_packages = Hashtbl.create 16384 }
+  { s_size = 0; s_packages = StringTbl.create 16384 }
 
 let parse_src_packages pool ch =
   let info = Common.start_parsing true ch in
@@ -615,7 +610,7 @@ let parse_src_packages pool ch =
   in
   let finish q =
     assert (q.s_name <> " "); assert (q.s_version <> dummy_version);
-    Hashtbl.add pool.s_packages q.s_name q;
+    StringTbl.add pool.s_packages q.s_name q;
     pool.s_size <- pool.s_size + 1
   in
   parse_stanzas ~start ~field ~finish st;
@@ -1076,14 +1071,14 @@ let add_package pool p =
 
 let src_only_latest h =
   let h' = new_src_pool () in
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm s ->
        try
-         let s' = Hashtbl.find h'.s_packages nm in
+         let s' = StringTbl.find h'.s_packages nm in
          if compare_version s.s_version s'.s_version > 0 then
-           Hashtbl.replace h'.s_packages nm s
+           StringTbl.replace h'.s_packages nm s
        with Not_found ->
-         Hashtbl.add h'.s_packages nm s;
+         StringTbl.add h'.s_packages nm s;
          h'.s_size <- h'.s_size + 1)
     h.s_packages;
   h'

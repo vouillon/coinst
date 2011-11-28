@@ -117,6 +117,14 @@ module ListTbl = struct
       ()
 end
 
+module StringTbl =
+  Hashtbl.Make
+    (struct
+       type t = string
+       let hash = Hashtbl.hash
+       let equal (s : string) s' = s = s'
+     end)
+
 (****)
 
 let print_list pr sep ch l =

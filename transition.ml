@@ -141,6 +141,7 @@ module StringSet = Util.StringSet
 module IntSet = Util.IntSet
 module Timer = Util.Timer
 module ListTbl = Util.ListTbl
+module StringTbl = Util.StringTbl
 module BitVect = Util.BitVect
 module Union_find = Util.Union_find
 
@@ -163,14 +164,14 @@ let now = truncate ((Unix.time () /. 3600. -. 15.) /. 24.)
 
 let read_package_info file f =
   let ch = open_in file in
-  let h = Hashtbl.create 101 in
+  let h = StringTbl.create 32768 in
   begin try
     while true do
       let l = input_line ch in
       match Str.split whitespaces l with
         [name; version; info] ->
           let version = Deb_lib.parse_version version in
-          Hashtbl.add h name (version, f info)
+          StringTbl.add h name (version, f info)
       | [] ->
           ()
       | _ ->
@@ -179,8 +180,6 @@ let read_package_info file f =
   with End_of_file -> () end;
   close_in ch;
   h
-
-let read_dates file = read_package_info file int_of_string
 
 let read_dates file =
   let cache = Filename.concat cache_dir "Dates" in
@@ -194,13 +193,13 @@ let read_urgencies file =
 
 let read_bugs file =
   let ch = open_in file in
-  let h = Hashtbl.create 101 in
+  let h = StringTbl.create 4096 in
   begin try
     while true do
       let l = input_line ch in
       match Str.split whitespaces l with
         [name; bugs] ->
-          Hashtbl.add h name
+          StringTbl.add h name
             (List.fold_right StringSet.add
                (Str.split comma bugs) StringSet.empty)
       | _ ->
@@ -211,14 +210,14 @@ let read_bugs file =
   h
 
 type hint =
-  { h_block : (string, string) Hashtbl.t;
-    h_block_udeb : (string, string) Hashtbl.t;
+  { h_block : string StringTbl.t;
+    h_block_udeb : string StringTbl.t;
     mutable h_block_all : string option;
-    h_unblock : (string, Deb_lib.version) Hashtbl.t;
-    h_unblock_udeb : (string, Deb_lib.version) Hashtbl.t;
-    h_urgent : (string, Deb_lib.version) Hashtbl.t;
-    h_remove : (string, Deb_lib.version) Hashtbl.t;
-    h_age_days : (string, Deb_lib.version option * int) Hashtbl.t }
+    h_unblock : Deb_lib.version StringTbl.t;
+    h_unblock_udeb : Deb_lib.version StringTbl.t;
+    h_urgent : Deb_lib.version StringTbl.t;
+    h_remove : Deb_lib.version StringTbl.t;
+    h_age_days : (Deb_lib.version option * int) StringTbl.t }
 
 let debug_read_hints = Debug.make "read_hints" "Show input hints." ["normal"]
 
@@ -229,10 +228,10 @@ let process_unblock_request h l =
          [nm; v] ->
            let v = Deb_lib.parse_version v in
            begin try
-             let v' = Hashtbl.find h nm in
+             let v' = StringTbl.find h nm in
              if Deb_lib.compare_version v' v < 0 then raise Not_found
            with Not_found ->
-             Hashtbl.replace h nm v
+             StringTbl.replace h nm v
            end
        | _ ->
            ())
@@ -242,14 +241,14 @@ exception Ignored_hint
 
 let read_hints dir =
   let hints =
-    { h_block = Hashtbl.create 16;
-      h_block_udeb = Hashtbl.create 16;
+    { h_block = StringTbl.create 16;
+      h_block_udeb = StringTbl.create 16;
       h_block_all = None;
-      h_unblock = Hashtbl.create 16;
-      h_unblock_udeb = Hashtbl.create 16;
-      h_urgent = Hashtbl.create 16;
-      h_remove = Hashtbl.create 16;
-      h_age_days = Hashtbl.create 16 }
+      h_unblock = StringTbl.create 16;
+      h_unblock_udeb = StringTbl.create 16;
+      h_urgent = StringTbl.create 16;
+      h_remove = StringTbl.create 16;
+      h_age_days = StringTbl.create 16 }
   in
   if debug_read_hints () then
     Format.eprintf "Reading hints:@.";
@@ -273,10 +272,10 @@ let read_hints dir =
              begin match l with
              | "block" :: l ->
                  List.iter
-                   (fun p -> Hashtbl.replace hints.h_block p who) l
+                   (fun p -> StringTbl.replace hints.h_block p who) l
              | "block-udeb" :: l ->
                  List.iter
-                   (fun p -> Hashtbl.replace hints.h_block_udeb p who) l
+                   (fun p -> StringTbl.replace hints.h_block_udeb p who) l
              | "block-all" :: l ->
                  if List.mem "source" l then hints.h_block_all <- Some who
              | "unblock" :: l ->
@@ -287,7 +286,7 @@ let read_hints dir =
                  List.iter
                    (fun p ->
                       match Str.split slash p with
-                        [nm; v] -> Hashtbl.replace hints.h_urgent
+                        [nm; v] -> StringTbl.replace hints.h_urgent
                                      nm (Deb_lib.parse_version v)
                       | _       -> ())
                    l
@@ -295,7 +294,7 @@ let read_hints dir =
                  List.iter
                    (fun p ->
                       match Str.split slash p with
-                        [nm; v] -> Hashtbl.replace hints.h_remove
+                        [nm; v] -> StringTbl.replace hints.h_remove
                                      nm (Deb_lib.parse_version v)
                       | _       -> ())
                    l
@@ -309,7 +308,7 @@ let read_hints dir =
                             if v = "-" then None else
                             Some (Deb_lib.parse_version v)
                           in
-                          Hashtbl.replace hints.h_age_days nm (v, n)
+                          StringTbl.replace hints.h_age_days nm (v, n)
                       | _ ->
                          ())
                    l
@@ -595,12 +594,12 @@ type st =
   { arch : string;
     testing : M.pool; unstable : M.pool;
     testing_srcs : M.s_pool; unstable_srcs : M.s_pool;
-    unstable_bugs : (string, StringSet.t) Hashtbl.t;
-    testing_bugs : (string, StringSet.t) Hashtbl.t;
+    unstable_bugs : StringSet.t StringTbl.t;
+    testing_bugs : StringSet.t StringTbl.t;
     mutable outdated_binaries : M.p list;
     first_bin_id : int;
-    id_of_bin : (string, HornSolver.var) Hashtbl.t; bin_of_id : string array;
-    id_of_source : (string, HornSolver.var) Hashtbl.t;
+    id_of_bin : HornSolver.var StringTbl.t; bin_of_id : string array;
+    id_of_source : HornSolver.var StringTbl.t;
     mutable upgrade_state :
       (Upgrade_common.state * Upgrade_common.state) option;
     uid : string }
@@ -609,7 +608,7 @@ type st =
 
 let source_version src nm =
   try
-    Some (Hashtbl.find src.M.s_packages nm).M.s_version
+    Some (StringTbl.find src.M.s_packages nm).M.s_version
   with Not_found ->
     None
 let same_source_version t u nm =
@@ -644,7 +643,7 @@ let allow_smooth_updates p =
 let compute_ages dates urgencies hints nm uv tv =
   let d =
     try
-      let (v, d) = Hashtbl.find dates nm in
+      let (v, d) = StringTbl.find dates nm in
       if M.compare_version uv v = 0 then d else now
     with Not_found ->
       now
@@ -652,14 +651,14 @@ let compute_ages dates urgencies hints nm uv tv =
   let u =
     if
       try
-        M.compare_version uv (Hashtbl.find hints.h_urgent nm) = 0
+        M.compare_version uv (StringTbl.find hints.h_urgent nm) = 0
       with Not_found ->
         false
     then
       0
     else
       try
-        let (v, d) = Hashtbl.find hints.h_age_days nm in
+        let (v, d) = StringTbl.find hints.h_age_days nm in
         if
           match v with
             Some v -> M.compare_version v uv <> 0
@@ -677,7 +676,7 @@ let compute_ages dates urgencies hints nm uv tv =
                 (fun (v', d) ->
                    M.compare_version v v' < 0 &&
                    M.compare_version v' uv <= 0)
-                (Hashtbl.find_all urgencies nm)
+                (StringTbl.find_all urgencies nm)
             in
             List.fold_left (fun u (_, u') -> min u u') default_urgency l
   in
@@ -719,7 +718,7 @@ let output_reasons
       l dates urgencies hints solver source_of_id id_offsets filename t u =
   let reason_t = Timer.start () in
 
-  let blocked_source = Hashtbl.create 1024 in
+  let blocked_source = StringTbl.create 1024 in
   let sources = ref [] in
   let binaries = ref IntSet.empty in
   Array.iteri
@@ -727,7 +726,7 @@ let output_reasons
        let reasons = HornSolver.direct_reasons solver id in
        if List.exists (interesting_reason solver) reasons then begin
          sources := (nm, (id, reasons)) :: !sources;
-         Hashtbl.add blocked_source nm ();
+         StringTbl.add blocked_source nm ();
          List.iter
            (fun (lits, reason) ->
               match reason with
@@ -753,7 +752,7 @@ let output_reasons
   let name_of_binary = Hashtbl.create 1024 in
   Task.iteri l
     (fun (arch, st) ->
-       let (first, offset, len) = Hashtbl.find id_offsets arch in
+       let (first, offset, len) = StringTbl.find id_offsets arch in
        let pos = first + offset in
        let l =
          IntSet.elements
@@ -773,7 +772,7 @@ let output_reasons
       else
         (L.code (L.s nm) & L.s " (from " & L.code (L.s source) & L.s ")")
     in
-    if not (Hashtbl.mem blocked_source source) then (nm, txt) else
+    if not (StringTbl.mem blocked_source source) then (nm, txt) else
     (nm, L.anchor ("#" ^ source) txt)
   in
   let print_source id = assert false in
@@ -787,7 +786,7 @@ let output_reasons
            | _                                     -> false
          in
          let src_reasons =
-           begin match Hashtbl.find_all u.M.s_packages nm with
+           begin match StringTbl.find_all u.M.s_packages nm with
              []  -> L.emp
            | [p] ->
                if same_source_version t u nm then L.emp else
@@ -943,7 +942,7 @@ let output_reasons
              binaries
          in
          let version dist nm =
-           match Hashtbl.find_all dist.M.s_packages nm with
+           match StringTbl.find_all dist.M.s_packages nm with
              [p] -> L.format M.print_version p.M.s_version
            | []  -> L.s "-"
            | _   -> assert false
@@ -997,11 +996,11 @@ let allow_broken_sets s =
 (**** Per arch. information on which packages are not propagated ****)
 
 let extract_unchanged_bin solver id_offsets arch unch =
-  let (first, offset, len) = Hashtbl.find id_offsets arch in
+  let (first, offset, len) = StringTbl.find id_offsets arch in
   BitVect.sub unch (first + offset) len
 
 let is_unchanged st unch nm =
-  BitVect.test unch (Hashtbl.find st.id_of_bin nm - st.first_bin_id)
+  BitVect.test unch (StringTbl.find st.id_of_bin nm - st.first_bin_id)
 
 (**** Prepare repositories before looking for (co-)installability issues ****)
 
@@ -1041,15 +1040,15 @@ let reduce_for_installability st unchanged =
   M.iter_packages d
     (fun p ->
        PTbl.set id_tbl
-         (Package.of_index p.M.num) (Hashtbl.find st.id_of_bin p.M.package));
+         (Package.of_index p.M.num) (StringTbl.find st.id_of_bin p.M.package));
 
   let rdeps = compute_reverse_dependencies st d id_tbl in
 
-  let predecessors = Hashtbl.create 1024 in
+  let predecessors = StringTbl.create 1024 in
   let rec add_preds nm =
-    if not (Hashtbl.mem predecessors nm) then begin
-      Hashtbl.add predecessors nm ();
-      let id = Hashtbl.find st.id_of_bin nm in
+    if not (StringTbl.mem predecessors nm) then begin
+      StringTbl.add predecessors nm ();
+      let id = StringTbl.find st.id_of_bin nm in
       List.iter (fun id -> add_preds st.bin_of_id.(id - st.first_bin_id))
         rdeps.(id - st.first_bin_id)
     end
@@ -1058,10 +1057,10 @@ let reduce_for_installability st unchanged =
     (fun nm -> if not (is_unchanged st unchanged nm) then add_preds nm)
     st.bin_of_id;
 
-  let pkgs = Hashtbl.create 1024 in
+  let pkgs = StringTbl.create 1024 in
   let rec add_package nm =
-    if not (Hashtbl.mem pkgs nm) then begin
-      Hashtbl.add pkgs nm ();
+    if not (StringTbl.mem pkgs nm) then begin
+      StringTbl.add pkgs nm ();
       List.iter follow_deps (M.find_packages_by_name d nm);
     end
   and follow_deps p =
@@ -1077,7 +1076,7 @@ let reduce_for_installability st unchanged =
            l)
       deps
   in
-  Hashtbl.iter (fun nm _ -> add_package nm) predecessors;
+  StringTbl.iter (fun nm _ -> add_package nm) predecessors;
   pkgs
 
 let compute_conflicts t u =
@@ -1111,19 +1110,19 @@ let reduce_for_coinstallability st unchanged =
 
   let conflicts = compute_conflicts t u in
 
-  let changed_packages = Hashtbl.create 101 in
+  let changed_packages = StringTbl.create 101 in
   let consider_package p =
     let nm = p.M.package in
     if not (is_unchanged st unchanged nm) then
-      Hashtbl.replace changed_packages nm ()
+      StringTbl.replace changed_packages nm ()
   in
   M.iter_packages t consider_package;
   M.iter_packages u consider_package;
 
-  let pkgs = Hashtbl.create 1024 in
+  let pkgs = StringTbl.create 1024 in
   let rec add_package p =
-    if not (Hashtbl.mem pkgs p) then begin
-      Hashtbl.add pkgs p ();
+    if not (StringTbl.mem pkgs p) then begin
+      StringTbl.add pkgs p ();
       List.iter add_package (ListTbl.find conflicts p);
       List.iter follow_deps (M.find_packages_by_name t p);
       if not (is_unchanged st unchanged p) then
@@ -1146,7 +1145,7 @@ let reduce_for_coinstallability st unchanged =
   in
 
   (* Changed packages should be kept. *)
-  Hashtbl.iter (fun p _ -> add_package p) changed_packages;
+  StringTbl.iter (fun p _ -> add_package p) changed_packages;
 
   (* Packages unchanged but with stronger dependencies, or that may
      depend on a package for which we ignore some co-installability
@@ -1165,7 +1164,7 @@ let reduce_for_coinstallability st unchanged =
                      ||
                    (* If the package is left unchanged, the dependency
                       will remain satisfied *)
-                   (Hashtbl.mem changed_packages p.M.package &&
+                   (StringTbl.mem changed_packages p.M.package &&
                     (* Otherwise, we check whether a replacement exists,
                        that still satisfies the dependency *)
                     List.for_all
@@ -1188,7 +1187,7 @@ let reduce_for_coinstallability st unchanged =
      look in testing. *)
   M.iter_packages t
     (fun p ->
-       if not (Hashtbl.mem pkgs p.M.package) then
+       if not (StringTbl.mem pkgs p.M.package) then
          if stronger_deps p.M.depends || stronger_deps p.M.pre_depends then
            add_package p.M.package);
   pkgs
@@ -1211,7 +1210,7 @@ let prepare_repository st unchanged check_coinstallability =
   let filter p =
     incr m;
     let nm = p.M.package in
-    let keep = Hashtbl.mem pkgs nm in
+    let keep = StringTbl.mem pkgs nm in
     if keep then incr n;
     keep
   in
@@ -1240,28 +1239,28 @@ let clear_upgrade_states l =
 
 let compute_bin_ids first_id t u =
   let id = ref first_id in
-  let id_of_bin = Hashtbl.create 16384 in
+  let id_of_bin = StringTbl.create 16384 in
   let bin_of_id = ref [] in
   let insert nm =
-    Hashtbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
+    StringTbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
   in
   M.iter_packages_by_name t (fun nm _ -> insert nm);
   M.iter_packages_by_name u
-    (fun nm _ -> if not (Hashtbl.mem id_of_bin nm) then insert nm);
+    (fun nm _ -> if not (StringTbl.mem id_of_bin nm) then insert nm);
   let bin_of_id = Array.of_list (List.rev !bin_of_id) in
   (id_of_bin, bin_of_id)
 
 let compute_source_ids t u =
   let id = ref 0 in
-  let id_of_source = Hashtbl.create 16384 in
+  let id_of_source = StringTbl.create 16384 in
   let source_of_id = ref [] in
   let insert nm =
-    Hashtbl.add id_of_source nm !id; source_of_id := nm :: !source_of_id;
+    StringTbl.add id_of_source nm !id; source_of_id := nm :: !source_of_id;
     incr id
   in
-  Hashtbl.iter (fun nm _ -> insert nm) t.M.s_packages;
-  Hashtbl.iter
-    (fun nm _ -> if not (Hashtbl.mem id_of_source nm) then insert nm)
+  StringTbl.iter (fun nm _ -> insert nm) t.M.s_packages;
+  StringTbl.iter
+    (fun nm _ -> if not (StringTbl.mem id_of_source nm) then insert nm)
     u.M.s_packages;
   let source_of_id = Array.of_list (List.rev !source_of_id) in
   (id_of_source, source_of_id)
@@ -1348,13 +1347,13 @@ let compute_hints () = debug_hints () || !hint_file <> ""
 
 let remove_sources central remove_hints t u =
   let l = ref [] in
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm v ->
        match source_version t nm with
          Some v' when M.compare_version v v' = 0 ->
-           if central && debug_remove () && Hashtbl.mem u.M.s_packages nm then
+           if central && debug_remove () && StringTbl.mem u.M.s_packages nm then
              Format.eprintf "Trying to remove source package %s@." nm;
-           Hashtbl.remove u.M.s_packages nm;
+           StringTbl.remove u.M.s_packages nm;
            l := nm :: !l
          | _ ->
            ())
@@ -1375,8 +1374,8 @@ let arch_constraints st (produce_excuses, remove_hints) =
     (fun p ->
        let (nm, _) = p.M.source in
        try
-         let v = Hashtbl.find remove_hints nm in
-         let v' = (Hashtbl.find t.M.s_packages nm).M.s_version in
+         let v = StringTbl.find remove_hints nm in
+         let v' = (StringTbl.find t.M.s_packages nm).M.s_version in
          if M.compare_version v v' = 0 then begin
            if debug_remove () then
              Format.eprintf
@@ -1390,9 +1389,9 @@ let arch_constraints st (produce_excuses, remove_hints) =
   ignore (remove_sources false remove_hints t u);
 
   let fake_srcs = ref [] in
-  let is_fake = Hashtbl.create 17 in
+  let is_fake = StringTbl.create 17 in
   let sources_with_binaries = ref [] in
-  let source_has_binaries = Hashtbl.create 8192 in
+  let source_has_binaries = StringTbl.create 8192 in
   let l = ref [] in
   let assume id reason = l := Assume (id, reason) :: !l in
   let implies id1 id2 reason = l := Implies (id1, id2, reason):: !l
@@ -1400,7 +1399,7 @@ let arch_constraints st (produce_excuses, remove_hints) =
   let all_or_none pkgl reason = l :=
     All_or_none (Util.sort_and_uniq compare pkgl, reason) :: !l in
   let get_bugs src bugs p =
-    try Hashtbl.find bugs p with Not_found -> StringSet.empty
+    try StringTbl.find bugs p with Not_found -> StringSet.empty
   in
   let no_new_bugs is_new p =
     if is_new then
@@ -1419,8 +1418,8 @@ let arch_constraints st (produce_excuses, remove_hints) =
         (get_bugs t st.testing_bugs p)
   in
   let bin_nmus = ListTbl.create 101 in
-  let source_id p = Hashtbl.find st.id_of_source (fst p.M.source) in
-  let bin_id p = Hashtbl.find st.id_of_bin p.M.package in
+  let source_id p = StringTbl.find st.id_of_source (fst p.M.source) in
+  let bin_id p = StringTbl.find st.id_of_bin p.M.package in
   let bin_id_count = Array.length st.bin_of_id in
   let last_id = ref (st.first_bin_id + bin_id_count) in
   M.iter_packages u'
@@ -1428,16 +1427,16 @@ let arch_constraints st (produce_excuses, remove_hints) =
        let id = bin_id p in
        let (nm, v) = p.M.source in
        (* Faux packages *)
-       if not (Hashtbl.mem u.M.s_packages nm) then begin
-         Hashtbl.add u.M.s_packages nm
+       if not (StringTbl.mem u.M.s_packages nm) then begin
+         StringTbl.add u.M.s_packages nm
            { M.s_name = nm; s_version = v; s_section = "" };
          fake_srcs := (nm, v) :: !fake_srcs;
-         Hashtbl.add is_fake nm ();
-         Hashtbl.add st.id_of_source nm !last_id;
+         StringTbl.add is_fake nm ();
+         StringTbl.add st.id_of_source nm !last_id;
          incr last_id;
          assume (source_id p) Unchanged
        end;
-       let v' = (Hashtbl.find u.M.s_packages nm).M.s_version in
+       let v' = (StringTbl.find u.M.s_packages nm).M.s_version in
        let source_changed = not (same_source_version t u nm) in
        (* Do not add a binary package if its source is not
           the most up to date source file. *)
@@ -1446,13 +1445,13 @@ let arch_constraints st (produce_excuses, remove_hints) =
          st.outdated_binaries <- p :: st.outdated_binaries;
          assume id (Not_yet_built (nm, v, v'))
        end else begin
-         if not (Hashtbl.mem source_has_binaries nm) then begin
+         if not (StringTbl.mem source_has_binaries nm) then begin
            sources_with_binaries := nm :: !sources_with_binaries;
-           Hashtbl.add source_has_binaries nm ()
+           StringTbl.add source_has_binaries nm ()
          end;
          (* We only propagate binary packages with a larger version.
             Faux packages are not propagated. *)
-         if no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm then
+         if no_new_bin t' u' p.M.package || StringTbl.mem is_fake nm then
            assume id Unchanged
          else begin
            (* Do not upgrade a package if it has new bugs *)
@@ -1478,10 +1477,10 @@ let arch_constraints st (produce_excuses, remove_hints) =
      updates, libraries in sid are rather replaced by their counterpart in
      testing. This way, the 'Binary_not_propagated' constraint just above
      can always be satisfied when the 'Not_yet_build' constraint is removed. *)
-  let is_outdated = Hashtbl.create 400 in
+  let is_outdated = StringTbl.create 400 in
   List.iter
     (fun p ->
-       Hashtbl.add is_outdated p.M.package ();
+       StringTbl.add is_outdated p.M.package ();
        if
          allow_smooth_updates p &&
          M.has_package_of_name t' p.M.package
@@ -1496,19 +1495,19 @@ let arch_constraints st (produce_excuses, remove_hints) =
        let id = bin_id p in
        let (nm, v) = p.M.source in
        (* Faux packages *)
-       if not (Hashtbl.mem t.M.s_packages nm) then begin
+       if not (StringTbl.mem t.M.s_packages nm) then begin
          (* The source should be fake in unstable as well. *)
          assert
-           (not (Hashtbl.mem u.M.s_packages nm) || Hashtbl.mem is_fake nm);
-         Hashtbl.add t.M.s_packages nm
+           (not (StringTbl.mem u.M.s_packages nm) || StringTbl.mem is_fake nm);
+         StringTbl.add t.M.s_packages nm
            { M.s_name = nm; s_version = v; s_section = "" };
          fake_srcs := (nm, v) :: !fake_srcs;
-         Hashtbl.add is_fake nm ();
-         Hashtbl.add st.id_of_source nm !last_id;
+         StringTbl.add is_fake nm ();
+         StringTbl.add st.id_of_source nm !last_id;
          incr last_id;
          assume (source_id p) Unchanged
        end;
-       let v' = (Hashtbl.find t.M.s_packages nm).M.s_version in
+       let v' = (StringTbl.find t.M.s_packages nm).M.s_version in
        let source_changed =
          not (same_source_version t u nm) in
        (* We only propagate binary packages with a larger version.
@@ -1516,9 +1515,9 @@ let arch_constraints st (produce_excuses, remove_hints) =
           never consider to be unchanged, so that we can test smooth
           upgrades. *)
        if
-         not (Hashtbl.mem is_outdated p.M.package)
+         not (StringTbl.mem is_outdated p.M.package)
            &&
-         (no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm)
+         (no_new_bin t' u' p.M.package || StringTbl.mem is_fake nm)
        then
          assume id Unchanged
        else begin
@@ -1542,7 +1541,7 @@ let arch_constraints st (produce_excuses, remove_hints) =
        if
          (source_changed || produce_excuses)
            &&
-         not (allow_smooth_updates p && Hashtbl.mem u.M.s_packages nm)
+         not (allow_smooth_updates p && StringTbl.mem u.M.s_packages nm)
        then
          implies id (source_id p) Binary_not_removed);
   (* All binaries packages from a same source are propagated
@@ -1552,9 +1551,9 @@ let arch_constraints st (produce_excuses, remove_hints) =
   (* Clear faked packages (needed when using a single processor). *)
   List.iter
     (fun (nm, _) ->
-       Hashtbl.remove t.M.s_packages nm;
-       Hashtbl.remove u.M.s_packages nm;
-       Hashtbl.remove st.id_of_source nm)
+       StringTbl.remove t.M.s_packages nm;
+       StringTbl.remove u.M.s_packages nm;
+       StringTbl.remove st.id_of_source nm)
     !fake_srcs;
   (List.rev !l, st.uid, !sources_with_binaries, !fake_srcs, bin_id_count,
    st.bin_of_id)
@@ -1571,10 +1570,10 @@ let initial_constraints
        let l = Str.split slash p in
        try
          match l with
-           [nm; v] -> Hashtbl.replace hints.h_remove nm
+           [nm; v] -> StringTbl.replace hints.h_remove nm
                         (Deb_lib.parse_version v)
-         | [nm]    -> Hashtbl.replace hints.h_remove nm
-                        (Hashtbl.find t.M.s_packages nm).M.s_version
+         | [nm]    -> StringTbl.replace hints.h_remove nm
+                        (StringTbl.find t.M.s_packages nm).M.s_version
          | _       -> ()
        with Not_found ->
          Format.eprintf "No source package %s.@." (List.hd l);
@@ -1614,7 +1613,7 @@ let initial_constraints
     HornSolver.initialize ~signal_assign (Array.length source_of_id) in
   HornSolver.set_var_printer solver print_package;
   let get_bugs src bugs p =
-    try Hashtbl.find bugs p with Not_found -> StringSet.empty
+    try StringTbl.find bugs p with Not_found -> StringSet.empty
   in
   let no_new_bugs is_new p =
     if is_new then
@@ -1629,13 +1628,13 @@ let initial_constraints
       StringSet.diff (get_bugs u unstable_bugs p) (get_bugs t testing_bugs p)
   in
   let is_unblocked h nm v =
-    try M.compare_version (Hashtbl.find h nm) v = 0 with Not_found -> false
+    try M.compare_version (StringTbl.find h nm) v = 0 with Not_found -> false
   in
   let is_blocked nm v =
-    ((hints.h_block_all <> None || Hashtbl.mem hints.h_block nm) &&
+    ((hints.h_block_all <> None || StringTbl.mem hints.h_block nm) &&
      not (is_unblocked hints.h_unblock nm v))
        ||
-    (Hashtbl.mem hints.h_block_udeb nm &&
+    (StringTbl.mem hints.h_block_udeb nm &&
      not (is_unblocked hints.h_unblock_udeb nm v))
   in
   let blocked_reason nm v =
@@ -1643,12 +1642,12 @@ let initial_constraints
     match
       if unblocked then None else
       try
-        Some (Hashtbl.find hints.h_block nm)
+        Some (StringTbl.find hints.h_block nm)
       with Not_found ->
         hints.h_block_all
     with
       Some who -> ("block", who)
-    | None     -> ("block-udeb", Hashtbl.find hints.h_block_udeb nm)
+    | None     -> ("block-udeb", StringTbl.find hints.h_block_udeb nm)
   in
   let block_constraints = ref [] in
   let age_constraints = ref [] in
@@ -1691,10 +1690,10 @@ let initial_constraints
       (fun (arch, t) ->
          (arch, arch_constraints t (produce_excuses, hints.h_remove))) l
   in
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm s ->
        let v = s.M.s_version in
-       let id = Hashtbl.find id_of_source nm in
+       let id = StringTbl.find id_of_source nm in
        (* We only propagate source packages with a larger version *)
        if no_new_source t u nm then
          ignore (HornSolver.add_rule solver [|id|] Unchanged)
@@ -1718,23 +1717,23 @@ let initial_constraints
                            (new_bugs is_new ("src:" ^ nm))))
        end)
     u.M.s_packages;
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm s ->
-       if not (Hashtbl.mem u.M.s_packages nm) then
+       if not (StringTbl.mem u.M.s_packages nm) then
          try
-           let who = Hashtbl.find hints.h_block ("-" ^ nm) in
+           let who = StringTbl.find hints.h_block ("-" ^ nm) in
            let id =
-             try Hashtbl.find id_of_source nm with Not_found -> assert false
+             try StringTbl.find id_of_source nm with Not_found -> assert false
            in
            assume_deferred block_constraints id (Blocked ("blocked", who))
          with Not_found ->
            ())
     t.M.s_packages;
-  let source_has_binaries = Hashtbl.create 8192 in
-  let is_fake = Hashtbl.create 17 in
+  let source_has_binaries = StringTbl.create 8192 in
+  let is_fake = StringTbl.create 17 in
   let first_bin_id = Array.length source_of_id in
   let id_offset = ref 0 in
-  let id_offsets = Hashtbl.create 17 in
+  let id_offsets = StringTbl.create 17 in
   let uids =
     rem_uid ::
     src_uid ::
@@ -1746,8 +1745,8 @@ let initial_constraints
 (*XXXXX Use ids? *)
          List.iter
            (fun nm ->
-              if not (Hashtbl.mem source_has_binaries nm) then
-                Hashtbl.add source_has_binaries nm ())
+              if not (StringTbl.mem source_has_binaries nm) then
+                StringTbl.add source_has_binaries nm ())
            sources_with_binaries;
          let last_bin_id = first_bin_id + bin_id_count in
          let last_id = ref (last_bin_id + !id_offset) in
@@ -1760,7 +1759,7 @@ let initial_constraints
            else
              Hashtbl.find id_of_fake id
          in
-         Hashtbl.add id_offsets arch (first_bin_id, !id_offset, bin_id_count);
+         StringTbl.add id_offsets arch (first_bin_id, !id_offset, bin_id_count);
          name_of_id :=
            (arch, first_bin_id + !id_offset, bin_id_count, bin_of_id) ::
            !name_of_id;
@@ -1768,15 +1767,15 @@ let initial_constraints
          let fake_lst = ref [] in
          List.iter
            (fun (nm, v) ->
-              if not (Hashtbl.mem is_fake nm) then begin
+              if not (StringTbl.mem is_fake nm) then begin
                 fake_lst := nm :: !fake_lst;
-                Hashtbl.add is_fake nm !last_id;
-                Hashtbl.add id_of_source nm !last_id;
+                StringTbl.add is_fake nm !last_id;
+                StringTbl.add id_of_source nm !last_id;
                 incr last_id;
-                Hashtbl.add t.M.s_packages nm
+                StringTbl.add t.M.s_packages nm
                   { M.s_name = nm; s_version = v; s_section = "" };
               end;
-              Hashtbl.add id_of_fake !cur_id (Hashtbl.find is_fake nm);
+              Hashtbl.add id_of_fake !cur_id (StringTbl.find is_fake nm);
               incr cur_id)
            fake_srcs;
          if !fake_lst <> [] then begin
@@ -1813,12 +1812,12 @@ let initial_constraints
          uid)
       arch_results
   in
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm s ->
-       if not (Hashtbl.mem source_has_binaries nm) then
+       if not (StringTbl.mem source_has_binaries nm) then
          ignore
            (HornSolver.add_rule solver
-              [|Hashtbl.find id_of_source nm|] No_binary))
+              [|StringTbl.find id_of_source nm|] No_binary))
     u.M.s_packages;
   load_rules solver uids;
   if debug_time () then
@@ -1860,12 +1859,12 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
        if not (has_singletons && n > 1) then begin
          let to_ids s =
            StringSet.fold
-             (fun nm s -> IntSet.add (Hashtbl.find st.id_of_bin nm) s)
+             (fun nm s -> IntSet.add (StringTbl.find st.id_of_bin nm) s)
              s IntSet.empty
          in
          let neg = to_ids neg in
          let s' = to_ids s in
-         let id = Hashtbl.find st.id_of_bin (StringSet.choose pos) in
+         let id = StringTbl.find st.id_of_bin (StringSet.choose pos) in
          let r = Array.of_list (id :: IntSet.elements neg) in
          let can_learn = n = 1 in
          changes := (r, neg, s', s, expl, can_learn) :: !changes
@@ -1910,7 +1909,7 @@ let find_all_coinst_constraints solver id_offsets l =
   and stop c i changes =
     if changes <> [] then begin
       Array.fill changed 0 c true;
-      let (_, offset, _) = Hashtbl.find id_offsets (fst a.(i)) in
+      let (_, offset, _) = StringTbl.find id_offsets (fst a.(i)) in
       List.iter
         (fun (r, neg, s, s', expl, can_learn) ->
            let r = Array.map (fun id -> id + offset) r in
@@ -1967,21 +1966,21 @@ let output_arch_changes = Task.funct output_arch_changes
 
 let output_outcome solver id_of_source id_offsets t u l unchanged =
   let is_unchanged src =
-    BitVect.test unchanged (Hashtbl.find id_of_source src) in
-  Hashtbl.iter
+    BitVect.test unchanged (StringTbl.find id_of_source src) in
+  StringTbl.iter
     (fun nm s ->
        if not (is_unchanged nm) then
          try
-           let s' = Hashtbl.find u.M.s_packages nm in
+           let s' = StringTbl.find u.M.s_packages nm in
            Format.eprintf "Upgrade source package %s from %a to %a@." nm
              M.print_version s.M.s_version M.print_version s'.M.s_version
          with Not_found ->
            Format.eprintf "Remove source package %s@." nm)
     t.M.s_packages;
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm v ->
        if
-         not (Hashtbl.mem t.M.s_packages nm || is_unchanged nm)
+         not (StringTbl.mem t.M.s_packages nm || is_unchanged nm)
        then
          Format.eprintf "Adding source package %s@." nm)
     u.M.s_packages;
@@ -2121,7 +2120,7 @@ let generate_hints
          lst);
   let buckets = ListTbl.create 101 in
   let is_unchanged src =
-    BitVect.test unchanged (Hashtbl.find id_of_source src) in
+    BitVect.test unchanged (StringTbl.find id_of_source src) in
   ListTbl.iter
     (fun src l ->
        if not (is_unchanged src) then
@@ -2140,7 +2139,7 @@ let generate_hints
     Format.eprintf "Generating hints: %f@." (Timer.stop hint_t);
   let print_pkg f src arch =
     try
-      let vers = (Hashtbl.find u.M.s_packages src).M.s_version in
+      let vers = (StringTbl.find u.M.s_packages src).M.s_version in
       if arch = "source" then begin
         (* We are propagating a source package. *)
         Format.fprintf f " %s/%a" src M.print_version vers
@@ -2151,7 +2150,7 @@ let generate_hints
     with Not_found ->
       (* We are removing a source package. *)
       assert (arch = "source");
-      let vers = (Hashtbl.find t.M.s_packages src).M.s_version in
+      let vers = (StringTbl.find t.M.s_packages src).M.s_version in
       Format.fprintf f " -%s/%a" src M.print_version vers
   in
   let print_hint f l =
@@ -2220,20 +2219,20 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
     (fun lines -> output_string ch lines);
   let unchanged = HornSolver.assignment solver in
   let is_unchanged src =
-    BitVect.test unchanged (Hashtbl.find id_of_source src) in
+    BitVect.test unchanged (StringTbl.find id_of_source src) in
   let source_sect nm s =
-    if Hashtbl.mem fake_src nm then "faux"
+    if StringTbl.mem fake_src nm then "faux"
     else if s.M.s_section = "" then "unknown"
     else s.M.s_section
   in
   let lines = ref [] in
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm s ->
        let sect = source_sect nm s in
        if is_unchanged nm then
          heidi_line lines nm s.M.s_version "source" sect)
     t.M.s_packages;
-  Hashtbl.iter
+  StringTbl.iter
     (fun nm s ->
        let sect = source_sect nm s in
        if not (is_unchanged nm) then
@@ -2284,7 +2283,7 @@ let analyze_migration
       uids solver id_of_source id_offsets t u l get_name_arch nm =
   let id =
     try
-      Hashtbl.find id_of_source nm
+      StringTbl.find id_of_source nm
     with Not_found ->
       Format.eprintf "Unknown package %s@." nm;
       -1
@@ -2301,13 +2300,13 @@ let analyze_migration
       Format.fprintf f "%s/%s" name arch
   in
   let output_hints () =
-    let source_bugs = Hashtbl.create 17 in
+    let source_bugs = StringTbl.create 17 in
     List.iter
       (fun (p, reason) ->
          match reason with
            More_bugs s ->
              let (src, arch) = get_name_arch p in
-             if arch = "source" then Hashtbl.add source_bugs src s
+             if arch = "source" then StringTbl.add source_bugs src s
          | _ ->
            ())
       !lst;
@@ -2322,11 +2321,11 @@ let analyze_migration
                  print_package p
            | Blocked (kind, _) ->
                let (src, _) = get_name_arch p in
-               let vers = (Hashtbl.find u.M.s_packages src).M.s_version in
+               let vers = (StringTbl.find u.M.s_packages src).M.s_version in
                Format.bprintf b "un%s %s/%a" kind src M.print_version vers
            | Too_young (cur_ag, _) ->
                let (src, _) = get_name_arch p in
-               let vers = (Hashtbl.find u.M.s_packages src).M.s_version in
+               let vers = (StringTbl.find u.M.s_packages src).M.s_version in
                Format.bprintf b "age-days %d %s/%a"
                  cur_ag src M.print_version vers
            | More_bugs s ->
@@ -2335,15 +2334,15 @@ let analyze_migration
                in
                let (nm, arch) = get_name_arch p in
                if arch = "source" then begin
-                 let vers = (Hashtbl.find u.M.s_packages nm).M.s_version in
+                 let vers = (StringTbl.find u.M.s_packages nm).M.s_version in
                  Format.bprintf b "# source package %s/%a: fix bugs %a"
                    nm M.print_version vers print_bugs (StringSet.elements s)
                end else begin
                  let s =
                    try
-                     StringSet.diff s (Hashtbl.find source_bugs nm)
+                     StringSet.diff s (StringTbl.find source_bugs nm)
                    with Not_found ->
-                     Hashtbl.add source_bugs nm s;
+                     StringTbl.add source_bugs nm s;
                      s
                  in
                  if not (StringSet.is_empty s) then begin

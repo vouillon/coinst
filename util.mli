@@ -56,6 +56,8 @@ module ListTbl : sig
   val remove : ('a, 'b) t -> 'a -> ('b -> bool) -> unit
 end
 
+module StringTbl : Hashtbl.S with type key = string
+
 val array_extend : 'a array -> int -> 'a -> 'a array
 val string_extend : string -> int -> char -> string
 

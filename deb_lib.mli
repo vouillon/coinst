@@ -78,7 +78,7 @@ type s =
 
 type s_pool =
   { mutable s_size : int;
-    s_packages : (string, s) Hashtbl.t }
+    s_packages : s Util.StringTbl.t }
 
 val new_src_pool : unit -> s_pool
 val parse_src_packages : s_pool -> in_channel -> unit
