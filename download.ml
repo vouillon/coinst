@@ -11,7 +11,7 @@ let britney_dir = Filename.concat dest "britney"
 (****)
 
 let suites = ["oldstable"; "stable"; "testing"; "unstable"; "testing-proposed-updates"]
-let archs = ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
+let archs = ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips"; "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"; "armhf"; "s390x"]
 let sects = ["main"; "contrib"; "non-free"]
 let ext = "bz2"
 

@@ -65,7 +65,8 @@ LATER
 
 let archs =
   ref ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips";
-       "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64"]
+       "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64";
+       (*"armhf"; "s390x"*)]
 let smooth_updates = ref ["libs"; "oldlibs"]
 
 let default_dir = Filename.concat (Sys.getenv "HOME") "debian-dists/britney"
@@ -623,7 +624,7 @@ let no_new_source t u nm =
   | _               -> false
 
 let bin_version dist nm =
-  match ListTbl.find dist.M.packages_by_name nm with
+  match M.find_packages_by_name dist nm with
     p :: _ -> Some p.M.version
   | []     -> None
 let same_bin_version t u nm =
@@ -703,9 +704,9 @@ let binary_names st (offset, l) =
     (fun id ->
       let nm = st.bin_of_id.(id - offset) in
       let p =
-        match ListTbl.find st.unstable.M.packages_by_name nm with
+        match M.find_packages_by_name st.unstable nm with
           p :: _ -> p
-        | []     -> match ListTbl.find st.testing.M.packages_by_name nm with
+        | []     -> match M.find_packages_by_name st.testing nm with
                       p :: _ -> p
                     | []     -> List.find (fun p -> p.M.package = nm)
                                   st.outdated_binaries
@@ -1017,16 +1018,15 @@ let compute_reverse_dependencies st d id_tbl =
                 PTbl.get id_tbl (Package.of_index q.M.num) in
               let i = target_id - st.first_bin_id in
               rdeps.(i) <- src_id :: rdeps.(i))
-           (ListTbl.find d.M.provided_packages (fst cstr)))
+           (M.find_provided_packages d (fst cstr)))
       dep
 
   in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages d
+    (fun p ->
        let src_id = PTbl.get id_tbl (Package.of_index p.M.num) in
        List.iter (fun d -> add_rdep src_id d) p.M.depends;
-       List.iter (fun d -> add_rdep src_id d) p.M.pre_depends)
-    d.M.packages_by_num;
+       List.iter (fun d -> add_rdep src_id d) p.M.pre_depends);
   if debug_time () then
     Format.eprintf "  Reversing dependencies: %f@." (Timer.stop rdep_t);
   rdeps
@@ -1035,14 +1035,13 @@ let reduce_for_installability st unchanged =
   let t = st.testing in
   let u = st.unstable in
   let d = M.new_pool () in
-  M.merge2 d (fun _ -> true) t;
-  M.merge2 d (fun p -> not (is_unchanged st unchanged p.M.package)) u;
+  M.merge d (fun _ -> true) t;
+  M.merge d (fun p -> not (is_unchanged st unchanged p.M.package)) u;
   let id_tbl = PTbl.create d 0 in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages d
+    (fun p ->
        PTbl.set id_tbl
-         (Package.of_index p.M.num) (Hashtbl.find st.id_of_bin p.M.package))
-    d.M.packages_by_num;
+         (Package.of_index p.M.num) (Hashtbl.find st.id_of_bin p.M.package));
 
   let rdeps = compute_reverse_dependencies st d id_tbl in
 
@@ -1063,7 +1062,7 @@ let reduce_for_installability st unchanged =
   let rec add_package nm =
     if not (Hashtbl.mem pkgs nm) then begin
       Hashtbl.add pkgs nm ();
-      List.iter follow_deps (ListTbl.find d.M.packages_by_name nm);
+      List.iter follow_deps (M.find_packages_by_name d nm);
     end
   and follow_deps p =
     follow_deps_2 p.M.depends; follow_deps_2 p.M.pre_depends
@@ -1074,7 +1073,7 @@ let reduce_for_installability st unchanged =
            (fun (nm, _) ->
               List.iter
                 (fun q -> add_package q.M.package)
-                (ListTbl.find d.M.provided_packages nm))
+                (M.find_provided_packages d nm))
            l)
       deps
   in
@@ -1097,11 +1096,10 @@ let compute_conflicts t u =
       confls
   in
   let compute_package_conflicts d1 d2 =
-    Hashtbl.iter
-      (fun _ p ->
+    M.iter_packages d1
+      (fun p ->
          add_conflicts d2 p p.M.conflicts;
          add_conflicts d2 p p.M.breaks)
-      d1.M.packages_by_num
   in
   compute_package_conflicts t t; compute_package_conflicts t u;
   compute_package_conflicts u t; compute_package_conflicts u u;
@@ -1114,22 +1112,22 @@ let reduce_for_coinstallability st unchanged =
   let conflicts = compute_conflicts t u in
 
   let changed_packages = Hashtbl.create 101 in
-  let consider_package _ p =
+  let consider_package p =
     let nm = p.M.package in
     if not (is_unchanged st unchanged nm) then
       Hashtbl.replace changed_packages nm ()
   in
-  Hashtbl.iter consider_package t.M.packages_by_num;
-  Hashtbl.iter consider_package u.M.packages_by_num;
+  M.iter_packages t consider_package;
+  M.iter_packages u consider_package;
 
   let pkgs = Hashtbl.create 1024 in
   let rec add_package p =
     if not (Hashtbl.mem pkgs p) then begin
       Hashtbl.add pkgs p ();
       List.iter add_package (ListTbl.find conflicts p);
-      List.iter follow_deps (ListTbl.find t.M.packages_by_name p);
+      List.iter follow_deps (M.find_packages_by_name t p);
       if not (is_unchanged st unchanged p) then
-        List.iter follow_deps (ListTbl.find u.M.packages_by_name p)
+        List.iter follow_deps (M.find_packages_by_name u p)
     end
   and follow_deps p =
     follow_deps_2 t p; follow_deps_2 u p
@@ -1142,7 +1140,7 @@ let reduce_for_coinstallability st unchanged =
            (fun (nm, _) ->
               List.iter
                 (fun q -> add_package q.M.package)
-                (ListTbl.find d.M.provided_packages nm))
+                (M.find_provided_packages d nm))
            l)
       deps
   in
@@ -1188,12 +1186,11 @@ let reduce_for_coinstallability st unchanged =
   in
   (* Changed packages are already all in [pkgs], thus we only have to
      look in testing. *)
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages t
+    (fun p ->
        if not (Hashtbl.mem pkgs p.M.package) then
          if stronger_deps p.M.depends || stronger_deps p.M.pre_depends then
-           add_package p.M.package)
-    t.M.packages_by_num;
+           add_package p.M.package);
   pkgs
 
 let prepare_repository st unchanged check_coinstallability =
@@ -1219,9 +1216,9 @@ let prepare_repository st unchanged check_coinstallability =
     keep
   in
   let t' = M.new_pool () in
-  M.merge2 t' filter t;
+  M.merge t' filter t;
   let u' = M.new_pool () in
-  M.merge2 u' filter u;
+  M.merge u' filter u;
   if debug_reduction () then Format.eprintf "==> %d/%d@." !n !m;
   if debug_time () then
     Format.eprintf "  Reducing repository sizes: %f@." (Timer.stop red_t);
@@ -1248,10 +1245,9 @@ let compute_bin_ids first_id t u =
   let insert nm =
     Hashtbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
   in
-  ListTbl.iter (fun nm _ -> insert nm) t.M.packages_by_name;
-  ListTbl.iter
-    (fun nm _ -> if not (Hashtbl.mem id_of_bin nm) then insert nm)
-    u.M.packages_by_name;
+  M.iter_packages_by_name t (fun nm _ -> insert nm);
+  M.iter_packages_by_name u
+    (fun nm _ -> if not (Hashtbl.mem id_of_bin nm) then insert nm);
   let bin_of_id = Array.of_list (List.rev !bin_of_id) in
   (id_of_bin, bin_of_id)
 
@@ -1272,18 +1268,18 @@ let compute_source_ids t u =
 
 let share_packages (t, u) =
   let unchanged dist p =
-    match ListTbl.find dist.M.packages_by_name p.M.package with
+    match M.find_packages_by_name dist p.M.package with
       []  -> false
     | [q] -> M.compare_version p.M.version q.M.version = 0
     | _   -> assert false
   in
   let common = M.new_pool () in
-  M.merge2 common (fun p -> unchanged u p) t;
+  M.merge common (fun p -> unchanged u p) t;
   let t' = M.copy common in
-  M.merge2 t' (fun p -> not (unchanged u p)) t;
+  M.merge t' (fun p -> not (unchanged u p)) t;
   let u' = common in
-  M.merge2 u' (fun p -> not (unchanged t p)) u;
-  assert (t'.M.size = t.M.size && u'.M.size = u.M.size);
+  M.merge u' (fun p -> not (unchanged t p)) u;
+  assert (M.pool_size t' = M.pool_size t && M.pool_size u' = M.pool_size u);
   (t', u')
 
 let load_arch arch
@@ -1295,7 +1291,7 @@ let load_arch arch
   in
   let cache = bin_package_file cache_dir arch in
   let ((t, u), uid) =
-    Cache.cached files cache "version 1"
+    Cache.cached files cache "version 2"
       (fun () ->
         share_packages
          (load_bin_packages (testing ()) arch,
@@ -1375,8 +1371,8 @@ let arch_constraints st (produce_excuses, remove_hints) =
   let u' = st.unstable in
 
   let removed_pkgs = ref [] in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages u'
+    (fun p ->
        let (nm, _) = p.M.source in
        try
          let v = Hashtbl.find remove_hints nm in
@@ -1389,8 +1385,7 @@ let arch_constraints st (produce_excuses, remove_hints) =
            removed_pkgs := p :: !removed_pkgs
          end
        with Not_found ->
-         ())
-    u'.M.packages_by_num;
+         ());
   List.iter (fun p -> M.remove_package u' p) !removed_pkgs;
   ignore (remove_sources false remove_hints t u);
 
@@ -1428,8 +1423,8 @@ let arch_constraints st (produce_excuses, remove_hints) =
   let bin_id p = Hashtbl.find st.id_of_bin p.M.package in
   let bin_id_count = Array.length st.bin_of_id in
   let last_id = ref (st.first_bin_id + bin_id_count) in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages u'
+    (fun p ->
        let id = bin_id p in
        let (nm, v) = p.M.source in
        (* Faux packages *)
@@ -1476,8 +1471,7 @@ let arch_constraints st (produce_excuses, remove_hints) =
           be propagated as well *)
        if source_changed || produce_excuses then
          implies id (source_id p)
-           (if outdated then Binary_not_removed else Binary_not_added))
-    u'.M.packages_by_num;
+           (if outdated then Binary_not_removed else Binary_not_added));
   (* Remove not up to date binaries from sid. The idea is that removing
      the 'Not_yet_build' constraint then makes it possible to test whether
      these packages can be removed without breaking anything. To allow smooth
@@ -1488,15 +1482,15 @@ let arch_constraints st (produce_excuses, remove_hints) =
     (fun p ->
        if
          allow_smooth_updates p &&
-         ListTbl.mem t'.M.packages_by_name p.M.package
+         M.has_package_of_name t' p.M.package
        then
          M.replace_package u' p
-           (List.hd (ListTbl.find t'.M.packages_by_name p.M.package))
+           (List.hd (M.find_packages_by_name t' p.M.package))
        else
          M.remove_package u' p)
     st.outdated_binaries;
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages t'
+    (fun p ->
        let id = bin_id p in
        let (nm, v) = p.M.source in
        (* Faux packages *)
@@ -1549,8 +1543,7 @@ let arch_constraints st (produce_excuses, remove_hints) =
            &&
          not (allow_smooth_updates p && Hashtbl.mem u.M.s_packages nm)
        then
-         implies id (source_id p) Binary_not_removed)
-    t'.M.packages_by_num;
+         implies id (source_id p) Binary_not_removed);
   (* All binaries packages from a same source are propagated
      atomically on any given architecture. *)
   ListTbl.iter
@@ -1950,8 +1943,8 @@ let output_arch_changes st unchanged =
   let arch = st.arch in
   let t' = st.testing in
   let u' = st.unstable in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages t'
+    (fun p ->
        let nm = p.M.package in
        let v = p.M.version in
        if not (is_unchanged st unchanged nm) then
@@ -1961,15 +1954,13 @@ let output_arch_changes st unchanged =
                "Upgrade binary package %s/%s from %a to %a@."
                nm arch M.print_version v M.print_version v'
          | None ->
-             Format.eprintf "Remove binary package %s/%s@." nm arch)
-    t'.M.packages_by_num;
-  Hashtbl.iter
-    (fun _ p ->
+             Format.eprintf "Remove binary package %s/%s@." nm arch);
+  M.iter_packages u'
+    (fun p ->
        let nm = p.M.package in
        if not (is_unchanged st unchanged nm) then
-         if not (ListTbl.mem t'.M.packages_by_name nm) then
+         if not (M.has_package_of_name t' nm) then
            Format.eprintf "Adding binary package %s/%s@." nm arch)
-    u'.M.packages_by_num
 
 let output_arch_changes = Task.funct output_arch_changes
 
@@ -2089,26 +2080,24 @@ let collect_changes st (unchanged, subset) =
   let changes = ref [] in
   let u' = st.unstable in
   let t' = st.testing in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages u'
+    (fun p ->
        let nm = p.M.package in
        if not (is_unchanged st unchanged nm) then begin
          let (src, v) = p.M.source in
          changes := (src, nm, is_unchanged st subset nm) :: !changes
-       end)
-    u'.M.packages_by_num;
-  Hashtbl.iter
-    (fun _ p ->
+       end);
+  M.iter_packages t'
+    (fun p ->
        let nm = p.M.package in
        if
          not (is_unchanged st unchanged nm)
            &&
-         not (ListTbl.mem u'.M.packages_by_name nm)
+         not (M.has_package_of_name u' nm)
        then begin
          let (src, v) = p.M.source in
          changes := (src, nm, is_unchanged st subset nm) :: !changes
-       end)
-    t'.M.packages_by_num;
+       end);
   List.rev !changes
 
 let collect_changes = Task.funct collect_changes
@@ -2203,20 +2192,18 @@ let heidi_arch st unchanged =
   let lines = ref [] in
   let t = st.testing in
   let u = st.unstable in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages t
+    (fun p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
        if is_unchanged st unchanged nm then
-         heidi_line lines nm p.M.version p.M.architecture sect)
-    t.M.packages_by_num;
-  Hashtbl.iter
-    (fun _ p ->
+         heidi_line lines nm p.M.version p.M.architecture sect);
+  M.iter_packages u
+    (fun p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
        if not (is_unchanged st unchanged nm) then
-         heidi_line lines nm p.M.version p.M.architecture sect)
-    u.M.packages_by_num;
+         heidi_line lines nm p.M.version p.M.architecture sect);
   String.concat "" (List.sort compare !lines)
 
 let heidi_arch = Task.funct heidi_arch

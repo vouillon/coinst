@@ -345,7 +345,7 @@ let problematic_packages dist1 dist dist2 reasons =
       (fun (s1, s2, lst) r ->
          match r with
            M.R_depends (n, l) ->
-             let p = Hashtbl.find dist.M.packages_by_num n in
+             let p = M.find_package_by_num dist n in
              let nm = p.M.package in
              let d = resolve_dep dist l in
              let d1 = resolve_dep dist1 l in
@@ -353,7 +353,7 @@ let problematic_packages dist1 dist dist2 reasons =
              let s1 = StringSet.union (StringSet.diff d1 d) s1 in
              let s2 = StringSet.union (StringSet.diff d2 d) s2 in
              let unchanged_dep dist =
-               match ListTbl.find dist.M.packages_by_name nm with
+               match M.find_packages_by_name dist nm with
                  [] ->
                    false
                | [q] ->
@@ -382,8 +382,8 @@ let problematic_packages dist1 dist dist2 reasons =
              (s1, s2, R_depends ((nm, u1, u2), l, pkgs) :: lst)
          | M.R_conflict (j, k, Some (i, l)) ->
              let i' = if i = j then k else j in
-             let p = Hashtbl.find dist.M.packages_by_num i in
-             let p' = Hashtbl.find dist.M.packages_by_num i' in
+             let p = M.find_package_by_num dist i in
+             let p' = M.find_package_by_num dist i' in
              let nm = p.M.package in
              let nm' = p'.M.package in
              let c1 = resolve_dep dist1 l in
@@ -393,7 +393,7 @@ let problematic_packages dist1 dist dist2 reasons =
              let u2' = StringSet.mem nm' c2 in
              let s2 = if u2' then s2 else StringSet.add nm' s2 in
              let unchanged_cfl dist =
-               match ListTbl.find dist.M.packages_by_name nm with
+               match M.find_packages_by_name dist nm with
                  [] ->
                    false
                | [q] ->
@@ -893,7 +893,7 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
   let unsat_dep d =
     not (List.exists (fun cstr -> M.dep_can_be_satisfied dist cstr) d) in
   let was_installable p =
-    match ListTbl.find dist1_state.dist.M.packages_by_name p.M.package with
+    match M.find_packages_by_name dist1_state.dist p.M.package with
       [] ->
         true
     | [q] ->
@@ -904,8 +904,8 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
         assert false
   in
   let problems = ref [] in
-  Hashtbl.iter
-    (fun _ p ->
+  M.iter_packages dist
+    (fun p ->
        let l =
          List.filter unsat_dep p.M.depends @
          List.filter unsat_dep p.M.pre_depends
@@ -924,8 +924,7 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
                (clause, StringSet.singleton p.M.package, explanation)
                :: !problems)
            l
-       end)
-    dist.M.packages_by_num;
+       end);
   if debug_coinst () then
     Format.eprintf ">>> %a@."
       (Util.print_list (fun ch (cl, _, _) -> print_clause ch cl) ", ")
@@ -945,14 +944,14 @@ let analyze_installability dist1_state dist dist2_state =
     Format.eprintf "      Generate rules: %f@." (Timer.stop t');
   if debug_time () then Format.eprintf "    Preparing: %f@." (Timer.stop t);
   let package_name p =
-    (Hashtbl.find dist.M.packages_by_num (Package.index p)).M.package in
+    (M.find_package_by_num dist (Package.index p)).M.package in
   let is_installable p =
     let res = M.Solver.solve st (Package.index p) in
     M.Solver.reset st;
     res
   and was_installable p =
     let nm = package_name p in
-    match ListTbl.find dist1_state.dist.M.packages_by_name nm with
+    match M.find_packages_by_name dist1_state.dist nm with
       [] ->
         true
     | [q] ->
@@ -1019,8 +1018,8 @@ let rec find_problematic_packages
           dist1_state dist2_state is_preserved =
   let t = Timer.start () in
   let dist2 = M.new_pool () in
-  M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
-  M.merge2 dist2 (fun p -> is_preserved p.M.package) dist1_state.dist;
+  M.merge dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
+  M.merge dist2 (fun p -> is_preserved p.M.package) dist1_state.dist;
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
   let problems = get_clearly_broken_packages dist1_state dist2 dist2_state in
@@ -1066,8 +1065,8 @@ let t = Timer.start () in
 let rec find_non_inst_packages dist1_state dist2_state is_preserved =
   let t = Timer.start () in
   let dist = M.new_pool () in
-  M.merge2 dist (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
-  M.merge2 dist (fun p -> is_preserved p.M.package) dist1_state.dist;
+  M.merge dist (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
+  M.merge dist (fun p -> is_preserved p.M.package) dist1_state.dist;
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
   let problems = get_clearly_broken_packages dist1_state dist dist2_state in
@@ -1090,12 +1089,11 @@ module Union_find = Util.Union_find
 
 let find_clusters dist1_state dist2_state is_preserved groups merge =
   let dist2 = M.new_pool () in
-  M.merge2 dist2 (fun p -> true) dist1_state.dist;
-  let first_new = dist2.M.size in
-  M.merge2 dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
+  M.merge dist2 (fun p -> true) dist1_state.dist;
+  let first_new = M.pool_size dist2 in
+  M.merge dist2 (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
 
-  let first_dummy = dist2.M.size in
-ignore first_dummy;
+  let first_dummy = M.pool_size dist2 in
 
   let group_reprs = Hashtbl.create 101 in
   let group_classes = Hashtbl.create 101 in
@@ -1107,7 +1105,7 @@ ignore first_dummy;
          let pseudo = "<" ^ q ^ "/" ^ v ^ ">" in
          Hashtbl.add group_reprs pseudo q;
          let provides = "<" ^ q ^ ">" in
-         let v = (0, "none", None) in
+         let v = M.parse_version "0" in
          { M.num = 0; package = pseudo; version = v; source = (pseudo, v);
            section = ""; architecture = "";
            depends = []; recommends = []; suggests = []; enhances = [];
@@ -1132,7 +1130,7 @@ ignore first_dummy;
 
   let old_version = PTbl.init dist2 (fun p -> p) in
   let new_version = PTbl.init dist2 (fun p -> p) in
-  ListTbl.iter
+  M.iter_packages_by_name dist2
     (fun nm l ->
        match l with
          [p] ->
@@ -1143,8 +1141,7 @@ ignore first_dummy;
            PTbl.set old_version (Package.of_index j) (Package.of_index i);
            PTbl.set new_version (Package.of_index i) (Package.of_index j)
        | _ ->
-           assert false)
-    dist2.M.packages_by_name;
+           assert false);
   let is_old p = Package.index p < first_new in
   let is_new p =
     Package.index p >= first_new && Package.index p < first_dummy in

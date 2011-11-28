@@ -17,6 +17,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
+module StringTbl =
+  Hashtbl.Make
+    (struct
+       type t = string
+       let hash = Hashtbl.hash
+       let equal (s : string) s' = s = s'
+     end)
+
 let len = 4096
 type st =
   { buf : string;
@@ -99,6 +107,24 @@ let rec find st c =
     refill st;
     find st c
   end
+
+let rec find_rec st c buf last =
+  let pos = st.pos in
+  if pos < last then begin
+    let c' = String.unsafe_get buf pos in
+    st.pos <- pos + 1;
+    c' = c
+      ||
+    (c' <> '\n' &&
+     find_rec st c buf last)
+  end else if st.eof then
+    false
+  else begin
+    refill st;
+    find_rec st c st.buf st.last
+  end
+
+let find st c = find_rec st c st.buf st.last
 
 let at_eof st =
   if st.pos = st.last then refill st;
@@ -191,7 +217,7 @@ let dummy_version = (-1, "", None)
 
 (****)
 
-let package_names : (string, string) Hashtbl.t = Hashtbl.create 32768
+let package_names = StringTbl.create 32768
 
 let parse_package st =
   start_token st;
@@ -216,9 +242,9 @@ let parse_package st =
   if !bad || String.length s < 2 then
     Util.print_warning (Format.sprintf "bad package name '%s'" s);
   try
-    Hashtbl.find package_names s
+    StringTbl.find package_names s
   with Not_found ->
-    Hashtbl.add package_names s s;
+    StringTbl.add package_names s s;
     s
 
 let parse_version_end st epoch n bad hyphen =
@@ -353,6 +379,87 @@ let parse_package_source st =
 
 (****)
 
+let is_letter c = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+let is_num c = c >= '0' && c <= '9'
+
+let char_map =
+  Array.init 256
+    (fun c ->
+      if Char.chr c = '~' then c - 256 else
+	if is_letter (Char.chr c) then c else
+          c + 256)
+
+let compare_ver_char c1 c2 =
+  compare (char_map.(Char.code c1)) (char_map.(Char.code c2))
+
+let compare_ver_str s1 s2 =
+  let l1 = String.length s1 in
+  let l2 = String.length s2 in
+  let p1 = ref 0 in
+  let p2 = ref 0 in
+  while !p1 < l1 && !p2 < l2 && s1.[!p1] = s2.[!p2] do
+    incr p1; incr p2
+  done;
+    if !p1 = l1 
+    then
+      if !p2 = l2 
+      then
+	0
+      else
+	if s2.[!p2] = '~' then 1 else -1
+    else
+      if !p2 = l2 
+      then
+	if s1.[!p1] = '~' then -1 else 1
+      else
+	compare_ver_char s1.[!p1] s2.[!p2]
+
+
+let first_num s p l =
+  let p = ref p in
+  while !p < l && (s.[!p] < '0' || s.[!p] > '9') do incr p done;
+  !p
+
+let last_num s p l =
+  let p = ref p in
+  while !p < l && (s.[!p] >= '0' && s.[!p] <= '9') do incr p done;
+  !p
+
+let rec compare_rev_rec s1 p1 l1 s2 p2 l2 =
+  let p1' = first_num s1 p1 l1 in
+  let p2' = first_num s2 p2 l2 in
+  let s1' = String.sub s1 p1 (p1' - p1) in
+  let s2' = String.sub s2 p2 (p2' - p2) in
+  let c = compare_ver_str s1' s2' in
+  if c <> 0 then c else
+  let p1'' = last_num s1 p1' l1 in
+  let p2'' = last_num s2 p2' l2 in
+  let s1' = String.sub s1 p1' (p1'' - p1') in
+  let s2' = String.sub s2 p2' (p2'' - p2') in
+  let i1 = if s1' = "" then 0. else float_of_string s1' in
+  let i2 = if s2' = "" then 0. else float_of_string s2' in
+  let c = compare i1 i2 in
+  if c <> 0 then c else
+  if p1'' = l1 && p2'' = l2 then 0 else
+  compare_rev_rec s1 p1'' l1 s2 p2'' l2
+
+let compare_rev s1 s2 =
+  if s1 = s2 then 0 else
+  compare_rev_rec s1 0 (String.length s1) s2 0 (String.length s2)
+
+let compare_version (v1 : version) (v2 : version) =
+  let (epoch1, upstream_version1, debian_revision1) = v1 in
+  let (epoch2, upstream_version2, debian_revision2) = v2 in
+  let c = compare epoch1 epoch2 in
+  if c <> 0 then c else
+  let c = compare_rev upstream_version1 upstream_version2 in
+  if c <> 0 then c else
+  match debian_revision1, debian_revision2 with
+    None, None       -> 0
+  | None, _          -> -1
+  | _, None          -> 1
+  | Some r1, Some r2 -> compare_rev r1 r2
+
 let print_version ch v =
   let (epoch, upstream_version, debian_revision) = v in
   if epoch <> 0 then Format.fprintf ch "%d:" epoch;
@@ -367,7 +474,6 @@ module ListTbl = Util.ListTbl
 
 type deb_pool =
   { mutable size : int;
-    packages : (string * version, p) Hashtbl.t;
     packages_by_name : (string, p) ListTbl.t;
     packages_by_num : (int, p) Hashtbl.t;
     provided_packages : (string, p) ListTbl.t }
@@ -376,19 +482,32 @@ type pool = deb_pool
 
 let new_pool () =
   { size = 0;
-    packages = Hashtbl.create 32768;
     packages_by_name = ListTbl.create 32768;
     packages_by_num = Hashtbl.create 32768;
     provided_packages = ListTbl.create 32768 }
 
+let find_package_by_num pool n = Hashtbl.find pool.packages_by_num n
+let find_packages_by_name pool nm = ListTbl.find pool.packages_by_name nm
+let has_package_of_name pool nm = ListTbl.mem pool.packages_by_name nm
+let iter_packages_by_name pool f = ListTbl.iter f pool.packages_by_name
+let iter_packages pool f =
+  (*iter_packages_by_name pool (fun _ l -> List.iter f l)*)Hashtbl.iter (fun _ p -> f p) pool.packages_by_num
+let pool_size pool = pool.size
+let find_provided_packages pool nm =
+  find_packages_by_name pool nm @ ListTbl.find pool.provided_packages nm
+let package_is_provided pool nm =
+  has_package_of_name pool nm || ListTbl.mem pool.provided_packages nm
+
+let has_package pool nm v =
+  List.exists (fun p -> compare_version p.version v = 0)
+    (find_packages_by_name pool nm)
+
 let insert_package pool p =
-  if not (Hashtbl.mem pool.packages (p.package, p.version)) then begin
+  if not (has_package pool p.package p.version) then begin
     p.num <- pool.size;
     pool.size <- pool.size + 1;
-    Hashtbl.add pool.packages (p.package, p.version) p;
     Hashtbl.add pool.packages_by_num p.num p;
     ListTbl.add pool.packages_by_name p.package p;
-    ListTbl.add pool.provided_packages p.package p;
     List.iter
       (fun l ->
          match l with
@@ -398,10 +517,8 @@ let insert_package pool p =
   end
 
 let remove_package pool p =
-  Hashtbl.remove pool.packages (p.package, p.version);
   Hashtbl.remove pool.packages_by_num p.num;
   ListTbl.remove pool.packages_by_name p.package (fun q -> q.num = p.num);
-  ListTbl.remove pool.provided_packages p.package (fun q -> q.num = p.num);
   List.iter
     (fun l ->
        match l with
@@ -413,11 +530,9 @@ let remove_package pool p =
 let replace_package pool q p =
   let p = {p with num = q.num} in
   remove_package pool q;
-  assert (not (Hashtbl.mem pool.packages (p.package, p.version)));
-  Hashtbl.add pool.packages (p.package, p.version) p;
+  assert (not (has_package pool p.package p.version));
   Hashtbl.add pool.packages_by_num p.num p;
   ListTbl.add pool.packages_by_name p.package p;
-  ListTbl.add pool.provided_packages p.package p;
   List.iter
     (fun l ->
        match l with
@@ -505,89 +620,6 @@ let parse_src_packages pool ch =
   in
   parse_stanzas ~start ~field ~finish st;
   Common.stop_parsing info
-
-(****)
-
-let is_letter c = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-let is_num c = c >= '0' && c <= '9'
-
-let char_map =
-  Array.init 256
-    (fun c ->
-      if Char.chr c = '~' then c - 256 else
-	if is_letter (Char.chr c) then c else
-          c + 256)
-
-let compare_ver_char c1 c2 =
-  compare (char_map.(Char.code c1)) (char_map.(Char.code c2))
-
-let compare_ver_str s1 s2 =
-  let l1 = String.length s1 in
-  let l2 = String.length s2 in
-  let p1 = ref 0 in
-  let p2 = ref 0 in
-  while !p1 < l1 && !p2 < l2 && s1.[!p1] = s2.[!p2] do
-    incr p1; incr p2
-  done;
-    if !p1 = l1 
-    then
-      if !p2 = l2 
-      then
-	0
-      else
-	if s2.[!p2] = '~' then 1 else -1
-    else
-      if !p2 = l2 
-      then
-	if s1.[!p1] = '~' then -1 else 1
-      else
-	compare_ver_char s1.[!p1] s2.[!p2]
-
-
-let first_num s p l =
-  let p = ref p in
-  while !p < l && (s.[!p] < '0' || s.[!p] > '9') do incr p done;
-  !p
-
-let last_num s p l =
-  let p = ref p in
-  while !p < l && (s.[!p] >= '0' && s.[!p] <= '9') do incr p done;
-  !p
-
-let rec compare_rev_rec s1 p1 l1 s2 p2 l2 =
-  let p1' = first_num s1 p1 l1 in
-  let p2' = first_num s2 p2 l2 in
-  let s1' = String.sub s1 p1 (p1' - p1) in
-  let s2' = String.sub s2 p2 (p2' - p2) in
-  let c = compare_ver_str s1' s2' in
-  if c <> 0 then c else
-  let p1'' = last_num s1 p1' l1 in
-  let p2'' = last_num s2 p2' l2 in
-  let s1' = String.sub s1 p1' (p1'' - p1') in
-  let s2' = String.sub s2 p2' (p2'' - p2') in
-  let i1 = if s1' = "" then 0. else float_of_string s1' in
-  let i2 = if s2' = "" then 0. else float_of_string s2' in
-  let c = compare i1 i2 in
-  if c <> 0 then c else
-  if p1'' = l1 && p2'' = l2 then 0 else
-  compare_rev_rec s1 p1'' l1 s2 p2'' l2
-
-let compare_rev s1 s2 =
-  if s1 = s2 then 0 else
-  compare_rev_rec s1 0 (String.length s1) s2 0 (String.length s2)
-
-let compare_version (v1 : version) (v2 : version) =
-  let (epoch1, upstream_version1, debian_revision1) = v1 in
-  let (epoch2, upstream_version2, debian_revision2) = v2 in
-  let c = compare epoch1 epoch2 in
-  if c <> 0 then c else
-  let c = compare_rev upstream_version1 upstream_version2 in
-  if c <> 0 then c else
-  match debian_revision1, debian_revision2 with
-    None, None       -> 0
-  | None, _          -> -1
-  | _, None          -> 1
-  | Some r1, Some r2 -> compare_rev r1 r2
 
 (****)
 
@@ -689,7 +721,7 @@ let filter_rel rel c =
 let resolve_package_dep_raw pool (n, cstr) =
   match cstr with
     None ->
-      ListTbl.find pool.provided_packages n
+      find_provided_packages pool n
   | Some (rel, vers) ->
       List.filter
         (fun p -> filter_rel rel (compare_version p.version vers))
@@ -701,7 +733,7 @@ let resolve_package_dep pool d =
 let dep_can_be_satisfied pool (n, cstr) =
   match cstr with
     None ->
-      ListTbl.mem pool.provided_packages n
+      package_is_provided pool n
   | Some (rel, vers) ->
       List.exists
         (fun p -> filter_rel rel (compare_version p.version vers))
@@ -720,8 +752,8 @@ let generate_rules pool =
     (fun _ l ->
        add_conflict pr None (List.map (fun p -> p.num) l))
     pool.packages_by_name;
-  Hashtbl.iter
-    (fun _ p ->
+  iter_packages pool
+    (fun p ->
        Common.generate_next st;
        if !print_rules then
          Format.eprintf "%s %a@." p.package print_version p.version;
@@ -752,8 +784,7 @@ let generate_rules pool =
             List.iter
               (fun n -> add_conflict pr (Some (p.num, [cstr])) [p.num; n])
               (normalize_set (resolve_package_dep pool cstr)))
-         c)
-    pool.packages;
+         c);
   Common.stop_generate st;
   Solver.propagate pr;
   pr
@@ -982,8 +1013,8 @@ let conflicts_in_reasons rl =
 let compute_conflicts pool =
   let conflict_pairs = Hashtbl.create 1000 in
   let conflicts = ListTbl.create 1000 in
-  Hashtbl.iter
-    (fun _ p ->
+  iter_packages pool
+    (fun p ->
        List.iter
          (fun n ->
             let pair = (min n p.num, max n p.num) in
@@ -995,8 +1026,7 @@ let compute_conflicts pool =
          (normalize_set
             (List.flatten
                (List.map (fun p -> resolve_package_dep pool (single p))
-                   (p.breaks @ p.conflicts)))))
-    pool.packages;
+                   (p.breaks @ p.conflicts)))));
   Array.init pool.size (fun i -> ListTbl.find conflicts i)
 
 let compute_deps dist =
@@ -1031,26 +1061,18 @@ let only_latest pool' =
 
 let copy pool =
   { size = pool.size;
-    packages = Hashtbl.copy pool.packages;
     packages_by_name = ListTbl.copy pool.packages_by_name;
     packages_by_num = Hashtbl.copy pool.packages_by_num;
     provided_packages = ListTbl.copy pool.provided_packages }
 
 let merge pool filter pool' =
-  Hashtbl.iter
-    (fun _ p ->
-       if filter p.num then insert_package pool {p with num = pool.size})
-    pool'.packages
-
-let merge2 pool filter pool' =
-  Hashtbl.iter
-    (fun _ p -> if filter p then insert_package pool {p with num = pool.size})
-    pool'.packages
+  iter_packages pool'
+    (fun p -> if filter p then insert_package pool {p with num = pool.size})
 
 let add_package pool p =
-  let num = pool.size in
-  insert_package pool {p with num = num};
-  (Hashtbl.find pool.packages (p.package, p.version)).num
+  insert_package pool {p with num = pool.size};
+  (List.find (fun q -> compare_version q.version p.version = 0)
+    (find_packages_by_name pool p.package)).num
 
 let src_only_latest h =
   let h' = new_src_pool () in

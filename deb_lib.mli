@@ -18,7 +18,7 @@
  *)
 
 type rel
-type version = int * string * string option
+type version
 type dep = (string * (rel * version) option) list
 type deps = dep list
 type deb_reason =
@@ -42,29 +42,27 @@ type p =
     mutable breaks : deps;
     mutable replaces : deps }
 
-type deb_pool =
-  { mutable size : int;
-    packages : (string * version, p) Hashtbl.t;
-    packages_by_name : (string, p) Util.ListTbl.t;
-    packages_by_num : (int, p) Hashtbl.t;
-    provided_packages : (string, p) Util.ListTbl.t }
+type deb_pool
 
 include Api.S with type reason = deb_reason and type pool = deb_pool
 
+val find_package_by_num : pool -> int -> p
+val find_packages_by_name : pool -> string -> p list
+val has_package_of_name : pool -> string -> bool
+val find_provided_packages : pool -> string -> p list
+val iter_packages : pool -> (p -> unit) -> unit
+val iter_packages_by_name : pool -> (string -> p list -> unit) -> unit
+val pool_size : pool -> int
+
 val package_name : pool -> int -> string
 
-val resolve_package_dep :
-  pool -> string * (rel * (int * string * string option)) option -> int list
-val resolve_package_dep_raw :
-  pool -> string * (rel * (int * string * string option)) option -> p list
-val dep_can_be_satisfied :
-  pool -> string * (rel * (int * string * string option)) option -> bool
-
-val only_latest : pool -> pool
+val resolve_package_dep : pool -> string * (rel * version) option -> int list
+val resolve_package_dep_raw : pool -> string * (rel * version) option -> p list
+val dep_can_be_satisfied : pool -> string * (rel * version) option -> bool
 
 val copy : pool -> pool
-val merge : pool -> (int -> bool) -> pool -> unit
-val merge2 : pool -> (p -> bool) -> pool -> unit
+val merge : pool -> (p -> bool) -> pool -> unit
+val only_latest : pool -> pool
 val add_package : pool -> p -> int
 val remove_package : pool -> p -> unit
 val replace_package : pool -> p -> p -> unit
