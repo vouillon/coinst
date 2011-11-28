@@ -1478,8 +1478,10 @@ let arch_constraints st (produce_excuses, remove_hints) =
      updates, libraries in sid are rather replaced by their counterpart in
      testing. This way, the 'Binary_not_propagated' constraint just above
      can always be satisfied when the 'Not_yet_build' constraint is removed. *)
+  let is_outdated = Hashtbl.create 400 in
   List.iter
     (fun p ->
+       Hashtbl.add is_outdated p.M.package ();
        if
          allow_smooth_updates p &&
          M.has_package_of_name t' p.M.package
@@ -1514,8 +1516,7 @@ let arch_constraints st (produce_excuses, remove_hints) =
           never consider to be unchanged, so that we can test smooth
           upgrades. *)
        if
-         not (List.exists (fun q -> q.M.package = p.M.package)
-                st.outdated_binaries)
+         not (Hashtbl.mem is_outdated p.M.package)
            &&
          (no_new_bin t' u' p.M.package || Hashtbl.mem is_fake nm)
        then
