@@ -2504,12 +2504,9 @@ let spec =
   ["--input",
    Arg.String (fun d -> dir := d),
    "DIR Select directory containing britney data";
-   "-c",
-   Arg.String read_conf,
-   "FILE Read britney config FILE";
-   "--config",
-   Arg.String read_conf,
-   "FILE Read britney config FILE";
+   "--arches",
+   Arg.String (fun a -> archs := Str.split comma_re (Util.trim a)),
+   "LST Comma-separated list of arches to consider (default to all)";
    "--hints",
    Arg.String (fun f -> hint_file := f),
    "FILE Output hints to FILE";
@@ -2527,7 +2524,7 @@ let spec =
    " Include conflict graphs (in SVG) in excuse output";
    "--migrate",
    Arg.String (fun p -> to_migrate := Some p),
-   "PACKAGE Explain what it takes to migrate PACKAGE";
+   "PKG Explain what it takes to migrate PKG";
    "--equivocal",
    Arg.Unit (fun () -> equivocal := true),
    " List packages whose behavior depends on the migration policy";
@@ -2539,10 +2536,16 @@ let spec =
    " Check for single package installability only";
    "--remove",
    Arg.String (fun p -> to_remove := p :: !to_remove),
-   "PACKAGE Attempt to remove the given source package";
+   "PKG Attempt to remove the source package PKG";
    "--break",
    Arg.String allow_broken_sets,
    "SETS Allows sets of packages to be broken by the migration";
+   "-c",
+   Arg.String read_conf,
+   "FILE Read britney config FILE";
+   "--config",
+   Arg.String read_conf,
+   "FILE Read britney config FILE";
    "--no-cache",
    Arg.Unit (fun () -> Cache.set_disabled true),
    " Disable on-disk caching";
