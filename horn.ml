@@ -129,7 +129,7 @@ let rec enqueue st p reason =
     | Some _, Unconstrained     -> assert false
     | None,   _                 -> ()
     end;
-    List.iter (fun r -> propagate_in_clause st r) st.st_forward.(p)
+    List.iter (fun r -> propagate_in_clause st r) (List.rev st.st_forward.(p))
   end
 
 and propagate_in_clause st r =
@@ -185,7 +185,8 @@ let update_after_retraction st p =
   List.iter
     (fun q ->
        if st.st_reason.(q) = Unconstrained then
-         List.iter (fun r -> propagate_in_clause st r) st.st_backward.(q))
+         List.iter (fun r -> propagate_in_clause st r)
+           (List.rev st.st_backward.(q)))
     l;
   if debug_retract () then
     List.iter
