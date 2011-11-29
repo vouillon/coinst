@@ -2596,6 +2596,18 @@ then begin
        the location of britney data.@.";
   exit 1
 end;
+let opts =
+  [!to_migrate <> None, "--migrate";
+   !excuse_file <> "", "--excuse";
+   !equivocal, "--equivocal"]
+in
+begin match List.filter (fun (b, _) -> b) opts with
+  (_, o1) :: (_, o2) :: _ ->
+    Format.eprintf "Incompatible options %s and %s.@." o1 o2;
+    exit 1
+| _ ->
+    ()
+end;
 if
   !heidi_file = "" && !hint_file = "" && !excuse_file = "" &&
   !to_migrate = None && not !equivocal
