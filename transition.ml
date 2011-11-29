@@ -507,20 +507,20 @@ let print_reason capitalize print_binary print_source lits reason =
           L.s (c "A dependency would not be satisfied")
       | 1 ->
           L.s (c "Needs binary package ") &
-          snd (print_binary (IntSet.choose s))
+          snd (print_binary false (IntSet.choose s))
       | _ ->
           L.s (c "Needs one of the binary packages ") &
-          print_binaries "or" print_binary s
+          print_binaries "or" (print_binary false) s
       end
         &
       begin
         if IntSet.cardinal s' > 1 || not (IntSet.mem lits.(0) s') then begin
           if IntSet.cardinal s' = 1 then begin
             L.s " (would break package " &
-            snd (print_binary (IntSet.choose s')) & L.s ")"
+            snd (print_binary false (IntSet.choose s')) & L.s ")"
           end else begin
             L.s " (would break co-installability of packages " &
-            print_binaries "and" print_binary s' & L.s ")"
+            print_binaries "and" (print_binary false) s' & L.s ")"
           end
         end else
           L.emp
@@ -533,15 +533,24 @@ let print_reason capitalize print_binary print_source lits reason =
       L.s " rather than " & L.format M.print_version v2 & L.s ")."
   | Source_not_propagated ->
       L.s (c "Source package ") & print_source lits.(1) &
-      L.s " cannot be propagated."
-  | Atomic | Binary_not_added | Binary_not_removed ->
-      L.s (c "Binary package ") & snd (print_binary lits.(1)) &
-      L.s " cannot be propagated."
+      L.s " cannot migrate."
+  | Atomic ->
+      L.s (c "Binary package ") & snd (print_binary false lits.(1)) &
+      L.s " cannot migrate."
+  | Binary_not_added ->
+      L.s (c "Binary package ") & snd (print_binary true lits.(1)) &
+      L.s " cannot migrate."
+  | Binary_not_removed ->
+      L.s (c "Binary package ") & snd (print_binary true lits.(1)) &
+      L.s " cannot be removed."
   | No_binary ->
       L.s (c "No associated binary package.")
 
 let print_reason' get_name_arch lits reason =
-  let print_binary id = let (nm, _) = get_name_arch id in (nm, L.s nm) in
+  let print_binary verbose id =
+    let (nm, arch) = get_name_arch id in
+    (nm, if verbose then L.s nm & L.s "/" & L.s arch else L.s nm)
+  in
   let print_source id = let (nm, _) = get_name_arch id in L.s nm in
   print_reason false print_binary print_source lits reason
 
@@ -764,7 +773,7 @@ let output_reasons
          (fun (id, nm, src) -> Hashtbl.add name_of_binary id (nm, arch, src))
          l);
 
-  let print_binary id =
+  let print_binary _ id =
     let (nm, arch, source) = Hashtbl.find name_of_binary id in
     let txt =
       if source = nm then
@@ -2365,7 +2374,7 @@ let analyze_migration
       let s = collect_assumptions solver id in
       if IntSet.is_empty s then begin
         L.print (new L.format_printer Format.std_formatter)
-          (L.s "Package " & L.s nm & L.s " cannot be migrated:" & L.p &
+          (L.s "Package " & L.s nm & L.s " cannot migrate:" & L.p &
            L.ul ~prefix:"  "
              (L.li (collect_reasons solver get_name_arch print_package id)))
       end else begin
