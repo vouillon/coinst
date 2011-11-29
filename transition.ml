@@ -2524,7 +2524,7 @@ let spec =
    "FILE Output excuses to FILE";
    "--svg",
    Arg.Unit (fun () -> svg := true),
-   "Include conflict graphs (in SVG) in excuse output";
+   " Include conflict graphs (in SVG) in excuse output";
    "--migrate",
    Arg.String (fun p -> to_migrate := Some p),
    "PACKAGE Explain what it takes to migrate PACKAGE";
@@ -2536,7 +2536,7 @@ let spec =
    "N Move N days into the future";
    "--inst",
    Arg.Unit (fun () -> check_coinstallability := false),
-   "Check for single package installability only";
+   " Check for single package installability only";
    "--remove",
    Arg.String (fun p -> to_remove := p :: !to_remove),
    "PACKAGE Attempt to remove the given source package";
