@@ -1035,7 +1035,7 @@ let reduce_for_installability st unchanged =
   let u = st.unstable in
   let d = M.new_pool () in
   M.merge d (fun _ -> true) t;
-  M.merge d (fun p -> not (is_unchanged st unchanged p.M.package)) u;
+  M.merge d (fun p -> true) u;
   let id_tbl = PTbl.create d 0 in
   M.iter_packages d
     (fun p ->
