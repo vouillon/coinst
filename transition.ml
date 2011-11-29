@@ -1125,8 +1125,7 @@ let reduce_for_coinstallability st unchanged =
       StringTbl.add pkgs p ();
       List.iter add_package (ListTbl.find conflicts p);
       List.iter follow_deps (M.find_packages_by_name t p);
-      if not (is_unchanged st unchanged p) then
-        List.iter follow_deps (M.find_packages_by_name u p)
+      List.iter follow_deps (M.find_packages_by_name u p)
     end
   and follow_deps p =
     follow_deps_2 t p; follow_deps_2 u p
