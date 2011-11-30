@@ -23,6 +23,8 @@ let stats =
 let debug_retract =
   Debug.make "horn_retract" "Debug Horn assumption retraction." ["horn"]
 
+(****)
+
 let n1 = ref 0
 let n2 = ref 0
 let d = Array.make 10 0
@@ -87,6 +89,7 @@ type state =
     mutable st_forward : clause list array;
     mutable st_backward : clause list array;
     mutable st_assumptions : reason list array;
+    mutable st_weight : int array;
     (* Queues *)
     st_prop_queue : var Queue.t;
     (* Misc *)
@@ -119,9 +122,26 @@ let is_unit st r =
   done;
   !i = l
 
+let weight st reason =
+  match reason with
+    Assumption _ ->
+      1
+  | Clause r ->
+      let lits = r.lits in
+      let w = ref 0 in
+      for i = 1 to Array.length lits - 1 do
+        w := !w + st.st_weight.(lits.(i))
+      done;
+      1 + !w
+  | Unconstrained ->
+      assert false
+
 let rec enqueue st p reason =
-  if not (BitVect.test st.st_assign p) then begin
+  let w = weight st reason in
+  let w' = st.st_weight.(p) in
+  if not (BitVect.test st.st_assign p) || w' > w then begin
     BitVect.set st.st_assign p;
+    st.st_weight.(p) <- w;
     st.st_reason.(p) <- reason;
     begin match st.st_signal_assign, reason with
       Some f, Assumption reason -> f [|p|] reason
@@ -129,12 +149,46 @@ let rec enqueue st p reason =
     | Some _, Unconstrained     -> assert false
     | None,   _                 -> ()
     end;
-    List.iter (fun r -> propagate_in_clause st r) (List.rev st.st_forward.(p))
-  end
+    Queue.add p st.st_prop_queue
+  end else if w = w' && w > 1 then
+    match st.st_reason.(p), reason with
+      Clause {lits = r}, Clause {lits = r'} when r.(1) > r'.(1) ->
+        st.st_reason.(p) <- reason
+    | _ ->
+        ()
 
 and propagate_in_clause st r =
   if debug () then Format.eprintf "Trying rule %a@." (print_clause st) r;
   if is_unit st r then enqueue st r.lits.(0) (Clause r)
+
+let check st =
+  for p = 0 to Array.length st.st_weight - 1 do
+    if BitVect.test st.st_assign p then begin
+      if st.st_assumptions.(p) <> [] then
+        assert (st.st_weight.(p) = 0)
+      else begin
+        List.iter
+          (fun r ->
+             if
+               is_unit st r && st.st_weight.(p) > weight st (Clause r)
+             then begin
+               Format.eprintf "!!! %a: %d/%d %a@." (print_var st) p
+                 st.st_weight.(p) (weight st (Clause r))
+                 (print_clause st) r
+             end)
+          st.st_backward.(p);
+        assert (List.exists (fun r -> st.st_weight.(p) = weight st (Clause r))
+                  st.st_backward.(p))
+      end
+    end
+  done
+
+let rec propagate st =
+  while not (Queue.is_empty st.st_prop_queue) do
+    let p = Queue.take st.st_prop_queue in
+    List.iter (fun r -> propagate_in_clause st r)
+      (List.rev st.st_forward.(p))
+  done
 
 let add_rule st lits reason =
 incr n1;
@@ -184,9 +238,8 @@ let update_after_retraction st p =
   (* Then, we see whether other rules apply instead. *)
   List.iter
     (fun q ->
-       if st.st_reason.(q) = Unconstrained then
-         List.iter (fun r -> propagate_in_clause st r)
-           (List.rev st.st_backward.(q)))
+       List.iter (fun r -> propagate_in_clause st r)
+         (List.rev st.st_backward.(q)))
     l;
   if debug_retract () then
     List.iter
@@ -205,6 +258,7 @@ let update_after_retraction st p =
       l
 
 let retract_assumptions st p =
+  propagate st;
   (* We remove all the assumptions associated to variable p *)
   st.st_assumptions.(p) <- [];
   match st.st_reason.(p) with
@@ -217,6 +271,7 @@ let retract_assumptions st p =
       ()
 
 let retract_rule st r =
+  propagate st;
   let lits = r.lits in
   let l = Array.length lits in
   for i = 1 to l - 1 do
@@ -237,6 +292,7 @@ let initialize ?signal_assign n =
     st_forward = Array.make n [];
     st_backward = Array.make n [];
     st_assumptions = Array.make n [];
+    st_weight = Array.make n 0;
     st_prop_queue = Queue.create ();
     st_signal_assign = signal_assign;
     st_var_printer = None }
@@ -247,9 +303,10 @@ let extend st n =
   st.st_reason <- Util.array_extend st.st_reason n Unconstrained;
   st.st_forward <- Util.array_extend st.st_forward n [];
   st.st_backward <- Util.array_extend st.st_backward n [];
+  st.st_weight <- Util.array_extend st.st_weight n 0;
   st.st_assumptions <- Util.array_extend st.st_assumptions n []
 
-let assignment st = st.st_assign
+let assignment st = propagate st; st.st_assign
 
 let direct_reasons st p =
   List.map (fun r -> (r.lits, r.reason))
