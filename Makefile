@@ -30,7 +30,8 @@ $(COINST): $(OBJS) coinst.cmx
 $(COINST).byte: $(OBJS:.cmx=.cmo) coinst.cmo
 	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(UPGRADE): $(OBJS) $(SVG) upgrade_common.cmx upgrade.cmx
+
+$(UPGRADE): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx upgrade.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 $(TRANS): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx horn.cmx transition.cmx

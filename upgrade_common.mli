@@ -66,7 +66,8 @@ val find_clusters :
   state -> state -> (string -> bool) ->
   (string list * 'a) list -> ('a -> 'a -> unit) -> unit
 
-val output_conflict_graph : Format.formatter -> reason list -> unit
+val output_conflict_graph :
+  Format.formatter -> Util.StringSet.t -> reason list -> unit
 
 val ignored_set_domain : ignored_sets -> Util.StringSet.t
 val is_ignored_set : ignored_sets -> Util.StringSet.t -> bool

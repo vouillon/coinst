@@ -429,7 +429,7 @@ type reason =
   (* Both *)
   | More_bugs of StringSet.t
   (* Binaries *)
-  | Conflict of IntSet.t * IntSet.t * Upgrade_common.reason list
+  | Conflict of IntSet.t * IntSet.t * StringSet.t * Upgrade_common.reason list
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated
   | Atomic
@@ -456,10 +456,11 @@ let print_cstr r =
         (L.format M.print_package_dependency (List.map (fun c -> [c]) confl)) &
       L.s " {" & print_pkg_ref pkg' & L.s "}"
 
-let print_explanation expl =
+let print_explanation conflict expl =
   let conflict_graph () =
     let b = Buffer.create 200 in
-    Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b) expl;
+    Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b)
+      conflict expl;
     dot_to_svg (Buffer.contents b)
   in
   L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl) &
@@ -501,7 +502,7 @@ let print_reason capitalize print_binary print_source lits reason =
       L.seq ", " (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
         (StringSet.elements s) &
       L.s "."
-  | Conflict (s, s', explanation) ->
+  | Conflict (s, s', conflict, explanation) ->
       begin match IntSet.cardinal s with
         0 ->
           L.s (c "A dependency would not be satisfied")
@@ -526,7 +527,7 @@ let print_reason capitalize print_binary print_source lits reason =
           L.emp
       end
         &
-      L.s ":" & print_explanation explanation
+      L.s ":" & print_explanation conflict explanation
   | Not_yet_built (src, v1, v2) ->
       L.s (c "Not yet rebuilt (source ") &
       L.s src & L.s " version " & L.format M.print_version v1 &
@@ -585,7 +586,7 @@ let load_rules solver uids =
            &&
          not (Upgrade_common.is_ignored_set !broken_sets s')
        then begin
-         let r = HornSolver.add_rule solver r (Conflict (neg, s, expl)) in
+         let r = HornSolver.add_rule solver r (Conflict (neg, s, s', expl)) in
          if n > 1 then coinst_rules := r :: !coinst_rules
        end)
     rules;
@@ -745,7 +746,7 @@ let output_reasons
                   List.iter
                     (fun (lits, reason) ->
                        match reason with
-                         Conflict (s, s', _) ->
+                         Conflict (s, s', _, _) ->
                            binaries :=
                              IntSet.union (IntSet.union s s') !binaries
                        | _ ->
@@ -894,7 +895,7 @@ let output_reasons
          in
          let compare_conflict r r' =
            match r, r' with
-             Conflict (s1, s1', e1), Conflict (s2, s2', e2) ->
+             Conflict (s1, s1', _, e1), Conflict (s2, s2', _, e2) ->
                compare e1 e2
            | _ ->
                assert false
@@ -935,12 +936,8 @@ let output_reasons
                 let reasons =
                   L.list
                     (fun (lits, r) ->
-                       match r with
-                         Conflict (s, s', explanation) ->
-                           L.li (print_reason true print_binary print_source
-                                   lits r)
-                       | _ ->
-                           assert false)
+                       L.li (print_reason true print_binary print_source
+                               lits r))
                     reasons
                 in
                 L.li (L.s "Binary package " & L.code (L.s nm) &
@@ -1927,7 +1924,8 @@ let find_all_coinst_constraints solver id_offsets l =
            in
            let neg = offset_set neg in
            let s = offset_set s in
-           let r' = HornSolver.add_rule solver r (Conflict (neg, s, expl)) in
+           let r' =
+             HornSolver.add_rule solver r (Conflict (neg, s, s', expl)) in
            if IntSet.cardinal s > 1 then coinst_rules := r' :: !coinst_rules;
            if can_learn then learn_rule r neg s s' expl)
         changes

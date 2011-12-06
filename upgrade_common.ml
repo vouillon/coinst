@@ -1467,7 +1467,7 @@ type reason =
 
 module D = Dot_file
 
-let output_conflict_graph f reasons =
+let output_conflict_graph f conflict reasons =
   let i = ref 0 in
   let pkg (nm, _, _) = nm in
   let new_node () = incr i; D.node (string_of_int !i) in
@@ -1475,7 +1475,13 @@ let output_conflict_graph f reasons =
   let pkg_node nm rem =
     if Hashtbl.mem pkgs nm then rem else begin
       Hashtbl.add pkgs nm ();
-      `Compound ([D.node nm], ["label", nm]) :: rem
+      let color =
+        if StringSet.mem nm conflict then
+          ["style", "filled"; "fillcolor", "#ebc885"]
+        else
+          []
+      in
+      `Compound ([D.node nm], ("label", nm) :: color) :: rem
     end
   in
   let style (_, t, u) =
@@ -1485,6 +1491,15 @@ let output_conflict_graph f reasons =
     | true, true  -> []
     | _           -> assert false
   in
+  let in_dep = Hashtbl.create 17 in
+  List.iter
+    (fun r ->
+       match r with
+         R_depends (_, _, l) ->
+           List.iter (fun (nm, _, _) -> Hashtbl.add in_dep nm ()) l
+       | R_conflict _ ->
+           ())
+    reasons;
   let l =
     `Attributes (`Graph, ["rankdir", "LR"]) ::
     `Attributes
@@ -1535,6 +1550,15 @@ let output_conflict_graph f reasons =
                pl @
              l))
          | R_conflict (p1, _, p2) ->
+             let (p1, p2) =
+               if
+                 Hashtbl.mem in_dep (pkg p2) &&
+                 not (Hashtbl.mem in_dep (pkg p1))
+               then
+                 (p2, p1)
+               else
+                 (p1, p2)
+             in
              let style1 = style p1 in
              let style2 = style p2 in
              let attrs = ["dir", "none"; "color", "red"] in

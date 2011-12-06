@@ -66,6 +66,49 @@ module Graph = Graph.F (Repository)
 module PSetSet = Upgrade_common.PSetSet
 module PSetMap = Map.Make (PSet)
 
+(**** Conversion from dot to svg ****)
+
+let send_to_dot_process (oc, _) s = output_string oc s; flush oc
+let send_to_dot_process = Task.funct send_to_dot_process
+
+let shutdown_dot_process (oc, pid) () =
+  close_out oc; ignore (Unix.waitpid [] pid)
+let shutdown_dot_process = Task.funct shutdown_dot_process
+
+let create_dot_process () =
+  let (out_read, out_write) = Unix.pipe () in
+  flush_all ();
+  let helper =
+    Task.spawn
+      (fun () ->
+         Unix.close out_read;
+         let (in_read, in_write) = Unix.pipe () in
+         match Unix.fork () with
+           0 ->
+             Unix.close in_write;
+             Unix.dup2 in_read Unix.stdin; Unix.dup2 out_write Unix.stdout;
+             Unix.close in_read; Unix.close out_write;
+             Unix.execv "/bin/sh" [| "/bin/sh"; "-c"; "dot" |]
+         | pid ->
+             Unix.close in_read;
+             (Unix.out_channel_of_descr in_write, pid))
+  in
+  Unix.close out_write;
+  (helper, Unix.in_channel_of_descr out_read)
+
+let dot_process = lazy (create_dot_process ())
+
+let dot_to_svg s =
+  let (t, ic) = Lazy.force dot_process in
+  let send = send_to_dot_process t s in
+  let (_, g) = Dot_graph.of_channel ic in
+  ignore (Task.wait send);
+  let (bbox, scene) = Dot_render.f g in
+  let l = Scene.get scene in
+  let b = Buffer.create 200 in
+  Scene_svg.format (Format.formatter_of_buffer b) (bbox, l);
+  Buffer.contents b
+
 (****)
 
 let output_conflicts filename dist2 results =
@@ -352,19 +395,19 @@ let t = Unix.gettimeofday () in
 Format.printf "Generating explanations...@.";
 Format.fprintf f "<h2>Explanations of conflicts</h2>@.";
 List.iter
-  (fun { Upgrade_common.i_issue = s;
-         Upgrade_common.i_graph =
+  (fun { Upgrade_common.i_issue = s; i_explain = expl; i_clause = clause;
+         i_graph =
            { Upgrade_common.g_nodes = pkgs;
              g_deps = deps; g_confl = confl }} ->
 (*Task.async (fun () ->*)
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
-     let nm =
-       String.concat ","
-         (List.map (fun p -> M.package_name dist2 (Package.index p))
-            (PSet.elements s))
+     let conflict_elt =
+       List.map (fun p -> M.package_name dist2 (Package.index p))
+         (PSet.elements s)
      in
+     let nm = String.concat "," conflict_elt in
      let basename = Filename.concat output_dir nm in
      let edge_color p2 _ d2 =
        let i1 = PTbl.get pred p2 in
@@ -414,6 +457,15 @@ List.iter
      Format.fprintf f
        "<p><object data=\"%s.svg\" type=\"image/svg+xml\"></object></p>@." nm;
 *)
+
+     let fig =
+       let b = Buffer.create 200 in
+       Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b)
+         (List.fold_right StringSet.add conflict_elt StringSet.empty) expl;
+       dot_to_svg (Buffer.contents b)
+     in
+     Format.fprintf f "<p>%s</p>@." fig;
+
      let ppkgs = PSetMap.find s !prob_pkgs in
      if not (F.is_true ppkgs) then begin
        Format.fprintf f "<p><b>Problematic packages:</b> %a</p>@."
