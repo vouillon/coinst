@@ -45,6 +45,7 @@ module type SOLVER = sig
 
   val solve : state -> var -> bool
   val solve_lst : state -> var list -> bool
+  val solve_neg_list : state -> var list -> var list -> bool
 
   val collect_reasons : state -> var -> reason list
   val collect_reasons_lst : state -> var list -> reason list

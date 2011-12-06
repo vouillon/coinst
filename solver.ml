@@ -47,6 +47,7 @@ module type SOLVER = sig
 
   val solve : state -> var -> bool
   val solve_lst : state -> var list -> bool
+  val solve_neg_list : state -> var list -> var list -> bool
 
   val collect_reasons : state -> var -> reason list
   val collect_reasons_lst : state -> var list -> reason list
@@ -470,6 +471,44 @@ let rec solve_lst_rec st l0 l =
         false
 
 let solve_lst st l = solve_lst_rec st [] l
+
+let rec solve_not st x =
+  assert (st.st_cur_level = st.st_min_level);
+  propagate st;
+  try
+    let p = lit_of_var x false in
+    assume st p;
+    assert (st.st_cur_level = st.st_min_level + 1);
+    if solve_rec st then begin
+      protect st;
+      true
+    end else
+      solve_not st x
+  with Conflict _ ->
+    st.st_coherent <- false;
+    false
+
+let rec solve_lst_rec st vars l0 l =
+  match l with
+    [] ->
+      true
+  | x :: r ->
+      protect st;
+  List.iter
+    (fun x ->
+       let refs = st.st_refs.(x) in
+       if refs = 0 then enqueue_var st x;
+       st.st_refs.(x) <- st.st_refs.(x) + 1)
+    vars;
+      List.iter (fun x -> enqueue st (lit_of_var x false) None) l0;
+      propagate st;
+      if solve_not st x then begin
+        if r <> [] then reset st;
+        solve_lst_rec st vars (x :: l0) r
+      end else
+        false
+
+let solve_neg_list st vars neg = solve_lst_rec st vars [] neg
 
 let initialize_problem ?(print_var = (fun fmt -> Format.fprintf fmt "%d")) n =
   { st_assign = Array.make n Unknown;

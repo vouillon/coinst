@@ -1350,6 +1350,9 @@ type cstr =
 
 let compute_hints () = debug_hints () || !hint_file <> ""
 
+let string_uid s =
+  s >> Digest.string >> Digest.to_hex >> fun s -> String.sub s 0 16
+
 let remove_sources central remove_hints t u =
   let l = ref [] in
   StringTbl.iter
@@ -1364,8 +1367,8 @@ let remove_sources central remove_hints t u =
            ())
     remove_hints;
  !l >> List.sort compare
-    >> fun l -> Marshal.to_string l []
-    >> Digest.string >> Digest.to_hex >> fun s -> String.sub s 0 16
+    >> fun l -> Marshal.to_string l [] >> string_uid
+    
 
 
 let arch_constraints st (produce_excuses, remove_hints) =
@@ -1739,7 +1742,10 @@ let initial_constraints
   let first_bin_id = Array.length source_of_id in
   let id_offset = ref 0 in
   let id_offsets = StringTbl.create 17 in
+  let smooth_uid =
+    string_uid (String.concat " " (List.sort compare !smooth_updates)) in
   let uids =
+    smooth_uid ::
     rem_uid ::
     src_uid ::
     List.map
@@ -1852,16 +1858,39 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
         t' u' (fun nm -> is_unchanged st unchanged nm)
   in
   let t = Timer.start () in
+  let is_singleton pos =
+    StringSet.cardinal pos = 1
+      ||
+    let source nm =
+      match M.find_packages_by_name st.testing nm with
+        [p] when not (allow_smooth_updates p) -> Some p.M.source
+      | _                                     -> None
+    in
+    let eq s1 s2 =
+      match s1, s2 with
+        Some (nm1, v1), Some (nm2, v2) ->
+          nm1 = nm2 && M.compare_version v1 v2 = 0
+      | _ ->
+          false
+    in
+    let src = source (StringSet.choose pos) in
+    StringSet.for_all (fun nm -> eq (source nm) src) pos
+  in
   let has_singletons =
-    List.exists
-      (fun (cl, _, _) -> StringSet.cardinal cl.Upgrade_common.pos = 1)
-      problems
+    List.exists (fun (cl, _, _) -> is_singleton cl.Upgrade_common.pos) problems
   in
   let changes = ref [] in
   List.iter
     (fun ({Upgrade_common.pos = pos;  neg = neg}, s, expl) ->
-       let n = StringSet.cardinal pos in
-       if not (has_singletons && n > 1) then begin
+       let singleton = is_singleton pos in
+       if singleton || not has_singletons then begin
+
+(*
+let arch_all dist p = match M.find_packages_by_name dist p with [] -> true | [p] -> p.M.architecture = "all" | _ -> assert false in
+StringSet.iter
+ (fun nm -> if arch_all st.testing nm && arch_all st.unstable nm then Format.eprintf "IGN %s/%s@." nm arch) s;
+*)    
+
          let to_ids s =
            StringSet.fold
              (fun nm s -> IntSet.add (StringTbl.find st.id_of_bin nm) s)
@@ -1871,7 +1900,7 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
          let s' = to_ids s in
          let id = StringTbl.find st.id_of_bin (StringSet.choose pos) in
          let r = Array.of_list (id :: IntSet.elements neg) in
-         let can_learn = n = 1 in
+         let can_learn = singleton in
          changes := (r, neg, s', s, expl, can_learn) :: !changes
        end)
     problems;
