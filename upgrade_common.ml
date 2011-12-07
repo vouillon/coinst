@@ -1240,6 +1240,12 @@ let find_clusters dist1_state dist2_state is_preserved groups merge =
     Package.index p >= first_new && Package.index p < first_dummy in
   let is_dummy p = Package.index p >= first_dummy in
 
+  let is_removed = PTbl.create dist2 false in
+  M.iter_packages dist2
+    (fun p ->
+       if not (M.has_package_of_name dist2_state.dist p.M.package) then
+         PTbl.set is_removed (Package.of_index p.M.num) true);
+
   let (deps2full, confl2full) =
     Coinst.compute_dependencies_and_conflicts dist2 in
 
@@ -1360,6 +1366,12 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
          let nm = group_repr p in
          let (o, n) = Hashtbl.find group_pkgs nm in
          PTbl.set deps2 q (Formula.disj (Formula.lit o) (PTbl.get deps2 q))
+       end else if PTbl.get is_removed p then begin
+         let nm = group_repr p in
+         if nm <> "" then begin
+           let (o, n) = Hashtbl.find group_pkgs nm in
+           PTbl.set deps2 q (Formula.disj (Formula.lit n) (PTbl.get deps2 q))
+         end
        end)
     deps2;
 
