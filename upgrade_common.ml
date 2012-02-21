@@ -797,7 +797,7 @@ let analyze ?(check_new_packages = false) ignored_sets
        if
          not (PSet.mem p2 possibly_ignored_packages
                 ||
-              PSet.mem p2 possibly_ignored_packages)
+              PSet.mem q2 possibly_ignored_packages)
        then
          Conflict.remove confl2' p2 q2)
     !new_conflicts;
@@ -1697,7 +1697,7 @@ let output_conflict_graph f conflict reasons =
              pkg_node (pkg p2) (
              if style1 = style2 then begin
                `Compound ([D.node (pkg p1); D.node (pkg p2)],
-                          ("minlen", "2") :: attrs) :: l
+                          ("minlen", "2") :: style1 @ attrs) :: l
              end else begin
                let n = new_node () in
                `Compound ([n], ["label", ""; "fixedsize", "true";
