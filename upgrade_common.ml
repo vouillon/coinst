@@ -54,14 +54,14 @@ module Timer = Util.Timer
 - packages new in sid: only look at forced packages
 *)
 
-type ignored_sets = (Util.StringSet.t list * bool) list
+type ignored_sets = (Util.StringSet.t list * bool) list ref
 
 type ignored_sets_2 = (PSet.t list * bool) list
 
 let ignored_set_domain l =
   List.fold_left
     (fun s (l, ext) -> List.fold_left StringSet.union s l)
-    StringSet.empty l
+    StringSet.empty !l
 
 let forced_packages l =
   List.fold_left
@@ -104,7 +104,7 @@ let is_ignored_set l s =
             ext)
        with Not_found ->
          false)
-    l
+    !l
 
 let ignored_set_domain_2 l =
   List.fold_left
@@ -744,6 +744,7 @@ let analyze ?(check_new_packages = false) ignored_sets
     !new_conflicts;
 
   (* Only consider new dependencies. *)
+  let ignored_sets = intern_ignored_sets dist2 !ignored_sets in
   let possibly_ignored_packages =
     ignored_set_domain_2 ignored_sets in
   let deps2 = new_deps pred possibly_ignored_packages deps1 dist2 deps2 in
@@ -1149,7 +1150,7 @@ let rec find_problematic_packages
   let (deps1, deps2, pred, st2,
        results, all_pkgs, all_conflicts,
        dep_src, graphs, broken_new_packages) =
-    analyze ~check_new_packages (intern_ignored_sets dist2 ignored_sets)
+    analyze ~check_new_packages ignored_sets
       ~reference:dist2_state dist1_state dist2
   in
 let t = Timer.start () in
@@ -1708,3 +1709,30 @@ let output_conflict_graph f conflict reasons =
       reasons []
   in
   D.print f (D.graph `Digraph "G" l)
+
+(**** Breaking co-installability ****)
+
+let comma_re = Str.regexp "[ \t]*,[ \t]*"
+let bar_re = Str.regexp "[ \t]*|[ \t]*"
+
+let empty_break_set () = ref []
+
+let allow_broken_sets broken_sets s =
+  let l = Str.split comma_re (Util.trim s) in
+  let ext = List.mem "_" l in
+  let l = List.filter (fun s -> s <> "_") l in
+  (* XXXX Should disallow specs such that a,a *)
+  let l =
+    List.fold_left
+      (fun l s ->
+         List.fold_left
+           (fun s nm -> StringSet.add nm s)
+           StringSet.empty (Str.split bar_re s)
+         :: l)
+      [] l
+  in
+  if (List.length l + if ext then 1 else 0) <= 1 then begin
+    Format.eprintf "Breaking single packages is not supported (yet).@.";
+    exit 1
+  end;
+  broken_sets := (l, ext) :: !broken_sets

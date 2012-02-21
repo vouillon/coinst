@@ -113,7 +113,7 @@ let to_remove = ref []
 let check_coinstallability = ref true
 let equivocal = ref false
 let svg = ref false
-let broken_sets = ref []
+let broken_sets = Upgrade_common.empty_break_set ()
 
 (**** Debug options ****)
 
@@ -584,7 +584,7 @@ let load_rules solver uids =
        if
          (!check_coinstallability || n = 1)
            &&
-         not (Upgrade_common.is_ignored_set !broken_sets s')
+         not (Upgrade_common.is_ignored_set broken_sets s')
        then begin
          let r = HornSolver.add_rule solver r (Conflict (neg, s, s', expl)) in
          if n > 1 then coinst_rules := r :: !coinst_rules
@@ -974,31 +974,6 @@ let output_reasons
   if debug_time () then
     Format.eprintf "Writing excuse file: %f@." (Timer.stop reason_t)
 
-(**** Breaking co-installability ****)
-
-let comma_re = Str.regexp "[ \t]*,[ \t]*"
-let bar_re = Str.regexp "[ \t]*|[ \t]*"
-
-let allow_broken_sets s =
-  let l = Str.split comma_re (Util.trim s) in
-  let ext = List.mem "_" l in
-  let l = List.filter (fun s -> s <> "_") l in
-  (* XXXX Should disallow specs such that a,a *)
-  let l =
-    List.fold_left
-      (fun l s ->
-         List.fold_left
-           (fun s nm -> StringSet.add nm s)
-           StringSet.empty (Str.split bar_re s)
-         :: l)
-      [] l
-  in
-  if (List.length l + if ext then 1 else 0) <= 1 then begin
-    Format.eprintf "Breaking single packages is not supported (yet).@.";
-    exit 1
-  end;
-  broken_sets := (l, ext) :: !broken_sets
-
 (**** Per arch. information on which packages are not propagated ****)
 
 let extract_unchanged_bin solver id_offsets arch unch =
@@ -1155,7 +1130,7 @@ let reduce_for_coinstallability st unchanged =
   (* Packages unchanged but with stronger dependencies, or that may
      depend on a package for which we ignore some co-installability
      issues, should be kept as well. *)
-  let break_candidates = Upgrade_common.ignored_set_domain !broken_sets in
+  let break_candidates = Upgrade_common.ignored_set_domain broken_sets in
   let stronger_deps l =
     (* Check whether there is a package that satisfies the dependency,
        that might not satisfy the dependency anymore. *)
@@ -1851,7 +1826,7 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
   let problems =
     if check_coinstallability then
       Upgrade_common.find_problematic_packages
-        ~check_new_packages:true !broken_sets t' u'
+        ~check_new_packages:true broken_sets t' u'
         (fun nm -> is_unchanged st unchanged nm)
     else
       Upgrade_common.find_non_inst_packages
@@ -2534,6 +2509,8 @@ let read_conf f =
      with Not_found ->
        !smooth_updates)
 
+let comma_re = Str.regexp "[ \t]*,[ \t]*"
+
 let _ =
 let spec =
   Arg.align
@@ -2574,7 +2551,7 @@ let spec =
    Arg.String (fun p -> to_remove := p :: !to_remove),
    "PKG Attempt to remove the source package PKG";
    "--break",
-   Arg.String allow_broken_sets,
+   Arg.String (Upgrade_common.allow_broken_sets broken_sets),
    "SETS Allows sets of packages to be broken by the migration";
    "-c",
    Arg.String read_conf,

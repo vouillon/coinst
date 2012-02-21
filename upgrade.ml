@@ -42,6 +42,8 @@ XXXX List broken new packages!
 - Reflattening is quite slow...
 *)
 
+let broken_sets = Upgrade_common.empty_break_set ()
+
 let (file1,file2) =
 ("snapshots/updates/stable", "snapshots/updates/testing")
 (*
@@ -292,7 +294,7 @@ let dist2 = read_data [] (File.open_in file2) in
 let dist1_state = Upgrade_common.prepare_analyze dist1 in
 let (deps1, deps2, pred, st2,
      results, all_pkgs, all_conflicts, dep_src, graphs, _) =
-  Upgrade_common.analyze [] dist1_state dist2
+  Upgrade_common.analyze broken_sets dist1_state dist2
 in
 
 (****)

@@ -41,11 +41,10 @@ type graph =
 type issue =
   { i_issue : PSet.t; i_clause : clause;
     i_graph : graph; i_explain : reason list }
-type ignored_sets = (Util.StringSet.t list * bool) list
-type ignored_sets_2 = (PSet.t list * bool) list
+type ignored_sets
 
 val analyze :
-  ?check_new_packages:bool -> ignored_sets_2 ->
+  ?check_new_packages:bool -> ignored_sets ->
   ?reference:state ->
   state -> pool ->
   Formula.t PTbl.t * Formula.t PTbl.t *
@@ -54,7 +53,7 @@ val analyze :
   issue list * (Package.t * clause * reason list) list
 
 val find_problematic_packages :
-  ?check_new_packages:bool -> (Util.StringSet.t list * bool) list ->
+  ?check_new_packages:bool -> ignored_sets ->
   state -> state -> (string -> bool) ->
   (clause * Util.StringSet.t * reason list) list
 
@@ -71,3 +70,6 @@ val output_conflict_graph :
 
 val ignored_set_domain : ignored_sets -> Util.StringSet.t
 val is_ignored_set : ignored_sets -> Util.StringSet.t -> bool
+
+val empty_break_set : unit -> ignored_sets
+val allow_broken_sets : ignored_sets -> string -> unit
