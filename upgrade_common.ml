@@ -382,12 +382,37 @@ let problematic_packages dist1 dist dist2 reasons =
              let u2 = unchanged_dep dist2 in
              let s1 = if u1 then s1 else StringSet.add nm s1 in
              let s2 = if u2 then s2 else StringSet.add nm s2 in
-             let pkgs =
+             let pkgs d1 d2 =
                List.map
                  (fun nm -> (nm, StringSet.mem nm d1, StringSet.mem nm d2))
                  (StringSet.elements (StringSet.union d1 d2))
              in
-             (s1, s2, R_depends ((nm, u1, u2), l, pkgs) :: lst)
+             let d12 = StringSet.union d1 d2 in
+             let other_deps u dist old lst =
+               if u then lst else
+               match M.find_packages_by_name dist nm with
+                 [] ->
+                   lst
+               | [q] ->
+                   List.fold_left
+                     (fun lst l' ->
+                        let d1' = resolve_dep dist1 l' in
+                        let d2' = resolve_dep dist2 l' in
+                        if
+                          StringSet.subset d1' d12
+                            &&
+                          StringSet.subset d2' d12
+                        then
+                          R_depends ((nm, old, not old), l', pkgs d1' d2') :: lst
+                        else
+                          lst)
+                     lst (q.M.pre_depends @ q.M.depends)
+               | _ ->
+                   assert false
+             in
+             let lst = other_deps u1 dist1 true lst in
+             let lst = other_deps u2 dist2 false lst in
+             (s1, s2, R_depends ((nm, u1, u2), l, pkgs d1 d2) :: lst)
          | M.R_conflict (j, k, Some (i, l)) ->
              let i' = if i = j then k else j in
              let p = M.find_package_by_num dist i in
@@ -408,9 +433,9 @@ let problematic_packages dist1 dist dist2 reasons =
                    M.compare_version q.M.version p.M.version = 0
                      ||
                    (let l' = List.flatten (q.M.breaks @ q.M.conflicts) in
-                    StringSet.mem nm' (resolve_dep dist1 l')
+                    (not u1' || StringSet.mem nm' (resolve_dep dist1 l'))
                       &&
-                    StringSet.mem nm' (resolve_dep dist2 l'))
+                    (not u2' || StringSet.mem nm' (resolve_dep dist2 l')))
                | _ ->
                    assert false
              in
