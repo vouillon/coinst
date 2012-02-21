@@ -292,9 +292,11 @@ let dist1 = read_data [] (File.open_in file1) in
 let dist2 = read_data [] (File.open_in file2) in
 
 let dist1_state = Upgrade_common.prepare_analyze dist1 in
-let (deps1, deps2, pred, st2,
-     results, all_pkgs, all_conflicts, dep_src, graphs, _) =
-  Upgrade_common.analyze broken_sets dist1_state dist2
+let (pred, all_pkgs, all_conflicts, dep_src, graphs, _) =
+  Upgrade_common.analyze broken_sets dist1_state dist2 in
+let results =
+  List.fold_left (fun res gr -> PSetSet.add gr.Upgrade_common.i_issue res)
+    PSetSet.empty graphs
 in
 
 (****)
@@ -423,7 +425,9 @@ List.iter
                 Disj.disj (Disj.lit (Package.of_index i)) d2)
              d2 Disj._false
          in
-         not (Formula.implies1 (PTbl.get deps1 (Package.of_index i1)) d1)
+         not (Formula.implies1
+                (PTbl.get dist1_state.Upgrade_common.deps
+                   (Package.of_index i1)) d1)
        in
        if is_new then
          Some "violet"

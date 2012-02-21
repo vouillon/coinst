@@ -47,9 +47,7 @@ val analyze :
   ?check_new_packages:bool -> ignored_sets ->
   ?reference:state ->
   state -> pool ->
-  Formula.t PTbl.t * Formula.t PTbl.t *
-  Deb_lib.Solver.var PTbl.t * Deb_lib.Solver.state * PSetSet.t *
-  PSet.t * Conflict.t * PSet.t PTbl.t *
+  Deb_lib.Solver.var PTbl.t * PSet.t * Conflict.t * PSet.t PTbl.t *
   issue list * (Package.t * clause * reason list) list
 
 val find_problematic_packages :

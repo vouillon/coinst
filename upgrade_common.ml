@@ -998,8 +998,7 @@ if debug_coinst () then M.show_reasons dist2 r;
   if debug_time () then
     Format.eprintf "  Analysing problems: %f@." (Timer.stop t);
 
-  (deps1, deps2, pred, st2,
-   results, !all_pkgs, all_conflicts, dep_src, graphs, broken_new_packages)
+  (pred, !all_pkgs, all_conflicts, dep_src, graphs, broken_new_packages)
 
 (****)
 
@@ -1147,9 +1146,7 @@ let rec find_problematic_packages
   then
     problems
   else
-  let (deps1, deps2, pred, st2,
-       results, all_pkgs, all_conflicts,
-       dep_src, graphs, broken_new_packages) =
+  let (_, _, _, _, graphs, broken_new_packages) =
     analyze ~check_new_packages ignored_sets
       ~reference:dist2_state dist1_state dist2
   in
