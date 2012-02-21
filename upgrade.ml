@@ -68,6 +68,30 @@ module Graph = Graph.F (Repository)
 module PSetSet = Upgrade_common.PSetSet
 module PSetMap = Map.Make (PSet)
 
+(****)
+
+let whitespaces = Str.regexp "[ \t]+"
+
+let load_popcon file =
+  let tbl = Hashtbl.create 4096 in
+  let ch = File.open_in file in
+  begin try
+    while true do
+      let l = input_line ch in
+      if l <> "" && l.[0] = '-' then raise End_of_file;
+      if l <> "" && l.[0] <> '#' then begin
+        let l = Str.split whitespaces l in
+        match l with
+          _ :: name :: inst :: _ ->
+            Hashtbl.add tbl name (int_of_string inst)
+        | _ ->
+            assert false
+      end
+    done
+  with End_of_file -> () end;
+  close_in ch;
+  tbl
+
 (**** Conversion from dot to svg ****)
 
 let send_to_dot_process (oc, _) s = output_string oc s; flush oc
@@ -289,7 +313,12 @@ let read_data ignored_packages ic =
   M.parse_packages dist ignored_packages ic;
   M.only_latest dist
 
-let f file1 file2 output_dir =
+let f file1 file2 popcon_file output_dir =
+let popcon =
+  match popcon_file with
+    Some file -> load_popcon file
+  | None      -> Hashtbl.create 1
+in
 let dist1 = read_data [] (File.open_in file1) in
 let dist2 = read_data [] (File.open_in file2) in
 
@@ -558,7 +587,16 @@ List.iter
           end)
        s;
 
-     let ppkgs = PSetMap.find s !prob_pkgs in
+     let w =
+       PSet.fold
+         (fun p2 w ->
+            let rev = PTbl.get cdeps p2 in
+            min w (PSet.fold (fun p' w' -> max (try Hashtbl.find popcon (M.package_name dist2 (Package.index p')) with Not_found -> 0) w') rev 0))
+         s max_int
+     in
+     if w > 0 then Format.fprintf f "<p><b>Weight:</b> %d</p>@." w;
+
+    let ppkgs = PSetMap.find s !prob_pkgs in
      if not (F.is_true ppkgs) then begin
        Format.fprintf f "<p><b>Problematic packages:</b> %a</p>@."
          F.print ppkgs
@@ -582,11 +620,21 @@ Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t)
 let _ =
 let output_dir = ref "/tmp/upgrade" in
 let l = ref [] in
+let popcon_file = ref None in
 let spec =
   Arg.align
   ["-o",
    Arg.String (fun d -> output_dir := d),
-   "DIR       Write output to directory DIR"]
+   "DIR       Write output to directory DIR";
+   "--break",
+   Arg.String (Upgrade_common.allow_broken_sets broken_sets),
+   "SETS Ignore broken sets of packages of shape SETS";
+   "--popcon",
+   Arg.String (fun s -> popcon_file := Some s),
+   "FILE Use popcon data from FILE";
+   "--debug",
+   Arg.String Debug.set,
+   "NAME Activate debug option NAME"]
 in
 Arg.parse spec (fun f -> l := f :: !l)
   ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS FILE1 FILE2\n\
@@ -605,7 +653,7 @@ let (file1, file2) =
        should be provided as input.@.";
     exit 1
 in
-f file1 file2 !output_dir
+f file1 file2 !popcon_file !output_dir
 
 
 (*
