@@ -18,6 +18,16 @@
  *)
 
 (*
+- incremental (re)computations
+- repeat the remove commands from the input to the hint ouput?
+- what should we do about arch: all packages?
+  ==> ignore them, in a by need fashion (if we find a conflict involving
+      one of them, add the package to the 'can break' list
+- cache reverse dependencies: then, either we have a lot of work to do and
+  we can afford to compute them, or we can get them rapidly
+- better report issues preventing migration:
+  => show source package version numbers
+  => example: empathy
 - allow breaking single packages (--force-break option?)
 - improve '--migrate option': multiple files, bin_nmus
 - could the 'migrate' option automatically generate removal hints?
@@ -25,6 +35,7 @@
 - parse more options from britney config file (in particular, hint files)
 - make Deb_lib more abstract...
 - SVG graphs: use CSS styles
+- incremental recomputation of repositories and flattened repositories
 
 PRIORITIES
   ==> graphs for reporting co-installability issues:
@@ -44,7 +55,6 @@ EXPLANATIONS
 LATER
 ==> user interaction
     - interactive mode
-    - prioritize rules? (i386 first)
 ==> performance
     - for migration, is it possible to focus on a small part of
       the repositories?
@@ -986,9 +996,7 @@ let is_unchanged st unch nm =
 (**** Prepare repositories before looking for (co-)installability issues ****)
 
 let compute_reverse_dependencies st d id_tbl =
-  let rdep_t = Timer.start () in
   let rdeps = Array.create (Array.length st.bin_of_id) [] in
-
   let add_rdep src_id dep =
     List.iter
       (fun cstr ->
@@ -1000,13 +1008,24 @@ let compute_reverse_dependencies st d id_tbl =
               rdeps.(i) <- src_id :: rdeps.(i))
            (M.find_provided_packages d (fst cstr)))
       dep
-
   in
   M.iter_packages d
     (fun p ->
        let src_id = PTbl.get id_tbl (Package.of_index p.M.num) in
        List.iter (fun d -> add_rdep src_id d) p.M.depends;
        List.iter (fun d -> add_rdep src_id d) p.M.pre_depends);
+  rdeps
+
+let compute_reverse_dependencies st d id_tbl =
+  let rdep_t = Timer.start () in
+  let rdeps = compute_reverse_dependencies st d id_tbl in
+(*
+  let cache = Filename.concat cache_dir ("Rev_" ^ st.arch) in
+  let (rdeps, _) =
+    Cache.cached [] cache ("version 1\n" ^ st.uid)
+      (fun () -> compute_reverse_dependencies st d id_tbl)
+  in
+*)
   if debug_time () then
     Format.eprintf "  Reversing dependencies: %f@." (Timer.stop rdep_t);
   rdeps

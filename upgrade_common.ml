@@ -430,6 +430,9 @@ let problematic_packages dist1 dist dist2 reasons =
                  [] ->
                    false
                | [q] ->
+(*
+Format.eprintf "%s ## %s (%a): %b %b %b %b@." nm nm' M.print_package_dependency (q.M.breaks @ q.M.conflicts) u1' (StringSet.mem nm' (resolve_dep dist1 (List.flatten (q.M.breaks @ q.M.conflicts)))) u2' (StringSet.mem nm' (resolve_dep dist1 (List.flatten (q.M.breaks @ q.M.conflicts))));
+*)
                    M.compare_version q.M.version p.M.version = 0
                      ||
                    (let l' = List.flatten (q.M.breaks @ q.M.conflicts) in
@@ -520,8 +523,8 @@ let print_ref f (nm, t, u) =
   | false, true  -> Format.fprintf f "%s (sid)" nm
   | false, false -> assert false
 in
+Format.eprintf "=======================@.";
 *)
-
   List.iter
     (fun r ->
        match r with
@@ -1678,6 +1681,16 @@ let output_conflict_graph f conflict reasons =
                pl @
              l))
          | R_conflict (p1, _, p2) ->
+(*
+let print_ref f (nm, t, u) =
+  match t, u with
+    true,  true  -> Format.fprintf f "%s" nm
+  | true,  false -> Format.fprintf f "%s (testing)" nm
+  | false, true  -> Format.fprintf f "%s (sid)" nm
+  | false, false -> assert false
+in
+Format.eprintf "| %a ## %a@." print_ref p1 print_ref p2;
+*)
              let (p1, p2) =
                if
                  Hashtbl.mem in_dep (pkg p2) &&
