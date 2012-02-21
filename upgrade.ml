@@ -282,6 +282,8 @@ end
 
 (****)
 
+module IntSet = Util.IntSet
+
 let read_data ignored_packages ic =
   let dist = M.new_pool () in
   M.parse_packages dist ignored_packages ic;
@@ -321,6 +323,52 @@ let cdeps =
            rev)
      cdeps2
 in
+
+(* Filter out some of the non co-installable sets *)
+let last_id = ref (-1) in
+let package_to_graph = PTbl.create dist2 IntSet.empty in
+let id_to_graph = Hashtbl.create 4096 in
+let register_graph p g =
+  PTbl.set package_to_graph p (IntSet.add g (PTbl.get package_to_graph p))
+in
+List.iter
+  (fun g ->
+     incr last_id;
+     let id = !last_id in
+     let s = g.Upgrade_common.i_issue in
+     PSet.iter
+       (fun p ->
+          PSet.iter (fun p' -> register_graph p' id) (PTbl.get cdeps p))
+       s;
+     Hashtbl.add id_to_graph id (g, ref true))
+  graphs;
+let graphs = ref [] in
+Hashtbl.iter
+  (fun id (g, active) ->
+     if !active then begin
+       let s = g.Upgrade_common.i_issue in
+       let p = PSet.choose s in
+       let grs =
+         PSet.fold
+           (fun p gr -> IntSet.inter (PTbl.get package_to_graph p) gr)
+           s (PTbl.get package_to_graph p)
+       in
+       let inactivate =
+         IntSet.exists
+           (fun id' ->
+              id <> id' &&
+              let (g', active') = Hashtbl.find id_to_graph id' in
+              !active' &&
+              PSet.for_all
+                (fun p ->
+                   PSet.exists (fun p' -> PSet.mem p' s) (PTbl.get cdeps p))
+                g'.Upgrade_common.i_issue)
+           grs
+       in
+       if inactivate then active := false else graphs := g :: !graphs
+     end)
+  id_to_graph;
+let graphs = !graphs in
 
 (****)
 
