@@ -429,6 +429,7 @@ Format.fprintf f
 let t = Unix.gettimeofday () in
 Format.printf "Preparing explanations...@.";
 
+(*
 let involved = PSet.elements all_pkgs in
 let partition =
   List.fold_left
@@ -493,6 +494,17 @@ let graphs =
          (fun p -> try Hashtbl.find repr p = p with Not_found -> false) s)
     graphs
 in
+*)
+let prob_pkgs = ref PSetMap.empty in
+List.iter
+  (fun {Upgrade_common.i_issue = s; i_clause  = {Upgrade_common.pos = pos}} ->
+     prob_pkgs :=
+       PSetMap.add s
+         (F.conj1
+            (try PSetMap.find s !prob_pkgs with Not_found -> F._true)
+            pos)
+         !prob_pkgs)
+  graphs;
 Format.printf "Preparing explanations... %fs@." (Unix.gettimeofday () -. t);
 
 let t = Unix.gettimeofday () in
@@ -504,13 +516,16 @@ List.iter
            { Upgrade_common.g_nodes = pkgs;
              g_deps = deps; g_confl = confl }} ->
 (*Task.async (fun () ->*)
+(*
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
+*)
      let conflict_elt =
        List.map (fun p -> M.package_name dist2 (Package.index p))
          (PSet.elements s)
      in
+(*
      let nm = String.concat "," conflict_elt in
      let basename = Filename.concat output_dir nm in
      let edge_color p2 _ d2 =
@@ -556,6 +571,7 @@ List.iter
        (Sys.command
           (Format.sprintf "dot %s.dot -Tpng -o %s.png" basename basename));
      Format.fprintf f "<p><img src=\"%s.png\" alt=\"%s\"/></p>@." nm nm;
+*)
 (*
      ignore
        (Sys.command
