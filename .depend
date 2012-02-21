@@ -75,10 +75,12 @@ upgrade_common.cmo: util.cmi graph.cmi viewer/dot_file.cmi debug.cmi \
 upgrade_common.cmx: util.cmx graph.cmx viewer/dot_file.cmx debug.cmx \
     deb_lib.cmx coinst_common.cmx upgrade_common.cmi
 upgrade_common.cmi: util.cmi repository.cmi deb_lib.cmi
-upgrade.cmo: util.cmi upgrade_common.cmi quotient.cmi graph.cmi file.cmi \
-    deb_lib.cmi
-upgrade.cmx: util.cmx upgrade_common.cmx quotient.cmx graph.cmx file.cmx \
-    deb_lib.cmx
+upgrade.cmo: util.cmi upgrade_common.cmi task.cmi viewer/scene_svg.cmi \
+    viewer/scene.cmi quotient.cmi graph.cmi file.cmi viewer/dot_render.cmi \
+    viewer/dot_graph.cmi debug.cmi deb_lib.cmi
+upgrade.cmx: util.cmx upgrade_common.cmx task.cmx viewer/scene_svg.cmx \
+    viewer/scene.cmx quotient.cmx graph.cmx file.cmx viewer/dot_render.cmx \
+    viewer/dot_graph.cmx debug.cmx deb_lib.cmx
 util.cmo: util.cmi
 util.cmx: util.cmi
 util.cmi:
