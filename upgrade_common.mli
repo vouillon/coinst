@@ -69,5 +69,8 @@ val output_conflict_graph :
 val ignored_set_domain : ignored_sets -> Util.StringSet.t
 val is_ignored_set : ignored_sets -> Util.StringSet.t -> bool
 
+val conj_dependencies : pool -> Formula.t PTbl.t -> PSet.t option PTbl.t
+val reversed_conj_dependencies : pool -> Formula.t PTbl.t -> PSet.t PTbl.t
+
 val empty_break_set : unit -> ignored_sets
 val allow_broken_sets : ignored_sets -> string -> unit

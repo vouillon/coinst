@@ -1707,6 +1707,78 @@ let output_conflict_graph f conflict reasons =
   in
   D.print f (D.graph `Digraph "G" l)
 
+(****)
+
+let conj_inter l l' =
+  match l, l' with
+    None, None      -> None
+  | Some _ , None   -> l
+  | None, Some _    -> l'
+  | Some s, Some s' -> Some (PSet.inter s s')
+
+let conj_union l l' =
+  match l, l' with
+  | Some s, Some s' -> Some (PSet.union s s')
+  | _               -> None
+
+let rec conj_deps tbl dist deps visited l =
+  Formula.fold
+    (fun d (l, r) ->
+       let (l', r') =
+         Disj.fold
+           (fun i (l, r) ->
+              let (l', r') = conj_dep tbl dist deps visited i in
+              (conj_inter l' l, PSet.union r r')) d (None, r)
+       in
+       (conj_union l' l, r'))
+    l (Some PSet.empty, PSet.empty)
+
+and conj_dep tbl dist deps visited i =
+  try
+    (Hashtbl.find tbl i, PSet.empty)
+  with Not_found ->
+    let res =
+      if List.mem i visited then
+        (Some PSet.empty, PSet.singleton i)
+      else begin
+        let (l, r) =
+          conj_deps tbl dist deps (i :: visited) (PTbl.get deps i)
+        in
+(*
+Format.eprintf "XXX %a: %a (%d)@."
+  (Package.print_name dist) i (Formula.print dist) (PTbl.get deps i) (match l with Some s -> PSet.cardinal s | None -> -1);
+*)
+        let r = PSet.remove i r in
+        (conj_union (Some (PSet.singleton i)) l, r)
+      end
+    in
+    (* Only cache the result if it is unconditionally true *)
+    if PSet.is_empty (snd res) then Hashtbl.add tbl i (fst res);
+    res
+
+let conj_dependencies dist deps =
+  let tbl = Hashtbl.create 17 in
+  PTbl.init dist (fun p -> fst (conj_dep tbl dist deps [] p))
+
+let reversed_conj_dependencies dist deps =
+  let tbl = PTbl.create dist  PSet.empty in
+  let tbl' = conj_dependencies dist deps in
+  PTbl.iteri
+    (fun p l ->
+       match l with
+         None ->
+           ()
+       | Some s ->
+           PSet.iter
+             (fun p' ->
+(*
+Format.eprintf "YYY %a -> %a@."
+  (Package.print_name dist) p (Package.print_name dist) p';
+*)
+                PTbl.set tbl p' (PSet.add p (PTbl.get tbl p'))) s)
+    tbl';
+  tbl
+
 (**** Breaking co-installability ****)
 
 let comma_re = Str.regexp "[ \t]*,[ \t]*"

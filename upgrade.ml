@@ -292,11 +292,34 @@ let dist1 = read_data [] (File.open_in file1) in
 let dist2 = read_data [] (File.open_in file2) in
 
 let dist1_state = Upgrade_common.prepare_analyze dist1 in
+let dist2_state = Upgrade_common.prepare_analyze dist2 in
 let (pred, all_pkgs, all_conflicts, dep_src, graphs, _) =
   Upgrade_common.analyze broken_sets dist1_state dist2 in
 let results =
   List.fold_left (fun res gr -> PSetSet.add gr.Upgrade_common.i_issue res)
     PSetSet.empty graphs
+in
+
+(* Compute not new conjunctive dependencies *)
+let cdeps1 =
+  Upgrade_common.conj_dependencies dist1 dist1_state.Upgrade_common.deps in
+let cdeps2 =
+  Upgrade_common.reversed_conj_dependencies
+    dist2 dist2_state.Upgrade_common.deps
+in
+let cdeps =
+  PTbl.mapi
+    (fun p2 rev ->
+       let p1 = Package.of_index (PTbl.get pred p2) in
+         PSet.filter
+           (fun p' ->
+              let i' = PTbl.get pred p' in
+              i' <> -1 &&
+              match PTbl.get cdeps1 (Package.of_index i') with
+                None   -> true
+              | Some s -> PSet.mem p1 s)
+           rev)
+     cdeps2
 in
 
 (****)
@@ -471,6 +494,21 @@ List.iter
        dot_to_svg (Buffer.contents b)
      in
      Format.fprintf f "<p>%s</p>@." fig;
+
+     PSet.iter
+       (fun p2 ->
+          let rev = PTbl.get cdeps p2 in
+          if PSet.cardinal rev > 1 then begin
+            Format.fprintf f "<p><b>Similar to %s:</b>"
+              (M.package_name dist2 (Package.index p2));
+            PSet.iter
+              (fun p' ->
+                 Format.fprintf f " %s"
+                   (M.package_name dist2 (Package.index p')))
+              (PSet.remove p2 rev);
+            Format.fprintf f "</p>@."
+          end)
+       s;
 
      let ppkgs = PSetMap.find s !prob_pkgs in
      if not (F.is_true ppkgs) then begin
