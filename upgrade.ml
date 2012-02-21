@@ -135,6 +135,23 @@ let dot_to_svg s =
   Scene_svg.format (Format.formatter_of_buffer b) (bbox, l);
   Buffer.contents b
 
+let formatted_dot_to_svg f =
+  let ic = open_in f in
+  let lst = ref [] in
+  let lb = Lexing.from_channel ic in
+  begin try
+    while true do
+      let (_, g) = Dot_graph.from_lexbuf lb in
+      let (bbox, scene) = Dot_render.f g in
+      let l = Scene.get scene in
+      let b = Buffer.create 200 in
+      Scene_svg.format (Format.formatter_of_buffer b) (bbox, l);
+      lst := Buffer.contents b :: !lst
+    done
+  with End_of_file -> () end;
+  close_in ic;
+  List.rev !lst
+
 (****)
 
 let output_conflicts filename dist2 results =
@@ -200,7 +217,7 @@ let output_conflicts filename dist2 results =
   (*Format.fprintf f "overlap=false;@.";*)
   (*Format.fprintf f "ratio=1.4;@.margin=5;@.ranksep=3;@.";*)
   Format.fprintf f "node[fontsize=8];@.";
-  Format.fprintf f "node[margin=0,0];@.";
+  Format.fprintf f "node[margin=\"0,0\"];@.";
   Format.fprintf f "node[height=0.2];@.";
   Format.fprintf f "node [style=rounded];@.";
 
@@ -408,22 +425,32 @@ let ch = open_out (Filename.concat output_dir "index.html") in
 let f = Format.formatter_of_out_channel ch in
 
 (****)
-
-Format.fprintf f "<h1>Upgrade issues</h1>@.";
-Format.fprintf f "<h2>Graph of new conflicts</h2>@.";
-output_conflicts (Filename.concat output_dir "conflicts.dot") dist2 results;
-let basename = Filename.concat output_dir "conflicts" in
+Format.fprintf f "\
+<html>@.\
+<head>@.\
+<meta charset=\"UTF-8\">@.\
+<style type=\"text/css\">@.\
+@@media print {@.\
+  svg { max-width:100%% }@.\
+  svg { max-height:23cm }@.\
+  body { font-size:10px }@.\
+}@.\
+}@.\
+</style>@.\
+</head>@.\
+<body>@.\
+<h1>Upgrade issues</h1>@.\
+<h2>Graph of new conflicts</h2>@.\
+";
+let tmpname = Filename.temp_file "conflicts" ".dot" in
+output_conflicts tmpname dist2 results;
+let tmpname' = Filename.temp_file "conflicts" ".dot" in
 ignore
   (Sys.command
-     (Format.sprintf "dot %s.dot -Tpng -o %s.png" basename basename));
-Format.fprintf f "<p><img src=\"conflicts.png\" alt=\"conflicts\"/></p>@.";
-(*
-ignore
-  (Sys.command
-     (Format.sprintf "dot %s.dot -Tsvg -o %s.svg" basename basename));
-Format.fprintf f
-  "<p><object data=\"conflicts.svg\" type=\"image/svg+xml\"></object></p>@.";
-*)
+     (Format.sprintf "ccomps -x %s | dot -o > %s" tmpname tmpname'));
+let figs = formatted_dot_to_svg tmpname' in
+Sys.remove tmpname; Sys.remove tmpname';
+List.iter (Format.fprintf f "<p>%s</p>@.") figs;
 
 (****)
 let t = Unix.gettimeofday () in

@@ -299,3 +299,8 @@ let of_channel c =
   Dot_lexer.reset ();
   let g = Dot_parser.graph Dot_lexer.token (Lexing.from_channel c) in
   of_file_spec g
+
+let from_lexbuf lb =
+  Dot_lexer.reset ();
+  let g = Dot_parser.graph Dot_lexer.token lb in
+  of_file_spec g

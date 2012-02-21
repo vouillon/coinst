@@ -54,3 +54,5 @@ type info =
 val of_file_spec : Dot_file.t -> info * graph
 
 val of_channel : in_channel -> info * graph
+
+val from_lexbuf : Lexing.lexbuf -> info * graph

@@ -50,6 +50,8 @@
 graph: optstrict graphtype optgraphname body
      { { Dot_file.kind = $2; strict = $1;
          graph = { Dot_file.graph_name = $3; body = $4 } } }
+  | EOF
+     { raise End_of_file }
 ;
 
 body: LBRACE optstmtlist RBRACE
