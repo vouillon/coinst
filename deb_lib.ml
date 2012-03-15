@@ -38,6 +38,8 @@ let get_token st ofs =
   st.start <- -1;
   t
 
+let ignore_token st = st.start <- -1
+
 let from_channel ch =
   let buf = String.create len in
   { buf = buf; pos = 0; last = 0; eof = false; start = -1;
@@ -70,7 +72,8 @@ let rec next st =
 
 let unread st =
   if not st.eof then begin
-    assert (st.pos > st.start && st.start <> -1);
+    assert (st.pos > st.start);
+    assert (st.start <> -1);
     st.pos <- st.pos - 1
   end
 
@@ -296,19 +299,27 @@ let parse_version st =
 let parse_relation st =
   match next st with
     '<' ->
-      begin match next st with
-        '<' -> SE
-      | '=' -> E
-      | _   -> unread st; E
-      end
+      start_token st;
+      let rel =
+        match next st with
+          '<' -> SE
+        | '=' -> E
+        | _   -> unread st; E
+      in
+      ignore_token st;
+      rel
   | '=' ->
       EQ
   | '>' ->
-      begin match next st with
-        '>' -> SL
-      | '=' -> L
-      | _   -> unread st; L
-      end
+      start_token st;
+      let rel =
+        match next st with
+          '>' -> SL
+        | '=' -> L
+        | _   -> unread st; L
+      in
+      ignore_token st;
+      rel
   | c ->
       failwith (Format.sprintf "Bad relation '%c'" c)
 
