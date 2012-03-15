@@ -795,6 +795,7 @@ let analyze ?(check_new_packages = false) ignored_sets
               (PSet.mem p2 !dep_targets && PSet.mem q2 !dep_targets))
        then
          Conflict.remove confl2' p2 q2);
+(*
   List.iter
     (fun (p2, q2) ->
        if
@@ -804,6 +805,7 @@ let analyze ?(check_new_packages = false) ignored_sets
        then
          Conflict.remove confl2' p2 q2)
     !new_conflicts;
+*)
   (* As a consequence, some new dependencies might not be relevant anymore. *)
   let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
 
@@ -1475,7 +1477,9 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
               (PSet.mem p2 !dep_targets && PSet.mem q2 !dep_targets))
        then
          Conflict.remove confl2' p2 q2);
+(*
   List.iter (fun (p2, q2) -> Conflict.remove confl2' p2 q2) !new_conflicts;
+*)
   (* As a consequence, some new dependencies might not be relevant anymore. *)
   let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
 
