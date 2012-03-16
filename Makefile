@@ -1,6 +1,6 @@
 VERSION=1.01
 COINST=coinst
-UPGRADE=upgrade
+UPGRADE=coinst-upgrades
 TRANS=transition
 
 OCAMLC=ocamlfind ocamlc
