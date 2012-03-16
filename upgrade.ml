@@ -343,10 +343,6 @@ let dist1_state = Upgrade_common.prepare_analyze dist1 in
 let dist2_state = Upgrade_common.prepare_analyze dist2 in
 let (pred, all_pkgs, all_conflicts, dep_src, graphs, _) =
   Upgrade_common.analyze broken_sets dist1_state dist2 in
-let results =
-  List.fold_left (fun res gr -> PSetSet.add gr.Upgrade_common.i_issue res)
-    PSetSet.empty graphs
-in
 
 (* Compute not new conjunctive dependencies *)
 let cdeps1 =
@@ -446,6 +442,10 @@ Format.fprintf f "\
 <h2>Graph of new conflicts</h2>@.\
 ";
 let tmpname = Filename.temp_file "conflicts" ".dot" in
+let results =
+  List.fold_left (fun res gr -> PSetSet.add gr.Upgrade_common.i_issue res)
+    PSetSet.empty graphs
+in
 output_conflicts tmpname dist2 results;
 let tmpname' = Filename.temp_file "conflicts" ".dot" in
 ignore
