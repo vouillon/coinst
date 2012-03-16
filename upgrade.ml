@@ -330,7 +330,7 @@ let read_data ignored_packages ic =
   M.parse_packages dist ignored_packages ic;
   M.only_latest dist
 
-let f file1 file2 popcon_file output_dir =
+let f file1 file2 popcon_file output_file =
 let popcon =
   match popcon_file with
     Some file -> load_popcon file
@@ -420,8 +420,11 @@ let graphs = !graphs in
 
 Format.eprintf "Outputting results...@.";
 
-Util.make_directories (Filename.concat output_dir "index.html");
-let ch = open_out (Filename.concat output_dir "index.html") in
+(*
+Util.make_directories (Filename.concat output_file "index.html");
+let ch = open_out (Filename.concat output_file "index.html") in
+*)
+let ch = open_out output_file in
 let f = Format.formatter_of_out_channel ch in
 
 (****)
@@ -554,7 +557,7 @@ List.iter
      in
 (*
      let nm = String.concat "," conflict_elt in
-     let basename = Filename.concat output_dir nm in
+     let basename = Filename.concat output_file nm in
      let edge_color p2 _ d2 =
        let i1 = PTbl.get pred p2 in
        let is_new =
@@ -661,14 +664,14 @@ Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t)
 (****)
 
 let _ =
-let output_dir = ref "/tmp/upgrade" in
+let output_file = ref "/tmp/upgrade" in
 let l = ref [] in
 let popcon_file = ref None in
 let spec =
   Arg.align
   ["-o",
-   Arg.String (fun d -> output_dir := d),
-   "DIR       Write output to directory DIR";
+   Arg.String (fun d -> output_file := d),
+   "FILE       Write output to file FILE";
    "--break",
    Arg.String (Upgrade_common.allow_broken_sets broken_sets),
    "SETS Ignore broken sets of packages of shape SETS";
@@ -696,7 +699,7 @@ let (file1, file2) =
        should be provided as input.@.";
     exit 1
 in
-f file1 file2 !popcon_file !output_dir
+f file1 file2 !popcon_file !output_file
 
 
 (*
