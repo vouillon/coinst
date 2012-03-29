@@ -160,6 +160,7 @@ let output_conflicts filename dist2 results =
   in
   let involved = PSet.elements (PSetSet.fold PSet.union results PSet.empty) in
   let partition =
+    if involved = [] then [] else
     List.fold_left
       (fun l p ->
          List.fold_left
