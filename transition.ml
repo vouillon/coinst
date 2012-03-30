@@ -113,6 +113,7 @@ let urgency_delay u =
 
 let default_urgency = urgency_delay "low"
 
+let update_data = ref false
 let hint_file = ref ""
 let heidi_file = ref ""
 let excuse_file = ref ""
@@ -2543,7 +2544,10 @@ let comma_re = Str.regexp "[ \t]*,[ \t]*"
 let _ =
 let spec =
   Arg.align
-  ["--input",
+  ["--update",
+   Arg.Unit (fun () -> update_data := true),
+   " Update data";
+   "--input",
    Arg.String (fun d -> dir := d),
    "DIR Select directory containing britney data";
    "--arches",
@@ -2632,7 +2636,8 @@ end;
 let opts =
   [!to_migrate <> None, "--migrate";
    !excuse_file <> "", "--excuse";
-   !equivocal, "--equivocal"]
+   !equivocal, "--equivocal";
+   !update_data, "--update"]
 in
 begin match List.filter (fun (b, _) -> b) opts with
   (_, o1) :: (_, o2) :: _ ->
@@ -2643,7 +2648,12 @@ begin match List.filter (fun (b, _) -> b) opts with
 end;
 if
   !heidi_file = "" && !hint_file = "" && !excuse_file = "" &&
-  !to_migrate = None && not !equivocal
+  !to_migrate = None && not !equivocal && not !update_data
 then
   Format.eprintf "Warning: no output option has been provided.@.";
-f ()
+if !update_data then begin
+  Update_data.f
+    (testing ()) (unstable ()) !archs
+    (Filename.concat (unstable ()) "Hints") (hint_files ())
+end else
+  f ()

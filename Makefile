@@ -34,7 +34,7 @@ $(COINST).byte: $(OBJS:.cmx=.cmo) coinst.cmo
 $(UPGRADE): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx upgrade.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(TRANS): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx horn.cmx transition.cmx
+$(TRANS): $(OBJS) $(TASK) $(SVG) update_data.cmx upgrade_common.cmx horn.cmx transition.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::

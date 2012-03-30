@@ -62,14 +62,17 @@ solver.cmi:
 task.cmo: util.cmi debug.cmi bytearray.cmi task.cmi
 task.cmx: util.cmx debug.cmx bytearray.cmx task.cmi
 task.cmi:
-transition.cmo: util.cmi upgrade_common.cmi task.cmi viewer/scene_svg.cmi \
-    viewer/scene.cmi repository.cmi layout.cmi horn.cmi file.cmi \
-    viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi deb_lib.cmi \
+transition.cmo: util.cmi upgrade_common.cmi update_data.cmi task.cmi \
+    viewer/scene_svg.cmi viewer/scene.cmi repository.cmi layout.cmi horn.cmi \
+    file.cmi viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi deb_lib.cmi \
     cache.cmi
-transition.cmx: util.cmx upgrade_common.cmx task.cmx viewer/scene_svg.cmx \
-    viewer/scene.cmx repository.cmx layout.cmx horn.cmx file.cmx \
-    viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx deb_lib.cmx \
+transition.cmx: util.cmx upgrade_common.cmx update_data.cmx task.cmx \
+    viewer/scene_svg.cmx viewer/scene.cmx repository.cmx layout.cmx horn.cmx \
+    file.cmx viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx deb_lib.cmx \
     cache.cmx
+update_data.cmo: update_data.cmi
+update_data.cmx: update_data.cmi
+update_data.cmi:
 upgrade_common.cmo: util.cmi graph.cmi viewer/dot_file.cmi debug.cmi \
     deb_lib.cmi coinst_common.cmi upgrade_common.cmi
 upgrade_common.cmx: util.cmx graph.cmx viewer/dot_file.cmx debug.cmx \
