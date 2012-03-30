@@ -247,6 +247,17 @@ let parse_package st =
     Util.StringTbl.add package_names s s;
     s
 
+let parse_arch st =
+  start_token st;
+  while
+    match next st with
+      'a'..'z' | '0'..'9' | '.' | '+' | '-' ->
+        true
+    | _ ->
+        unread st; false
+  do () done;
+  get_token st 0
+
 let parse_version_end st epoch n bad hyphen =
   unread st;
   if n = 0 then
@@ -326,6 +337,14 @@ let parse_relation st =
 let parse_package_dep f vers st =
   let name = parse_package st in
   skip_whitespaces st;
+  let name =
+    if accept st ':' then begin
+      skip_whitespaces st;
+      let arch = parse_arch st in
+      if arch = "any" then name else name ^ ":" ^ arch
+    end else
+      name
+  in
   if accept st '(' then begin
     if not vers then
       failwith (Format.sprintf "Package version not allowed in '%s'" f);
