@@ -249,6 +249,17 @@ let process_unblock_request h l =
 
 exception Ignored_hint
 
+let hint_files () =
+  let hint_re = Str.regexp "^HINTS_\\(.*\\)$" in
+  Hashtbl.fold
+    (fun key _ l ->
+       if Str.string_match hint_re key 0 then
+         String.lowercase (Str.matched_group 1 key) :: l
+       else
+         l)
+    options []
+  >> List.sort compare
+
 let read_hints dir =
   let hints =
     { h_block = StringTbl.create 16;
@@ -262,17 +273,16 @@ let read_hints dir =
   in
   if debug_read_hints () then
     Format.eprintf "Reading hints:@.";
-  let files = Sys.readdir dir in
-  Array.sort compare files;
-  Array.iter
+  let files =
+    List.filter
+      (fun who ->
+         Sys.file_exists (Filename.concat dir who)
+           ||
+         (Format.eprintf "Hint file '%s' does not exists.@." who; false))
+      (hint_files ())
+  in
+  List.iter
     (fun who ->
-       let file = Filename.concat dir who in
-       if
-         Sys.is_directory file ||
-         who = "README" || who = "index.html" || who.[0] = '.'
-       then
-         ()
-       else
        let ch = open_in (Filename.concat dir who) in
        begin try
          while true do
