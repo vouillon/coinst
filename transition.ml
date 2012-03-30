@@ -1376,7 +1376,8 @@ let remove_sources central remove_hints t u =
     
 
 
-let arch_constraints st (produce_excuses, remove_hints) =
+let arch_constraints
+      st (produce_excuses, fucked_arch, break_arch, remove_hints) =
   let t = st.testing_srcs in
   let u = st.unstable_srcs in
   let t' = st.testing in
@@ -1481,7 +1482,13 @@ let arch_constraints st (produce_excuses, remove_hints) =
        end;
        (* If a source is propagated, all its binaries should
           be propagated as well *)
-       if source_changed || produce_excuses then
+       if
+         (source_changed || produce_excuses)
+           &&
+         not (outdated && fucked_arch)
+           &&
+         not (not outdated && break_arch)
+       then
          implies id (source_id p)
            (if outdated then Binary_not_removed else Binary_not_added));
   (* Remove not up to date binaries from sid. The idea is that removing
@@ -1555,6 +1562,8 @@ let arch_constraints st (produce_excuses, remove_hints) =
          (source_changed || produce_excuses)
            &&
          not (allow_smooth_updates p && StringTbl.mem u.M.s_packages nm)
+           &&
+         not break_arch
        then
          implies id (source_id p) Binary_not_removed);
   (* All binaries packages from a same source are propagated
@@ -1701,7 +1710,18 @@ let initial_constraints
   let arch_results =
     List.map
       (fun (arch, t) ->
-         (arch, arch_constraints t (produce_excuses, hints.h_remove))) l
+         let fucked_arch =
+           List.mem arch
+             (try Hashtbl.find options "FUCKED_ARCHES" with Not_found -> [])
+         in
+         let break_arch =
+           List.mem arch
+             (try Hashtbl.find options "BREAK_ARCHES" with Not_found -> [])
+         in
+         (arch,
+          arch_constraints t
+            (produce_excuses, fucked_arch, break_arch, hints.h_remove)))
+      l
   in
   StringTbl.iter
     (fun nm s ->
