@@ -100,7 +100,7 @@ let uncompress cache_dir target_dir suite arch_tmp arch_dst =
     make_directories dst;
     let tmp = dst ^ ".tmp" in
     let cmd = "bzcat " ^ String.concat " " srcs ^ " > " ^ tmp in
-    Format.printf "> %s@." cmd;
+    Format.eprintf "> %s@." cmd;
     ignore (Sys.command cmd);
     ignore (Sys.rename tmp dst)
   end
@@ -169,6 +169,10 @@ let update_hints hint_dir hint_files =
 (****)
 
 let f testing_dir unstable_dir archs hint_dir hint_files =
+  if Sys.command "curl -V > /dev/null" <> 0 then begin
+    Format.eprintf "Could not execute 'curl' command.@.";
+    exit 1
+  end;
   update_suites [("testing", testing_dir); ("unstable", unstable_dir)] archs;
   update_britney_files testing_dir unstable_dir;
   update_hints hint_dir hint_files

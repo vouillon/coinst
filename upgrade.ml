@@ -700,6 +700,10 @@ let (file1, file2) =
        should be provided as input.@.";
     exit 1
 in
+if Sys.command "dot -V 2> /dev/null" <> 0 then begin
+  Format.eprintf "Could not execute Graphviz 'dot' command.@.";
+  exit 1
+end;
 f file1 file2 !popcon_file !output_file
 
 
