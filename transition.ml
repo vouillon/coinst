@@ -2551,7 +2551,6 @@ let read_conf f =
     done
   with End_of_file -> () end;
   close_in ch;
-  heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
   archs := (try Hashtbl.find options "ARCHITECTURES" with Not_found -> !archs);
   smooth_updates :=
     (try
@@ -2669,8 +2668,11 @@ end;
 if
   !heidi_file = "" && !hint_file = "" && !excuse_file = "" &&
   !to_migrate = None && not !equivocal && not !update_data
-then
-  Format.eprintf "Warning: no output option has been provided.@.";
+then begin
+  heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
+  if !heidi_file = "" then
+    Format.eprintf "Warning: no output option has been provided.@."
+end;
 if !update_data then begin
   Update_data.f
     (testing ()) (unstable ()) !archs
