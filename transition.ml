@@ -91,7 +91,15 @@ let build_log_url nm arch =
   Format.sprintf
     "https://buildd.debian.org/status/logs.php?arch=%s&pkg=%s" arch nm
 
-let cache_dir = Filename.concat (Sys.getenv "HOME") ".coinst"
+let cache_dir =
+  let cache_home = try Sys.getenv "XDG_CACHE_HOME" with Not_found -> "" in
+  let base_dir =
+    if cache_home = "" then
+      Filename.concat (Sys.getenv "HOME") ".cache"
+    else
+      cache_home
+  in
+  Filename.concat base_dir "coinst"
 
 let urgency_delay u =
   match u with
