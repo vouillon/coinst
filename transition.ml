@@ -18,7 +18,7 @@
  *)
 
 (*
-- incremental (re)computations
+- incremental (re)computations (of repositories, flattened repositories, ...)
 - repeat the remove commands from the input to the hint ouput?
 - what should we do about arch: all packages?
   ==> ignore them, in a by need fashion (if we find a conflict involving
@@ -28,25 +28,16 @@
 - better report issues preventing migration:
   => show source package version numbers
   => example: empathy
-- allow breaking single packages (--force-break option?)
 - improve '--migrate option': multiple files, bin_nmus
 - could the 'migrate' option automatically generate removal hints?
   (seems difficult, as there can be many possible choices...)
-- parse more options from britney config file (in particular, hint files)
+- parse more options from britney config file
 - make Deb_lib more abstract...
 - SVG graphs: use CSS styles
-- incremental recomputation of repositories and flattened repositories
 
-PRIORITIES
-  ==> graphs for reporting co-installability issues:
-      should include "problematic packages" in the graph,
-      and illustrate how the issue changes between testing and unstable
-      - packages may be in testing, sid, or both; in the latter case,
-        they may have different version between the two
-      - dependencies can be in testing, sid, or both
-      - dependency targets may be in testing, sid, or both
-      - same thing for each side of a conflict (!)
-      indicate which set of packages are made non-coinstallable
+- source packages with no binaries should be removed from testing
+  (even when it exists in sid)
+- revise hints: check hint parsing; block binary packages
 
 EXPLANATIONS
   ==> summaries; in particular, show packages that only wait for age,
@@ -1880,7 +1871,7 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
         (fun nm -> is_unchanged st unchanged nm)
     else
       Upgrade_common.find_non_inst_packages
-        t' u' (fun nm -> is_unchanged st unchanged nm)
+        broken_sets t' u' (fun nm -> is_unchanged st unchanged nm)
   in
   let t = Timer.start () in
   let is_singleton pos =

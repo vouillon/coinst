@@ -56,7 +56,7 @@ val find_problematic_packages :
   (clause * Util.StringSet.t * reason list) list
 
 val find_non_inst_packages :
-  state -> state -> (string -> bool) ->
+  ignored_sets -> state -> state -> (string -> bool) ->
   (clause * Util.StringSet.t * reason list) list
 
 val find_clusters :

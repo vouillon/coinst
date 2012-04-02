@@ -47,13 +47,6 @@ module Timer = Util.Timer
 
 (****)
 
-(*XXXXXXXXXXXXX
-- get_clearly_broken_packages ===> ignore forced_packages
-- same for analyze_installability!
-- learnt rules should be filtered as well...
-- packages new in sid: only look at forced packages
-*)
-
 type ignored_sets = (Util.StringSet.t list * bool) list ref
 
 type ignored_sets_2 = (PSet.t list * bool) list
@@ -69,7 +62,7 @@ let forced_packages l =
        match l with
          [s'] when not ext -> StringSet.union s s'
        | _                 -> s)
-    StringSet.empty l
+    StringSet.empty !l
 
 let intern_ignored_sets dist l =
   List.fold_left
@@ -747,9 +740,9 @@ let analyze ?(check_new_packages = false) ignored_sets
     !new_conflicts;
 
   (* Only consider new dependencies. *)
-  let ignored_sets = intern_ignored_sets dist2 !ignored_sets in
+  let ignored_sets' = intern_ignored_sets dist2 !ignored_sets in
   let possibly_ignored_packages =
-    ignored_set_domain_2 ignored_sets in
+    ignored_set_domain_2 ignored_sets' in
   let deps2 = new_deps pred possibly_ignored_packages deps1 dist2 deps2 in
   (* Compute the corresponding flattened dependencies. *)
   let deps2 =
@@ -878,7 +871,7 @@ let analyze ?(check_new_packages = false) ignored_sets
     Format.eprintf "  Enumerating problems: %f@." (Timer.stop t);
 
   let results =
-    PSetSet.filter (fun s -> not (is_ignored_set_2 ignored_sets s)) !results
+    PSetSet.filter (fun s -> not (is_ignored_set_2 ignored_sets' s)) !results
   in
 
   (****)
@@ -892,9 +885,14 @@ let analyze ?(check_new_packages = false) ignored_sets
 
   let broken_new_packages = ref PSet.empty in
   if check_new_packages then begin
+    let forced_pkgs = forced_packages ignored_sets in
     PTbl.iteri
       (fun p _ ->
-         if PTbl.get pred p = -1 then begin
+         if
+           PTbl.get pred p = -1 &&
+           not (StringSet.mem (M.package_name dist2 (Package.index p))
+                  forced_pkgs)
+         then begin
 (*Format.eprintf "??? %a@." (Package.print dist2) p;*)
            if not (M.Solver.solve st2 (Package.index p)) then begin
 (*
@@ -1007,7 +1005,7 @@ if debug_coinst () then M.show_reasons dist2 r;
 
 (****)
 
-let get_clearly_broken_packages dist1_state dist dist2_state =
+let get_clearly_broken_packages dist1_state dist dist2_state forced_pkgs =
   let t = Timer.start () in
   let unsat_dep d =
     not (List.exists (fun cstr -> M.dep_can_be_satisfied dist cstr) d) in
@@ -1029,7 +1027,10 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
          List.filter unsat_dep p.M.depends @
          List.filter unsat_dep p.M.pre_depends
        in
-       if l <> [] && was_installable p then begin
+       if
+         not (StringSet.mem p.M.package forced_pkgs) &&
+         l <> [] && was_installable p
+       then begin
          List.iter
            (fun d ->
               if debug_coinst () then
@@ -1053,7 +1054,7 @@ let get_clearly_broken_packages dist1_state dist dist2_state =
   if debug_time () then Format.eprintf "  Clearly broken: %f@." (Timer.stop t);
   !problems
 
-let analyze_installability dist1_state dist dist2_state =
+let analyze_installability dist1_state dist dist2_state forced_pkgs =
   let t = Timer.start () in
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
   if debug_time () then
@@ -1094,7 +1095,9 @@ let analyze_installability dist1_state dist dist2_state =
        if
          not (Formula.implies Formula._true f) &&
          (Formula.implies f Formula._false ||
-          Formula.fold (fun _ n -> n + 1) f 0 > 1)
+          Formula.fold (fun _ n -> n + 1) f 0 > 1) &&
+         not (StringSet.mem (M.package_name dist (Package.index p))
+                forced_pkgs)
        then
          add_package p f)
     deps';
@@ -1145,7 +1148,10 @@ let rec find_problematic_packages
   M.merge dist2 (fun p -> is_preserved p.M.package) dist1_state.dist;
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
-  let problems = get_clearly_broken_packages dist1_state dist2 dist2_state in
+  let forced_pkgs = forced_packages ignored_sets in
+  let problems =
+    get_clearly_broken_packages dist1_state dist2 dist2_state forced_pkgs
+  in
   if
     List.exists (fun (cl, _, _) -> StringSet.cardinal cl.pos = 1) problems
   then
@@ -1183,20 +1189,24 @@ let t = Timer.start () in
     Format.eprintf "  Compute problematic package names: %f@." (Timer.stop t);
   problems
 
-let rec find_non_inst_packages dist1_state dist2_state is_preserved =
+let rec find_non_inst_packages
+          ignored_sets dist1_state dist2_state is_preserved =
   let t = Timer.start () in
   let dist = M.new_pool () in
   M.merge dist (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
   M.merge dist (fun p -> is_preserved p.M.package) dist1_state.dist;
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
-  let problems = get_clearly_broken_packages dist1_state dist dist2_state in
+  let forced_pkgs = forced_packages ignored_sets in
+  let problems =
+    get_clearly_broken_packages dist1_state dist dist2_state forced_pkgs in
   if
     List.exists (fun (cl, _, _) -> StringSet.cardinal cl.pos = 1) problems
   then
     problems
   else begin
-    let problems = analyze_installability dist1_state dist dist2_state in
+    let problems =
+      analyze_installability dist1_state dist dist2_state forced_pkgs in
     if debug_coinst () then
       Format.eprintf ">>> %a@."
         (Util.print_list (fun ch (cl, _, _) -> print_clause ch cl) ", ")
@@ -1817,8 +1827,4 @@ let allow_broken_sets broken_sets s =
          :: l)
       [] l
   in
-  if (List.length l + if ext then 1 else 0) <= 1 then begin
-    Format.eprintf "Breaking single packages is not supported (yet).@.";
-    exit 1
-  end;
   broken_sets := (l, ext) :: !broken_sets
