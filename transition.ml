@@ -130,7 +130,7 @@ let broken_sets = Upgrade_common.empty_break_set ()
 let debug = Debug.make "normal" "Set normal debug output level." []
 let verbose =
   Debug.make "explain" "Explain why packages are not propagated." ["normal"]
-let debug_time = Debug.make "time" "Print execution times" ["normal"]
+let debug_time = Debug.make "time" "Print execution times" []
 let debug_reduction =
   Debug.make "reduction" "Debug repository size reduction" ["normal"]
 let debug_coinst =
