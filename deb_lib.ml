@@ -258,12 +258,14 @@ let parse_arch st =
   do () done;
   get_token st 0
 
+let debug_versions = Debug.make "versions" "Print bad version warnings" []
+
 let parse_version_end st epoch n bad hyphen =
   unread st;
   if n = 0 then
     failwith (Format.sprintf "Bad version %d:%s" epoch (get_token st 0));
   let s = get_token st 0 in
-  if bad then
+  if bad && debug_versions () then
     Util.print_warning (Format.sprintf "bad version '%d:%s'" epoch s);
   if hyphen = -1 then
     (epoch, s, None)
