@@ -70,8 +70,7 @@ let archs =
        (*"armhf"; "s390x"*)]
 let smooth_updates = ref ["libs"; "oldlibs"]
 
-let default_dir = Filename.concat (Sys.getenv "HOME") "debian-dists/britney"
-let dir = ref default_dir
+let dir = ref ""
 
 let options = Hashtbl.create 17
 let get_option key def =
@@ -2635,15 +2634,15 @@ in
 let msg =
   "Usage: " ^ Sys.argv.(0) ^ " OPTIONS\n\
    Computes which packages can migrate from sid to testing.\n\
-   Takes as input either a britney data directory (option -input)\n\
+   Takes as input either a britney data directory (option --input)\n\
    or a britney config file (option -c).\n\
    \n\
    Options:"
 in
 Arg.parse spec (fun p -> ()) msg;
 if
-  !dir = default_dir &&
-  not (try Sys.is_directory !dir with Sys_error _ -> false)
+  !dir = "" &&
+  not (Hashtbl.mem options "TESTING" && Hashtbl.mem options "UNSTABLE")
 then begin
   Arg.usage spec msg;
   Format.eprintf
