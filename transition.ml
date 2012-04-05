@@ -2668,7 +2668,7 @@ if
   !to_migrate = None && not !equivocal && not !update_data
 then begin
   heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
-  if !heidi_file = "" then
+  if !heidi_file = "" && not (debug_hints () || debug_outcome ()) then
     Format.eprintf "Warning: no output option has been provided.@."
 end;
 if !update_data then begin
