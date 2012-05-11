@@ -2473,7 +2473,7 @@ let analyze_migration
       end
     end
   in
-  if id > 0 then begin
+  if id >= 0 then begin
     migrate ();
     save_rules uids
   end
