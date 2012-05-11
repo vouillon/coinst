@@ -1662,20 +1662,31 @@ let initial_constraints
     ((hints.h_block_all <> None || StringTbl.mem hints.h_block nm) &&
      not (is_unblocked hints.h_unblock nm v))
        ||
-    (StringTbl.mem hints.h_block_udeb nm &&
+    ((hints.h_block_all <> None || StringTbl.mem hints.h_block_udeb nm) &&
      not (is_unblocked hints.h_unblock_udeb nm v))
   in
   let blocked_reason nm v =
-    let unblocked = is_unblocked hints.h_unblock nm v in
-    match
-      if unblocked then None else
-      try
-        Some (StringTbl.find hints.h_block nm)
-      with Not_found ->
-        hints.h_block_all
-    with
-      Some who -> ("block", who)
-    | None     -> ("block-udeb", StringTbl.find hints.h_block_udeb nm)
+    if
+      StringTbl.mem hints.h_block nm &&
+      not (is_unblocked hints.h_unblock nm v)
+    then
+      ("block", StringTbl.find hints.h_block nm)
+    else if
+      StringTbl.mem hints.h_block_udeb nm &&
+      not (is_unblocked hints.h_unblock_udeb nm v)
+    then
+      ("block-udeb", StringTbl.find hints.h_block_udeb nm)
+    else
+      match hints.h_block_all with
+        None ->
+          assert false
+      | Some who ->
+          if not (is_unblocked hints.h_unblock nm v) then
+            ("bloc", who)
+          else begin
+            assert (not (is_unblocked hints.h_unblock_udeb nm v));
+            ("block-udeb", who)
+          end
   in
   let block_constraints = ref [] in
   let age_constraints = ref [] in
