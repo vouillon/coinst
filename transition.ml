@@ -1356,18 +1356,27 @@ let compute_hints () = debug_hints () || !hint_file <> ""
 let string_uid s =
   s >> Digest.string >> Digest.to_hex >> fun s -> String.sub s 0 16
 
+let should_remove remove_hints t u nm v =
+  match source_version t nm with
+    Some v' ->
+      M.compare_version v v' = 0
+  | None ->
+      match source_version u nm with
+        Some v' ->
+          M.compare_version v v' = 0
+      | None ->
+          false
+
 let remove_sources central remove_hints t u =
   let l = ref [] in
   StringTbl.iter
     (fun nm v ->
-       match source_version t nm with
-         Some v' when M.compare_version v v' = 0 ->
-           if central && debug_remove () && StringTbl.mem u.M.s_packages nm then
-             Format.eprintf "Trying to remove source package %s@." nm;
-           StringTbl.remove u.M.s_packages nm;
-           l := nm :: !l
-         | _ ->
-           ())
+       if should_remove remove_hints t u nm v then begin
+         if central && debug_remove () && StringTbl.mem u.M.s_packages nm then
+           Format.eprintf "Trying to remove source package %s@." nm;
+         StringTbl.remove u.M.s_packages nm;
+         l := nm :: !l
+       end)
     remove_hints;
  !l >> List.sort compare
     >> fun l -> Marshal.to_string l [] >> string_uid
@@ -1387,8 +1396,7 @@ let arch_constraints
        let (nm, _) = p.M.source in
        try
          let v = StringTbl.find remove_hints nm in
-         let v' = (StringTbl.find t.M.s_packages nm).M.s_version in
-         if M.compare_version v v' = 0 then begin
+         if should_remove remove_hints t u nm v then begin
            if debug_remove () then
              Format.eprintf
                "Trying to remove binary package %s/%s (source: %s)@."
