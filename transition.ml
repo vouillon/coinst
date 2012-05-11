@@ -2629,13 +2629,7 @@ let spec =
    "--control-files",
    Arg.Unit (fun () -> ()),
    " Currently ignored";
-   "--auto-hinter",
-   Arg.Unit (fun () -> ()),
-   " Currently ignored";
    "-v",
-   Arg.Unit (fun () -> ()),
-   " Currently ignored";
-   "--compatible",
    Arg.Unit (fun () -> ()),
    " Currently ignored"]
 in
