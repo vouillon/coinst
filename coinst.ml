@@ -22,6 +22,8 @@
 *)
 
 let mark_all = ref false
+let mark_reversed = ref false
+let grayscale = ref false
 let explain = ref false
 let roots = ref []
 let stats = ref false
@@ -919,7 +921,8 @@ prerr_endline "COMP";
   if !stats then
     print_stats "final" "Final repository" quotient deps confl;
 
-  Graph.output !graph ~mark_all:(!mark_all) ~package_weight ~edge_color
+  Graph.output !graph ~mark_all:(!mark_all) ~mark_reversed:(!mark_reversed)
+    ~grayscale:(!grayscale) ~package_weight ~edge_color
     quotient deps confl;
 
 end
@@ -959,6 +962,12 @@ Arg.parse
    "-all",
    Arg.Unit (fun () -> mark_all := true),
    "  Include all packages in the coinstallability graph";
+   "-only_simple",
+   Arg.Unit (fun () -> mark_reversed := true),
+   "  Only input configurations involving only conflicts";
+   "-grayscale",
+   Arg.Unit (fun () -> grayscale := true),
+   "  Output a grayscale graph";
    "-root",
    Arg.String (fun p -> roots := p :: !roots),
    "  Draw only the relevant portion of the graph around this package";

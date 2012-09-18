@@ -25,6 +25,7 @@ module F (R : Repository.S) : sig
     ?package_weight:(Package.t -> float) ->
     ?package_emph:(Package.t -> bool) ->
     ?edge_color:(Package.t -> Formula.t -> Disj.t -> string option) ->
-    string -> ?mark_all:bool -> ?roots:Package.t list ->
+    ?grayscale:bool ->
+    string -> ?mark_all:bool -> ?mark_reversed:bool -> ?roots:Package.t list ->
     Quotient.F(R).t -> dependencies -> Conflict.t -> unit
 end

@@ -17,8 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-let colored = true
-
 module F (R : Repository.S) = struct
 
 open R
@@ -31,8 +29,8 @@ let output
       ?options
       ?package_weight
       ?package_emph
-      ?(edge_color = fun _ _ _ -> Some "blue")
-      file ?(mark_all = false) ?(roots = [])
+      ?(edge_color = fun _ _ _ -> Some "blue") ?(grayscale =false)
+      file ?(mark_all = false) ?(mark_reversed = false) ?(roots = [])
       quotient deps confl =
   let package_weight =
     match package_weight with
@@ -45,12 +43,12 @@ let output
     | None   -> fun p -> false
   in
 
-  let confl_style = if colored then ",color=red" else ",style=dashed" in
+  let confl_style = if grayscale then ",style=dashed" else ",color=red" in
   let confl_clique_style =
-    if colored then ",color=red,fontcolor=red" else "" in
-  let dep_style col = if colored then Format.sprintf "color=%s" col else "" in
+    if grayscale then "" else ",color=red,fontcolor=red" in
+  let dep_style col = if grayscale then "" else Format.sprintf "color=%s" col in
   let disj_dep_style col =
-    if colored then Format.sprintf "fontcolor=%s,color=%s" col col else "" in
+    if grayscale then "" else Format.sprintf "fontcolor=%s,color=%s" col col in
 
   (* Mark the packages to be included in the graph *)
   let marks = Hashtbl.create 101 in
@@ -68,15 +66,22 @@ let output
   in
   if mark_all then
     Quotient.iter (fun p -> Hashtbl.add marks p ()) quotient
-  else if roots = [] then
+  else if roots = [] then begin
     Quotient.iter
       (fun p ->
          if has_dependencies p then begin
            mark p;
            Formula.iter (PTbl.get deps p) (fun d -> Disj.iter d mark)
          end)
-      quotient
-  else (*XXX Find the right algorithm...
+      quotient;
+    if mark_reversed then begin
+      let m = Hashtbl.copy marks in
+      Hashtbl.clear marks;
+      Quotient.iter
+        (fun p -> if not (Hashtbl.mem m p) then Hashtbl.add marks p ())
+        quotient
+    end
+  end else (*XXX Find the right algorithm...
          Work on transitive closure of dependencies
          Mark all conflicts; marks all packages at the other side of
          these conflicts and all the alternative in the dependency.
@@ -203,11 +208,19 @@ let output
        if marked i then begin
          let n = package_weight i in
          let em = package_emph i in
+         let w = (min 1. (log n /. log 1000.)) in
+         let color =
+           if grayscale then
+             let c = 255 - truncate (w *. 255.9) in
+             Format.sprintf "#%02x%02x%02x" c c c
+           else
+             Format.sprintf "0.0,%f,1.0" w
+         in
          Format.fprintf f
            "%d [label=\"%a\",style=\"filled\",\
-            fillcolor=\"0.0,%f,1.0\"%s];@."
+            fillcolor=\"%s\"%s];@."
            (Package.index i) (Quotient.print_class quotient) i
-           (min 1. (log n /. log 1000.))
+           color
            (if em then ",penwidth=1.7" else "");
          Formula.iter dep (fun s -> add_dep i dep s)
        end)
