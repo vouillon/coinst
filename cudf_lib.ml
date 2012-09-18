@@ -82,10 +82,14 @@ let get_package_list h n = try !(Hashtbl.find h n) with Not_found -> []
 (****)
 
 let print_pack pool ch p =
-  Cudf_types_pp.pp_veqpkg ch (veqpkg (Hashtbl.find pool.packages_by_num p))
+  Format.fprintf ch "%s"
+    (Cudf_types_pp.string_of_veqpkg
+       (veqpkg (Hashtbl.find pool.packages_by_num p)))
 
 let print_pack_name pool ch p =
-  Cudf_types_pp.pp_pkgname ch (Hashtbl.find pool.packages_by_num p).Cudf.package
+  Format.fprintf ch "%s"
+    (Cudf_types_pp.string_of_pkgname
+       (Hashtbl.find pool.packages_by_num p).Cudf.package)
 
 (****)
 
@@ -286,9 +290,9 @@ let parse_package_name pool s = get_package_list pool.packages_by_name s
 let rec print_package_disj ch l =
   match l with
     []     -> ()
-  | [p]    -> Cudf_types_pp.pp_vpkg ch p
-  | p :: r -> Cudf_types_pp.pp_vpkg ch p; Format.fprintf ch " | ";
-              print_package_disj ch r
+  | [p]    -> Format.fprintf ch "%s" (Cudf_types_pp.string_of_vpkg p)
+  | p :: r -> Format.fprintf ch "%s | %a"
+                (Cudf_types_pp.string_of_vpkg p) print_package_disj r
 
 let rec print_package_list_rec print_var ch l =
   match l with
@@ -315,8 +319,8 @@ let show_reasons pool l =
                (print_package_list (print_pack pool))
                (List.flatten (List.map (resolve_package_dep pool) l))
          | R_install p ->
-             Format.printf "  need to install %a %a@."
-               Cudf_types_pp.pp_vpkg p
+             Format.printf "  need to install %s %a@."
+               (Cudf_types_pp.string_of_vpkg p)
                (print_package_list (print_pack pool))
                (resolve_package_dep pool p))
 

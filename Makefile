@@ -16,7 +16,7 @@ SVG=viewer/scene.cmx viewer/dot_parser.cmx viewer/dot_lexer.cmx \
 OBJS = util.cmx file.cmx debug.cmx common.cmx cache.cmx layout.cmx \
        solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx \
        repository.cmx quotient.cmx conflicts.cmx graph.cmx coinst_common.cmx
-COMPFLAGS=-package unix,str,bigarray -g -I viewer
+COMPFLAGS=-package unix,str,bigarray,cudf -g -I viewer
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 
 OCAMLDEP=ocamlfind ocamldep
@@ -24,10 +24,10 @@ DEPFLAGS = -package js_of_ocaml,js_of_ocaml.syntax -syntax camlp4o -I viewer
 
 all: $(COINST) $(UPGRADE) $(TRANS)
 
-$(COINST): $(OBJS) coinst.cmx
+$(COINST): $(OBJS) cudf_lib.cmx coinst.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(COINST).byte: $(OBJS:.cmx=.cmo) coinst.cmo
+$(COINST).byte: $(OBJS:.cmx=.cmo) cudf_lib.cmo coinst.cmo
 	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 

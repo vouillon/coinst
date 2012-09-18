@@ -927,18 +927,16 @@ prerr_endline "COMP";
 
 end
 
-type kind = (*Cudf |*) Deb | Rpm | Auto
+type kind = Cudf | Deb | Rpm | Auto
 
 let _ =
 let ignored_packages = ref [] in
 let kind = ref Auto in
 let files = ref [] in
 Arg.parse
-  [(*
-   "-cudf",
+  ["-cudf",
    Arg.Unit (fun () -> kind := Cudf),
    "  Parse CUDF files";
-   *)
    "-rpm",
    Arg.Unit (fun () -> kind := Rpm),
    "  Parse hdlist.cz (RPM) files";
@@ -998,6 +996,6 @@ in
 let kind =
   if !kind = Auto && File.has_magic ic "\142\173\232" then Rpm else !kind in
 match kind with
-(*  Cudf -> let module M = F(Cudf_lib) in M.f !ignored_packages ic*)
+  Cudf -> let module M = F(Cudf_lib) in M.f !ignored_packages ic
 | Auto | Deb -> let module M = F(Deb_lib) in M.f !ignored_packages ic
 | Rpm        -> let module M = F(Rpm_lib) in M.f !ignored_packages ic
