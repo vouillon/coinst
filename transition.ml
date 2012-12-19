@@ -35,8 +35,6 @@
 - make Deb_lib more abstract...
 - SVG graphs: use CSS styles
 
-- source packages with no binaries should be removed from testing
-  (even when it exists in sid)
 - revise hints: check hint parsing; block binary packages
 
 EXPLANATIONS
@@ -2265,31 +2263,51 @@ let heidi_arch st unchanged =
   let lines = ref [] in
   let t = st.testing in
   let u = st.unstable in
+  let sources_with_binaries = ref [] in
+  let source_has_binaries = StringTbl.create 8192 in
+  let register_source p =
+    let (nm, _) = p.M.source in
+    if not (StringTbl.mem source_has_binaries nm) then begin
+      sources_with_binaries := nm :: !sources_with_binaries;
+      StringTbl.add source_has_binaries nm ()
+    end
+  in
   M.iter_packages t
     (fun p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
-       if is_unchanged st unchanged nm then
-         heidi_line lines nm p.M.version p.M.architecture sect);
+       if is_unchanged st unchanged nm then begin
+         register_source p;
+         heidi_line lines nm p.M.version p.M.architecture sect
+       end);
   M.iter_packages u
     (fun p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
-       if not (is_unchanged st unchanged nm) then
-         heidi_line lines nm p.M.version p.M.architecture sect);
-  String.concat "" (List.sort compare !lines)
+       if not (is_unchanged st unchanged nm) then begin
+         register_source p;
+         heidi_line lines nm p.M.version p.M.architecture sect
+       end);
+  (String.concat "" (List.sort compare !lines), !sources_with_binaries)
 
 let heidi_arch = Task.funct heidi_arch
 
 let print_heidi solver id_of_source id_offsets fake_src l t u =
   let ch = if !heidi_file = "-" then stdout else open_out !heidi_file in
   let heidi_t = Timer.start () in
+  let source_has_binaries = StringTbl.create 8192 in
   Task.iter_ordered
     (List.sort (fun (arch, _) (arch', _) -> compare arch arch') l)
     (fun (arch, st) ->
        heidi_arch st (extract_unchanged_bin
                         solver id_offsets arch (HornSolver.assignment solver)))
-    (fun lines -> output_string ch lines);
+    (fun (lines, sources_with_binaries) ->
+       output_string ch lines;
+       List.iter
+         (fun nm ->
+            if not (StringTbl.mem source_has_binaries nm) then
+              StringTbl.add source_has_binaries nm ())
+         sources_with_binaries);
   let unchanged = HornSolver.assignment solver in
   let is_unchanged src =
     BitVect.test unchanged (StringTbl.find id_of_source src) in
@@ -2302,13 +2320,13 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
   StringTbl.iter
     (fun nm s ->
        let sect = source_sect nm s in
-       if is_unchanged nm then
+       if is_unchanged nm && StringTbl.mem source_has_binaries nm then
          heidi_line lines nm s.M.s_version "source" sect)
     t.M.s_packages;
   StringTbl.iter
     (fun nm s ->
        let sect = source_sect nm s in
-       if not (is_unchanged nm) then
+       if not (is_unchanged nm) && StringTbl.mem source_has_binaries nm then
          heidi_line lines nm s.M.s_version "source" sect)
     u.M.s_packages;
   List.iter (output_string ch) (List.sort compare !lines);
