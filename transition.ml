@@ -1662,7 +1662,7 @@ let initial_constraints
     ((hints.h_block_all <> None || StringTbl.mem hints.h_block nm) &&
      not (is_unblocked hints.h_unblock nm v))
        ||
-    ((hints.h_block_all <> None || StringTbl.mem hints.h_block_udeb nm) &&
+    (StringTbl.mem hints.h_block_udeb nm &&
      not (is_unblocked hints.h_unblock_udeb nm v))
   in
   let blocked_reason nm v =
@@ -1681,12 +1681,8 @@ let initial_constraints
         None ->
           assert false
       | Some who ->
-          if not (is_unblocked hints.h_unblock nm v) then
-            ("bloc", who)
-          else begin
-            assert (not (is_unblocked hints.h_unblock_udeb nm v));
-            ("block-udeb", who)
-          end
+          assert (not (is_unblocked hints.h_unblock nm v));
+          ("block", who)
   in
   let block_constraints = ref [] in
   let age_constraints = ref [] in
