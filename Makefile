@@ -1,7 +1,7 @@
 VERSION=1.01
 COINST=coinst
 UPGRADE=coinst-upgrades
-TRANS=transition
+TRANS=comigrate
 
 OCAMLC=ocamlfind ocamlc
 OCAMLOPT=ocamlfind ocamlopt
@@ -38,7 +38,7 @@ $(TRANS): $(OBJS) $(TASK) $(SVG) update_data.cmx upgrade_common.cmx horn.cmx tra
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::
-	rm -f $(COINST)
+	rm -f $(COINST) $(UPGRADE) $(TRANS)
 
 #####
 
