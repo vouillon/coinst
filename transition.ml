@@ -1942,6 +1942,11 @@ StringSet.iter
          let s' = to_ids s in
          let id = StringTbl.find st.id_of_bin (StringSet.choose pos) in
          let r = Array.of_list (id :: IntSet.elements neg) in
+if not singleton then begin
+Format.eprintf "Warning: cannot migrate all of";
+StringSet.iter (fun s -> Format.eprintf " %s" s) pos;
+Format.eprintf ". Not migrating %s.@." (StringSet.choose pos)
+end;
          let can_learn = singleton in
          changes := (r, neg, s', s, expl, can_learn) :: !changes
        end)
