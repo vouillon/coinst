@@ -1,0 +1,21 @@
+Comigrate
+=========
+
+* "arch: all" packages are not properly handled: we should allow them
+  to become broken on all architectures but i386.
+
+* on "break" architectures, we need to remove binary packages without
+  corresponding source packages from the Heidi output
+  (or do we have the right semantics for these architectures?)
+  ===> we should just not check co-installability on break_arch ???
+       (but not true for smooth upgrade...)
+
+* Performance issue in hint clustering
+
+* Issue with --equivocal (not the same choices made in both cases...)
+  We should probably start by checking just installability, and then
+  refine with co-installability.
+
+  Fatal error: exception Assert_failure("transition.ml", 2517, 2)
+  Called from file "transition.ml", line 2538, characters 4-70
+  Called from file "transition.ml", line 2706, characters 2-6
