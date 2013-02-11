@@ -1596,11 +1596,17 @@ let initial_constraints
        let l = Str.split slash p in
        try
          match l with
-           [nm; v] -> StringTbl.replace hints.h_remove nm
-                        (Deb_lib.parse_version v)
-         | [nm]    -> StringTbl.replace hints.h_remove nm
-                        (StringTbl.find t.M.s_packages nm).M.s_version
-         | _       -> ()
+           [nm; v] ->
+             StringTbl.replace hints.h_remove nm
+               (Deb_lib.parse_version v)
+         | [nm]    ->
+           StringTbl.replace hints.h_remove nm
+             (try
+                (StringTbl.find t.M.s_packages nm).M.s_version
+              with Not_found ->
+                (StringTbl.find u.M.s_packages nm).M.s_version)
+         | _ ->
+             raise Not_found
        with Not_found ->
          Format.eprintf "No source package %s.@." (List.hd l);
          exit 1)
