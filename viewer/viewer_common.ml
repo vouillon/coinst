@@ -97,7 +97,7 @@ type pixmap =
     mutable valid_rect : rectangle }
 
 let make_pixmap () =
-  { pixmap = None; p_width = 0; p_height = 0;
+  { pixmap = None; p_width = -1; p_height = -1;
     valid_rect = empty_rectangle }
 
 let invalidate_pixmap p = p.valid_rect <- empty_rectangle

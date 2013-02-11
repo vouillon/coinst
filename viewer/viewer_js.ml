@@ -95,11 +95,14 @@ let redraw st s h v (canvas : Html.canvasElement Js.t) =
   let width = canvas##width in
   let height = canvas##height in
 (*Firebug.console##time (Js.string "draw");*)
-  redraw st s h v canvas
-    {x = 0; y = 0; width = width; height = height} 0 0 width height;
+  if width > 0 && height > 0 then
+    redraw st s h v canvas
+      {x = 0; y = 0; width = width; height = height} 0 0 width height
+(*
   begin try
     ignore (canvas##getContext(Html._2d_)##getImageData (0., 0., 1., 1.)) 
   with _ -> () end
+*)
 (*
 ;Firebug.console##timeEnd (Js.string "draw")
 ;Firebug.console##log_2 (Js.string "draw", Js.date##now())
@@ -162,13 +165,19 @@ let handle_drag element f =
                   Js.Opt.iter !c2 Html.removeEventListener;
                   (* "auto" would be better, but does not seem to work
                      with Opera *)
-                  element##style##cursor <- Js.string "default";
+                  element##style##cursor <- Js.string "";
                   Js._true))
             Js._true);
        (* We do not want to disable the default action on mouse down
           (here, keyboard focus)
           in this example. *)
        Js._true)
+
+let load () =
+  Js.Optdef.case ((Js.Unsafe.coerce Dom_html.window)##scene)
+    (fun () -> http_get "scene.json" >>= fun s ->
+               Lwt.return (json##parse (Js.string s)))
+    (fun s  -> Lwt.return s)
 
 let start () =
   let doc = Html.document in
@@ -190,14 +199,9 @@ let start () =
 (*
   Firebug.console##time(Js.string "loading");
 *)
-  http_get "scene.json" >>= fun s ->
+  load () >>= fun ((x1, y1, x2, y2), bboxes, scene) ->
 (*
   Firebug.console##timeEnd(Js.string "loading");
-  Firebug.console##time(Js.string "parsing");
-*)
-  let ((x1, y1, x2, y2), bboxes, scene) = json##parse (Js.string s) in
-(*
-  Firebug.console##timeEnd(Js.string "parsing");
   Firebug.console##time(Js.string "init");
 *)
 
@@ -250,6 +254,14 @@ Firebug.console##log_2(Js.string "update", Js.date##now());
     if vadj#value < 0. then vadj#set_value 0.;
     if vadj#value > mv then vadj#set_value mv;
 
+    if not !redraw_queued then begin
+      redraw_queued := true;
+      Html._requestAnimationFrame
+        (Js.wrap_callback (fun () ->
+           redraw_queued := false;
+           redraw st (get_scale ()) hadj#value vadj#value canvas))
+    end
+(*
     if force then redraw st (get_scale ()) hadj#value vadj#value canvas else
     if not !redraw_queued then
       ignore (redraw_queued := true;
@@ -260,6 +272,7 @@ Firebug.console##log(Js.string "sleep");
               redraw_queued := false;
               redraw st (get_scale ()) hadj#value vadj#value canvas;
               Lwt.return ())
+*)
   in
 
   let a = allocation () in
