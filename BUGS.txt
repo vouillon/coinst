@@ -10,8 +10,6 @@ Comigrate
   ===> we should just not check co-installability on break_arch ???
        (but not true for smooth upgrade...)
 
-* Performance issue in hint clustering
-
 * Issue with --equivocal (not the same choices made in both cases...)
   We should probably start by checking just installability, and then
   refine with co-installability.

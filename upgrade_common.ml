@@ -1229,6 +1229,7 @@ let find_clusters dist1_state dist2_state is_preserved groups merge =
   let group_reprs = Hashtbl.create 101 in
   let group_classes = Hashtbl.create 101 in
   let group_pkgs = Hashtbl.create 101 in
+  let group_other_pkg = Hashtbl.create 101 in
   List.iter
     (fun (l, elt) ->
        let q = List.hd l in
@@ -1247,6 +1248,8 @@ let find_clusters dist1_state dist2_state is_preserved groups merge =
        let old_grp = Package.of_index (M.add_package dist2 (pkg "OLD")) in
        let new_grp = Package.of_index (M.add_package dist2 (pkg "NEW")) in
        Hashtbl.add group_pkgs q (old_grp, new_grp);
+       Hashtbl.add group_other_pkg old_grp new_grp;
+       Hashtbl.add group_other_pkg new_grp old_grp;
        Hashtbl.add group_classes q elt;
        List.iter (fun p -> Hashtbl.add group_reprs p q) l)
     groups;
@@ -1413,7 +1416,29 @@ Format.eprintf "%a ==> %a@." (Disj.print dist2) d (Formula.print dist2) f';
        end)
     deps2;
 
-  let (deps2', confl2') = Coinst.flatten_and_simplify dist2 deps2 confl2 in
+(*
+PTbl.iteri
+(fun p f ->
+Format.eprintf "%a: %a@." (Package.print dist2) p (Formula.print dist2) f)
+deps2;
+*)
+  let normalize f =
+    (* <p/OLD> | <p/NEW> is always satisfied *)
+    Formula.filter
+      (fun d ->
+         not
+           (Disj.exists
+              (fun p ->
+                 try
+                   let q = Hashtbl.find group_other_pkg p in
+                   Disj.implies1 q d
+                 with Not_found ->
+                   false)
+              d))
+      f
+  in
+  let (deps2', confl2') =
+    Coinst.flatten_and_simplify ~normalize dist2 deps2 confl2 in
 
   let pred = compute_predecessors dist1_state.dist dist2 in
 

@@ -83,6 +83,13 @@ let generate_rules quotient deps confl =
 
 (****)
 
+(*
+let t = ref (Unix.gettimeofday ())
+let sample f =
+  let t' = Unix.gettimeofday () in
+  if t' -. !t > 1. then begin t := t'; f () end
+*)
+
 let simplify_formula confl f =
   Formula.filter
     (fun d ->
@@ -91,44 +98,62 @@ let simplify_formula confl f =
             Conflict.exists confl (fun q -> not (Disj.implies1 q d)) p) d)
     f
 
-let rec flatten_deps tbl dist deps conflicts visited l =
+type flatten_data = {
+  f_tbl : (Package.t, Formula.t) Hashtbl.t;
+  f_dist : pool; f_deps : dependencies; f_confl : Conflict.t;
+  f_normalize : Formula.t -> Formula.t }
+
+let rec flatten_deps data visited l =
   Formula.fold
     (fun d (l, r) ->
        let (l', r') =
          Disj.fold
            (fun i (l, r) ->
-              let (l', r') = flatten_dep tbl dist deps conflicts visited i in
-              (Formula.disj l' l, PSet.union r r')) d (Formula._false, r)
+(*
+sample (fun () -> Format.eprintf "(2) %a@." (Formula.print data.f_dist) l);
+*)
+              let (l', r') = flatten_dep data visited i in
+              (data.f_normalize (Formula.disj l' l), PSet.union r r'))
+           d (Formula._false, r)
        in
        (Formula.conj l' l, r'))
     l (Formula._true, PSet.empty)
 
-and flatten_dep tbl dist deps conflicts visited i =
+and flatten_dep data visited i =
+let res =
   try
-    (Hashtbl.find tbl i, PSet.empty)
+    (Hashtbl.find data.f_tbl i, PSet.empty)
   with Not_found ->
     let res =
       if List.mem i visited then
         (Formula._true, PSet.singleton i)
       else begin
         let (l, r) =
-          flatten_deps tbl dist deps conflicts (i :: visited) (PTbl.get deps i)
+          flatten_deps data (i :: visited) (PTbl.get data.f_deps i)
         in
-        let l = simplify_formula conflicts l in
+        let l = simplify_formula data.f_confl l in
         let r = PSet.remove i r in
-        if Conflict.has conflicts i then
+        if Conflict.has data.f_confl i then
           (Formula.conj (Formula.lit i) l, r)
         else
           (l, r)
       end
     in
     (* Only cache the result if it is unconditionally true *)
-    if PSet.is_empty (snd res) then Hashtbl.add tbl i (fst res);
+    if PSet.is_empty (snd res) then Hashtbl.add data.f_tbl i (fst res);
     res
+in
+(*
+sample (fun () -> Format.eprintf "(1) %a@." (Formula.print data.f_dist) (fst res));
+*)
+res
 
-let flatten_dependencies dist deps confl =
-  let tbl = Hashtbl.create 17 in
-  PTbl.init dist (fun p -> fst (flatten_dep tbl dist deps confl [] p))
+let flatten_dependencies ?(normalize = fun f -> f) dist deps confl =
+  let data =
+    { f_tbl = Hashtbl.create 17; f_dist = dist;
+      f_deps = deps; f_confl = confl;
+      f_normalize = normalize } in
+  PTbl.init dist (fun p -> fst (flatten_dep data [] p))
 
 (****)
 
@@ -194,14 +219,14 @@ Format.printf "self conflict: %a@." (Package.print_name dist) p;
 
 let remove_irrelevant_deps confl deps = PTbl.map (simplify_formula confl) deps
 
-let flatten_and_simplify ?(aggressive=false) dist deps confl =
+let flatten_and_simplify ?(aggressive=false) ?normalize dist deps confl =
   let confl = Conflict.copy confl in
 let t = Unix.gettimeofday () in
-  let deps = flatten_dependencies dist deps confl in
+  let deps = flatten_dependencies ?normalize dist deps confl in
   let rec remove_conflicts deps =
     let (deps, changed) = remove_self_conflicts dist deps confl in
     remove_redundant_conflicts dist deps confl;
-    let deps = flatten_dependencies dist deps confl in
+    let deps = flatten_dependencies ?normalize dist deps confl in
     if changed then
       remove_conflicts deps
     else
