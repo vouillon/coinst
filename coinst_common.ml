@@ -100,8 +100,7 @@ let simplify_formula confl f =
 
 type flatten_data = {
   f_tbl : (Package.t, Formula.t) Hashtbl.t;
-  f_dist : pool; f_deps : dependencies; f_confl : Conflict.t;
-  f_normalize : Formula.t -> Formula.t }
+  f_dist : pool; f_deps : dependencies; f_confl : Conflict.t }
 
 let rec flatten_deps data visited l =
   Formula.fold
@@ -113,7 +112,8 @@ let rec flatten_deps data visited l =
 sample (fun () -> Format.eprintf "(2) %a@." (Formula.print data.f_dist) l);
 *)
               let (l', r') = flatten_dep data visited i in
-              (data.f_normalize (Formula.disj l' l), PSet.union r r'))
+              (simplify_formula data.f_confl (Formula.disj l' l),
+               PSet.union r r'))
            d (Formula._false, r)
        in
        (Formula.conj l' l, r'))
@@ -131,7 +131,6 @@ let res =
         let (l, r) =
           flatten_deps data (i :: visited) (PTbl.get data.f_deps i)
         in
-        let l = simplify_formula data.f_confl l in
         let r = PSet.remove i r in
         if Conflict.has data.f_confl i then
           (Formula.conj (Formula.lit i) l, r)
@@ -148,11 +147,11 @@ sample (fun () -> Format.eprintf "(1) %a@." (Formula.print data.f_dist) (fst res
 *)
 res
 
-let flatten_dependencies ?(normalize = fun f -> f) dist deps confl =
+let flatten_dependencies dist deps confl =
   let data =
     { f_tbl = Hashtbl.create 17; f_dist = dist;
-      f_deps = deps; f_confl = confl;
-      f_normalize = normalize } in
+      f_deps = deps; f_confl = confl }
+  in
   PTbl.init dist (fun p -> fst (flatten_dep data [] p))
 
 (****)
@@ -219,14 +218,15 @@ Format.printf "self conflict: %a@." (Package.print_name dist) p;
 
 let remove_irrelevant_deps confl deps = PTbl.map (simplify_formula confl) deps
 
-let flatten_and_simplify ?(aggressive=false) ?normalize dist deps confl =
+let flatten_and_simplify ?(aggressive=false) dist deps confl =
+  let deps0 = deps in
   let confl = Conflict.copy confl in
 let t = Unix.gettimeofday () in
-  let deps = flatten_dependencies ?normalize dist deps confl in
+  let deps = flatten_dependencies dist deps confl in
   let rec remove_conflicts deps =
     let (deps, changed) = remove_self_conflicts dist deps confl in
     remove_redundant_conflicts dist deps confl;
-    let deps = flatten_dependencies ?normalize dist deps confl in
+    let deps = flatten_dependencies dist deps confl in
     if changed then
       remove_conflicts deps
     else
@@ -262,7 +262,9 @@ true)
              PSetMap.find (Disj.to_lits d') !compositions
            with Not_found ->
              let f' =
-               Disj.fold (fun p f -> Formula.disj (PTbl.get fd2 p) f)
+               Disj.fold
+                 (fun p f ->
+                    simplify_formula confl (Formula.disj (PTbl.get fd2 p) f))
                  d' Formula._false
              in
              compositions := PSetMap.add (Disj.to_lits d') f' !compositions;

@@ -30,6 +30,6 @@ module F (M : Api.S) : sig
   val remove_irrelevant_deps :
     Conflict.t -> Formula.t PTbl.t -> Formula.t PTbl.t
   val flatten_and_simplify :
-    ?aggressive:bool -> ?normalize:(Formula.t -> Formula.t) ->
+    ?aggressive:bool ->
     pool -> Formula.t PTbl.t -> Conflict.t -> Formula.t PTbl.t * Conflict.t
 end

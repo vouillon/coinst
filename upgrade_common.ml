@@ -1422,23 +1422,7 @@ PTbl.iteri
 Format.eprintf "%a: %a@." (Package.print dist2) p (Formula.print dist2) f)
 deps2;
 *)
-  let normalize f =
-    (* <p/OLD> | <p/NEW> is always satisfied *)
-    Formula.filter
-      (fun d ->
-         not
-           (Disj.exists
-              (fun p ->
-                 try
-                   let q = Hashtbl.find group_other_pkg p in
-                   Disj.implies1 q d
-                 with Not_found ->
-                   false)
-              d))
-      f
-  in
-  let (deps2', confl2') =
-    Coinst.flatten_and_simplify ~normalize dist2 deps2 confl2 in
+  let (deps2', confl2') = Coinst.flatten_and_simplify dist2 deps2 confl2 in
 
   let pred = compute_predecessors dist1_state.dist dist2 in
 
