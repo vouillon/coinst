@@ -18,28 +18,10 @@
  *)
 
 (*
-XXXX List broken new packages!
-
-- Show how important each issue is (use strong dependencies?)
-
+- List broken new packages!
 - Does it make sense to consider new packages as previously
   installable, and report issues for them in a uniform way?
-
-- Be smarter when deciding not to upgrade a package
-  when there are disjunctions
-
-- Bug when reporting an empty set of issues
-
-- Do not collapse updated, non-updated, and new packages
-- Iterate until there is no problematic packages
 - Print equivalence classes
-
-- We might miss some configurations (because we generate only
-  non-minimal supersets)
-- Il doit être possible d'aller beaucoup plus vite en ne considérant
-  que des paquets intéressants (en particulier, au-dessus de nouvelles
-  dependences)...
-- Reflattening is quite slow...
 *)
 
 let broken_sets = Upgrade_common.empty_break_set ()

@@ -17,3 +17,23 @@ Comigrate
   Fatal error: exception Assert_failure("transition.ml", 2517, 2)
   Called from file "transition.ml", line 2538, characters 4-70
   Called from file "transition.ml", line 2706, characters 2-6
+
+* Les problèmes empéchant la migration de bibliothéques sujet à
+  smooth-upgrade n'apparaissent pas dans les excuses...
+
+* SVG graphs: should indicate in which repository each package is available
+
+Upgrades
+========
+* Coinst_common.flatten_and_simplify is too aggressive.
+  Need the "lean" property
+  ===> keep the derivation tree of each dependency;
+       only remove dependencies at the roots
+
+  ===>
+  we remove irrelevant dependencies starting from the leaves
+  (otherwise, stability by composition is lost);
+  if at the end we have not be able to move all the way down to the
+  roots, it was not in fact safe to remove the corresponding chain of
+  dependencies, and we must put it back
+  (we don't want any removed dep to be a subpart of a larger tree)
