@@ -524,10 +524,10 @@ let print_reason capitalize print_binary print_source lits reason =
         0 ->
           L.s (c "A dependency would not be satisfied")
       | 1 ->
-          L.s (c "Needs binary package ") &
+          L.s (c "Needs migration of binary package ") &
           snd (print_binary false (IntSet.choose s))
       | _ ->
-          L.s (c "Needs one of the binary packages ") &
+          L.s (c "Needs migration of one of the binary packages ") &
           print_binaries "or" (print_binary false) s
       end
         &
