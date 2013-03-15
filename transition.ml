@@ -141,6 +141,9 @@ let debug_migration =
 let debug_gc =
   Debug.make "gc" "Output gc stats" []
 let debug_remove = Debug.make "remove" "Debug removal hints" ["normal"]
+let debug_choice =
+  Debug.make "choice" "Warn about arbitrary choices performed by the solver"
+  ["normal"]
 
 (**** Useful modules from Util ****)
 
@@ -1942,7 +1945,7 @@ StringSet.iter
          let s' = to_ids s in
          let id = StringTbl.find st.id_of_bin (StringSet.choose pos) in
          let r = Array.of_list (id :: IntSet.elements neg) in
-if not singleton then begin
+if not singleton && debug_choice () then begin
 Format.eprintf "Warning: cannot migrate all of";
 StringSet.iter (fun s -> Format.eprintf " %s" s) pos;
 Format.eprintf ". Not migrating %s.@." (StringSet.choose pos)
