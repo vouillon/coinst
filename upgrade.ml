@@ -665,7 +665,7 @@ Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t)
 (****)
 
 let _ =
-let output_file = ref "/tmp/upgrade" in
+let output_file = ref "/tmp/upgrade.html" in
 let l = ref [] in
 let popcon_file = ref None in
 let spec =

@@ -26,7 +26,7 @@ let debug_problems =
     "Debug enumeration of possible co-installability issues" []
 let debug_problem_graph =
   Debug.make "coinst_graph"
-    "Write the graph of new depencies to /tmp/newdeps.dot" []
+    "Write the graph of new dependencies to /tmp/newdeps.dot" []
 
 let debug = false
 
