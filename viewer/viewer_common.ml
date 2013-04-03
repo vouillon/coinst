@@ -157,14 +157,14 @@ let draw_element ctx e =
                curve_to ctx x1 y1 x2 y2 x3 y3)
         cmd;
       perform_draw ctx fill stroke
-  | Ellipse (cx, cy, rx, ry, fill, stroke) ->
+  | Ellipse (cx, cy, rx, ry, fill, stroke, _) ->
       save ctx;
       translate ctx cx cy;
       scale ctx rx ry;
       arc ctx 0. 0. 1. 0. (2. *. pi);
       restore ctx;
       perform_draw ctx fill stroke
-  | Polygon (points, fill, stroke) ->
+  | Polygon (points, fill, stroke, _) ->
       Array.iteri
         (fun i (x, y) ->
            if i = 0 then move_to ctx x y else line_to ctx x y)

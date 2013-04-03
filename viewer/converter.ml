@@ -30,10 +30,11 @@ let offset_element x y e =
   match e with
     Path (cmds, c1, c2, style) ->
       Path (Array.map (fun c -> offset_command x y c) cmds, c1, c2, style)
-  | Polygon (pts, c1, c2) ->
-      Polygon (Array.map (fun (x1, y1) -> (x1 -. x, y1 -. y)) pts, c1, c2)
-  | Ellipse (cx, cy, rx, ry, c1, c2) ->
-      Ellipse (cx -. x, cy -. y, rx, ry, c1, c2)
+  | Polygon (pts, c1, c2, style) ->
+      Polygon
+        (Array.map (fun (x1, y1) -> (x1 -. x, y1 -. y)) pts, c1, c2, style)
+  | Ellipse (cx, cy, rx, ry, c1, c2, style) ->
+      Ellipse (cx -. x, cy -. y, rx, ry, c1, c2, style)
   | Text (x1, y1, txt, font, c1, c2) ->
       Text (x1 -. x, y1 -. y, txt, font, c1, c2)
 

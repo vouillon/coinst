@@ -40,14 +40,14 @@ let compute_extent ctx e =
                Cairo.curve_to ctx x1 y1 x2 y2 x3 y3)
         cmd;
       path_extent ctx fill stroke
-  | Ellipse (cx, cy, rx, ry, fill, stroke) ->
+  | Ellipse (cx, cy, rx, ry, fill, stroke, _) ->
       Cairo.save ctx;
       Cairo.translate ctx cx cy;
       Cairo.scale ctx rx ry;
       Cairo.arc ctx 0. 0. 1. 0. (2. *. pi);
       Cairo.restore ctx;
       path_extent ctx fill stroke
-  | Polygon (points, fill, stroke) ->
+  | Polygon (points, fill, stroke, _) ->
       Array.iteri
         (fun i (x, y) ->
            if i = 0 then Cairo.move_to ctx x y else Cairo.line_to ctx x y)

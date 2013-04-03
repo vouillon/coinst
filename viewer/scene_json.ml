@@ -65,12 +65,14 @@ let element_stringify ch e =
       Format.fprintf ch "@[<1>[0,@,%a,@,%a,@,%a,@,%a]@]"
         commands_stringify cmds color_stringify fill color_stringify stroke
         string_stringify style
-  | Polygon (l, fill, stroke) ->
-      Format.fprintf ch "@[<1>[1,@,%a,@,%a,@,%a]@]"
+  | Polygon (l, fill, stroke, style) ->
+      Format.fprintf ch "@[<1>[1,@,%a,@,%a,@,%a,@,%a]@]"
         points_stringify l color_stringify fill color_stringify stroke
-  | Ellipse (cx, cy, rx, ry, fill, stroke) ->
-      Format.fprintf ch "@[<1>[2,@,%g,@,%g,@,%g,@,%g,@,%a,@,%a]@]"
+        string_stringify style
+  | Ellipse (cx, cy, rx, ry, fill, stroke, style) ->
+      Format.fprintf ch "@[<1>[2,@,%g,@,%g,@,%g,@,%g,@,%a,@,%a,@,%a]@]"
         cx cy rx ry color_stringify fill color_stringify stroke
+        string_stringify style
   | Text (x, y, txt, font, fill, stroke) ->
       Format.fprintf ch "@[<1>[3,@,%g,@,%g,@,%a,@,%a,@,%a,@,%a]@]"
         x y string_stringify txt font_stringify font

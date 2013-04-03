@@ -25,14 +25,15 @@ type color = float * float * float
 
 type ('color, 'font, 'text) element =
     Path of command array * 'color option * 'color option * string
-  | Polygon of (float * float) array * 'color option * 'color option
-  | Ellipse of float * float * float * float * 'color option * 'color option
+  | Polygon of (float * float) array * 'color option * 'color option * string
+  | Ellipse of
+      float * float * float * float * 'color option * 'color option * string
   | Text of float * float * 'text * 'font * 'color option * 'color option
 
 (****)
 
-let rectangle (x1, y1, x2, y2) fill stroke =
-  Polygon ([|(x1, y1); (x2, y1); (x2, y2); (x1, y2)|], fill, stroke)
+let rectangle (x1, y1, x2, y2) fill stroke style =
+  Polygon ([|(x1, y1); (x2, y1); (x2, y2); (x1, y2)|], fill, stroke, style)
 
 (****)
 

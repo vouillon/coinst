@@ -219,7 +219,6 @@ Format.printf "self conflict: %a@." (Package.print_name dist) p;
 let remove_irrelevant_deps confl deps = PTbl.map (simplify_formula confl) deps
 
 let flatten_and_simplify ?(aggressive=false) dist deps confl =
-  let deps0 = deps in
   let confl = Conflict.copy confl in
 let t = Unix.gettimeofday () in
   let deps = flatten_dependencies dist deps confl in

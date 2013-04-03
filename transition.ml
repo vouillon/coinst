@@ -449,7 +449,7 @@ type reason =
   (* Both *)
   | More_bugs of StringSet.t
   (* Binaries *)
-  | Conflict of IntSet.t * IntSet.t * StringSet.t * Upgrade_common.reason list
+  | Conflict of IntSet.t * IntSet.t * Upgrade_common.problem
   | Not_yet_built of string * M.version * M.version
   | Source_not_propagated
   | Atomic
@@ -476,13 +476,14 @@ let print_cstr r =
         (L.format M.print_package_dependency (List.map (fun c -> [c]) confl)) &
       L.s " {" & print_pkg_ref pkg' & L.s "}"
 
-let print_explanation conflict expl =
+let print_explanation problem =
   let conflict_graph () =
     let b = Buffer.create 200 in
     Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b)
-      conflict expl;
+      problem;
     dot_to_svg (Buffer.contents b)
   in
+  let expl = problem.Upgrade_common.p_explain in
   L.ul ~prefix:" - " (L.list (fun r -> L.li (print_cstr r)) expl) &
   (if !svg then L.raw_html conflict_graph else L.emp)
 
@@ -522,7 +523,7 @@ let print_reason capitalize print_binary print_source lits reason =
       L.seq ", " (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
         (StringSet.elements s) &
       L.s "."
-  | Conflict (s, s', conflict, explanation) ->
+  | Conflict (s, s', problem) ->
       begin match IntSet.cardinal s with
         0 ->
           L.s (c "A dependency would not be satisfied")
@@ -547,7 +548,7 @@ let print_reason capitalize print_binary print_source lits reason =
           L.emp
       end
         &
-      L.s ":" & print_explanation conflict explanation
+      L.s ":" & print_explanation problem
   | Not_yet_built (src, v1, v2) ->
       L.s (c "Not yet rebuilt (source ") &
       L.s src & L.s " version " & L.format M.print_version v1 &
@@ -583,8 +584,8 @@ module HornSolver = Horn.F (struct type t = reason type reason = t end)
 
 let learnt_rules = ref []
 
-let learn_rule r neg s s' expl =
-  learnt_rules := (r, neg, s, s', expl) :: !learnt_rules
+let learn_rule r neg s problem =
+  learnt_rules := (r, neg, s, problem) :: !learnt_rules
 
 let coinst_rules = ref []
 
@@ -597,16 +598,17 @@ let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
   let (rules, _) =
-    Cache.cached [] cache ("version 6\n" ^ uids) (fun () -> []) in
+    Cache.cached [] cache ("version 7\n" ^ uids) (fun () -> []) in
   List.iter
-    (fun (r, neg, s, s', expl) ->
+    (fun (r, neg, s, problem) ->
        let n = IntSet.cardinal s in
        if
          (!check_coinstallability || n = 1)
            &&
-         not (Upgrade_common.is_ignored_set broken_sets s')
+         not (Upgrade_common.is_ignored_set broken_sets
+                problem.Upgrade_common.p_issue)
        then begin
-         let r = HornSolver.add_rule solver r (Conflict (neg, s, s', expl)) in
+         let r = HornSolver.add_rule solver r (Conflict (neg, s, problem)) in
          if n > 1 then coinst_rules := r :: !coinst_rules
        end)
     rules;
@@ -766,7 +768,7 @@ let output_reasons
                   List.iter
                     (fun (lits, reason) ->
                        match reason with
-                         Conflict (s, s', _, _) ->
+                         Conflict (s, s', _) ->
                            binaries :=
                              IntSet.union (IntSet.union s s') !binaries
                        | _ ->
@@ -915,8 +917,8 @@ let output_reasons
          in
          let compare_conflict r r' =
            match r, r' with
-             Conflict (s1, s1', _, e1), Conflict (s2, s2', _, e2) ->
-               compare e1 e2
+             Conflict (s1, s1', p1), Conflict (s2, s2', p2) ->
+               compare p1.Upgrade_common.p_explain p2.Upgrade_common.p_explain
            | _ ->
                assert false
          in
@@ -961,8 +963,8 @@ let output_reasons
                     reasons
                 in
                 L.li (L.s "Binary package " & L.code (L.s nm) &
-                      L.s " cannot be " &
-                      L.s (if is_removal then "removed" else "propagated") &
+                      L.s " cannot " &
+                      L.s (if is_removal then "be removed" else "migrate") &
                       L.s " (" & L.seq ", " L.s archs & L.s "):" &
                       L.ul reasons))
              binaries
@@ -1922,11 +1924,14 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
     StringSet.for_all (fun nm -> eq (source nm) src) pos
   in
   let has_singletons =
-    List.exists (fun (cl, _, _) -> is_singleton cl.Upgrade_common.pos) problems
+    List.exists
+      (fun p -> is_singleton p.Upgrade_common.p_clause.Upgrade_common.pos)
+      problems
   in
   let changes = ref [] in
   List.iter
-    (fun ({Upgrade_common.pos = pos;  neg = neg}, s, expl) ->
+    (fun ({Upgrade_common.p_clause = {Upgrade_common.pos = pos;  neg = neg};
+           p_issue = s } as problem) ->
        let singleton = is_singleton pos in
        if singleton || not has_singletons then begin
 
@@ -1951,7 +1956,7 @@ StringSet.iter (fun s -> Format.eprintf " %s" s) pos;
 Format.eprintf ". Not migrating %s.@." (StringSet.choose pos)
 end;
          let can_learn = singleton in
-         changes := (r, neg, s', s, expl, can_learn) :: !changes
+         changes := (r, neg, s', problem, can_learn) :: !changes
        end)
     problems;
   if debug_time () then begin
@@ -1995,7 +2000,7 @@ let find_all_coinst_constraints solver id_offsets l =
       Array.fill changed 0 c true;
       let (_, offset, _) = StringTbl.find id_offsets (fst a.(i)) in
       List.iter
-        (fun (r, neg, s, s', expl, can_learn) ->
+        (fun (r, neg, s, problem, can_learn) ->
            let r = Array.map (fun id -> id + offset) r in
            let offset_set ids =
              IntSet.fold (fun id s -> IntSet.add (id + offset) s)
@@ -2004,9 +2009,9 @@ let find_all_coinst_constraints solver id_offsets l =
            let neg = offset_set neg in
            let s = offset_set s in
            let r' =
-             HornSolver.add_rule solver r (Conflict (neg, s, s', expl)) in
+             HornSolver.add_rule solver r (Conflict (neg, s, problem)) in
            if IntSet.cardinal s > 1 then coinst_rules := r' :: !coinst_rules;
-           if can_learn then learn_rule r neg s s' expl)
+           if can_learn then learn_rule r neg s problem)
         changes
     end;
     running.(i) <- false;

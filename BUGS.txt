@@ -21,8 +21,6 @@ Comigrate
 * Les problèmes empéchant la migration de bibliothéques sujet à
   smooth-upgrade n'apparaissent pas dans les excuses...
 
-* SVG graphs: should indicate in which repository each package is available
-
 Upgrades
 ========
 * Coinst_common.flatten_and_simplify is too aggressive.

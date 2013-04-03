@@ -411,7 +411,7 @@ let add_arrow scene (px, py) (ux, uy) color arrow_size (*XXX pen_width*) =
   let qx = px +. dx in
   let qy = py +. dy in
   let l = [|(px, py); (px -. vx, py -. vy); (qx, qy); (px +. vx, py +. vy)|] in
-  Scene.add scene (Scene.Polygon (l, color, color))
+  Scene.add scene (Scene.Polygon (l, color, color, ""))
 
 let rec render_spline_rec l =
   match l with
@@ -493,13 +493,21 @@ let f g =
          try StringMap.find "shape" n.G.node_attr with Not_found -> "ellipse" in
 (*XXX parse style *)
        let style =
-         try StringMap.find "style" n.G.node_attr with Not_found -> "" in
+         try
+           Str.split comma_re (StringMap.find "style" n.G.node_attr)
+         with Not_found ->
+           []
+       in
        let fillcolor =
-         if style <> "filled" then None else
+         if not (List.mem "filled" style) then None else
          try
            parse_color (StringMap.find "fillcolor" n.G.node_attr)
          with Not_found ->
            color
+       in
+       let line_style =
+         List.find (fun s -> s = "" || List.mem s style)
+           ["dashed"; "dotted"; ""]
        in
        begin match shape with
          "box" | "rect" | "rectangle" ->
@@ -507,10 +515,12 @@ let f g =
            let h2 = height /. 2. in
            Scene.add scene
              (Scene.rectangle (x -. w2, y -. h2, x +. w2, y +. h2)
-                fillcolor color)
+                fillcolor color line_style)
        | _ ->
            Scene.add scene
-             (Scene.Ellipse (x, y, width /. 2., height /. 2., fillcolor, color))
+             (Scene.Ellipse
+                (x, y, width /. 2., height /. 2., fillcolor, color,
+                 line_style))
        end;
        let font_color =
          parse_color

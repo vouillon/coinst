@@ -36,11 +36,11 @@ type reason =
     R_depends of pkg_ref * Deb_lib.dep * pkg_ref list
   | R_conflict of pkg_ref * Deb_lib.dep * pkg_ref
 type clause = { pos : Util.StringSet.t; neg : Util.StringSet.t }
-type graph =
-  { g_nodes : PSet.t; g_deps : Formula.t PTbl.t; g_confl : Conflict.t }
+type problem =
+  { p_clause : clause; p_issue : Util.StringSet.t; p_explain : reason list;
+    p_support1 : Util.StringSet.t; p_support2 : Util.StringSet.t }
 type issue =
-  { i_issue : PSet.t; i_clause : clause;
-    i_graph : graph; i_explain : reason list }
+  { i_issue : PSet.t; i_problem : problem }
 type ignored_sets
 
 val analyze :
@@ -48,23 +48,21 @@ val analyze :
   ?reference:state ->
   state -> pool ->
   Deb_lib.Solver.var PTbl.t * PSet.t * Conflict.t * PSet.t PTbl.t *
-  issue list * (Package.t * clause * reason list) list
+  issue list *
+  (Package.t * clause * reason list * Util.StringSet.t * Util.StringSet.t) list
 
 val find_problematic_packages :
   ?check_new_packages:bool -> ignored_sets ->
-  state -> state -> (string -> bool) ->
-  (clause * Util.StringSet.t * reason list) list
+  state -> state -> (string -> bool) -> problem list
 
 val find_non_inst_packages :
-  ignored_sets -> state -> state -> (string -> bool) ->
-  (clause * Util.StringSet.t * reason list) list
+  ignored_sets -> state -> state -> (string -> bool) -> problem list
 
 val find_clusters :
   state -> state -> (string -> bool) ->
   (string list * 'a) list -> ('a -> 'a -> unit) -> unit
 
-val output_conflict_graph :
-  Format.formatter -> Util.StringSet.t -> reason list -> unit
+val output_conflict_graph : Format.formatter -> problem -> unit
 
 val ignored_set_domain : ignored_sets -> Util.StringSet.t
 val is_ignored_set : ignored_sets -> Util.StringSet.t -> bool

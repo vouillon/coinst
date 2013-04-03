@@ -434,6 +434,9 @@ let tmpname' = Filename.temp_file "conflicts" ".dot" in
 ignore
   (Sys.command
      (Format.sprintf "ccomps -x %s | dot -o > %s" tmpname tmpname'));
+(*
+ignore (Sys.command (Format.sprintf "dot %s -o /tmp/full.dot" tmpname));
+*)
 let figs = formatted_dot_to_svg tmpname' in
 Sys.remove tmpname; Sys.remove tmpname';
 List.iter (Format.fprintf f "<p>%s</p>@.") figs;
@@ -510,7 +513,9 @@ in
 *)
 let prob_pkgs = ref PSetMap.empty in
 List.iter
-  (fun {Upgrade_common.i_issue = s; i_clause  = {Upgrade_common.pos = pos}} ->
+  (fun {Upgrade_common.i_issue = s;
+        i_problem =
+          {Upgrade_common.p_clause  = {Upgrade_common.pos = pos}}} ->
      prob_pkgs :=
        PSetMap.add s
          (F.conj1
@@ -524,20 +529,13 @@ let t = Unix.gettimeofday () in
 Format.printf "Generating explanations...@.";
 Format.fprintf f "<h2>Explanations of conflicts</h2>@.";
 List.iter
-  (fun { Upgrade_common.i_issue = s; i_explain = expl; i_clause = clause;
-         i_graph =
-           { Upgrade_common.g_nodes = pkgs;
-             g_deps = deps; g_confl = confl }} ->
+  (fun { Upgrade_common.i_issue = s; i_problem = problem } ->
 (*Task.async (fun () ->*)
 (*
      let quotient = Quotient.from_partition dist2 pkgs partition in
      let deps = Quotient.dependencies quotient deps in
      let confl = Quotient.conflicts quotient confl in
 *)
-     let conflict_elt =
-       List.map (fun p -> M.package_name dist2 (Package.index p))
-         (PSet.elements s)
-     in
 (*
      let nm = String.concat "," conflict_elt in
      let basename = Filename.concat output_file nm in
@@ -596,7 +594,7 @@ List.iter
      let fig =
        let b = Buffer.create 200 in
        Upgrade_common.output_conflict_graph (Format.formatter_of_buffer b)
-         (List.fold_right StringSet.add conflict_elt StringSet.empty) expl;
+         problem;
        dot_to_svg (Buffer.contents b)
      in
      Format.fprintf f "<p>%s</p>@." fig;
