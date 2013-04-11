@@ -18,6 +18,8 @@
  *)
 
 let debug_time = Debug.make "time" "Print execution times" []
+let debug_irrelevant =
+  Debug.make "irrelevant" "Debug irrelevant dependency removal" []
 
 module F (M : Api.S) = struct
 
@@ -25,6 +27,7 @@ module Repository = Repository.F(M)
 open Repository
 module Quotient = Quotient.F (Repository)
 module PSetMap = Map.Make (PSet)
+module PSetSet = Set.Make (PSet)
 
 (****)
 
@@ -90,13 +93,12 @@ let sample f =
   if t' -. !t > 1. then begin t := t'; f () end
 *)
 
+let not_clearly_irrelevant confl d =
+  Disj.for_all
+    (fun p -> Conflict.exists confl (fun q -> not (Disj.implies1 q d)) p) d
+
 let simplify_formula confl f =
-  Formula.filter
-    (fun d ->
-       Disj.for_all
-         (fun p ->
-            Conflict.exists confl (fun q -> not (Disj.implies1 q d)) p) d)
-    f
+  Formula.filter (fun d -> not_clearly_irrelevant confl d) f
 
 type flatten_data = {
   f_tbl : (Package.t, Formula.t) Hashtbl.t;
@@ -216,83 +218,176 @@ Format.printf "self conflict: %a@." (Package.print_name dist) p;
 
 (****)
 
-let remove_irrelevant_deps confl deps = PTbl.map (simplify_formula confl) deps
+let remove_clearly_irrelevant_deps confl deps =
+  PTbl.map (simplify_formula confl) deps
 
-let flatten_and_simplify ?(aggressive=false) dist deps confl =
+let compose_deps d p d' =
+  Disj.of_lits (PSet.union (PSet.remove p (Disj.to_lits d)) (Disj.to_lits d'))
+
+let is_composition add_dependency (*dist*) confl deps p d0 =
+  let f = PTbl.get deps p in
+  Formula.exists
+    (fun d' ->
+       not (Disj.equiv d0 d') && not (Disj.equiv (Disj.lit p) d') &&
+       let s = PSet.diff (Disj.to_lits d0) (Disj.to_lits d') in
+       Disj.exists
+         (fun q ->
+            let d =
+              Disj.of_lits (if Disj.implies1 q d0 then PSet.add q s else s) in
+            Formula.exists
+              (fun d'' ->
+                 let res =
+                   Disj.implies d d'' &&
+                   not_clearly_irrelevant confl
+                     (compose_deps d' q d'')
+                 in
+(*
+if res then Format.eprintf "%a %a@." (Package.print_name dist) p (Package.print_name dist) q;
+*)
+                 if res then begin add_dependency p q; add_dependency p p end;
+                 res)
+              (PTbl.get deps q))
+         d')
+    f
+
+let possibly_irrelevant confl deps d =
+  Disj.exists
+    (fun q ->
+       Conflict.for_all confl
+         (fun r ->
+            Formula.exists
+              (fun d' ->
+                 Disj.implies d' d && not (Disj.implies1 q d'))
+              (PTbl.get deps r))
+         q)
+    d
+
+let remove_irrelevant_deps dist confl deps blacklist =
+  let deps = PTbl.copy deps in
+  let removed_deps = PTbl.create dist Formula._true in
+  let dependencies = PTbl.create dist PSet.empty in
+  let considered = PTbl.create dist false in
+  let in_queue = PTbl.create dist false in
+  let queue = Queue.create () in
+  let push p =
+    if not (PTbl.get in_queue p) then begin
+      Queue.push p queue;
+      PTbl.set in_queue p true
+    end
+  in
+  let add_dependency p q =
+    if debug_irrelevant () then
+      Format.eprintf "YY %a => %a@."
+        (Package.print_name dist) p (Package.print_name dist) q;
+    PTbl.set dependencies q (PSet.add p (PTbl.get dependencies q));
+    if not (PTbl.get considered q) then push q
+  in
+  let rec dequeue f =
+    try
+      let p = Queue.pop queue in
+      PTbl.set in_queue p false;
+      PTbl.set considered p true;
+      let changed = f p in
+      if changed then begin
+        let s = PTbl.get dependencies p in
+        PTbl.set dependencies p PSet.empty;
+        if PSet.mem p s then push p;
+        PSet.iter push s
+      end;
+      dequeue f
+    with Queue.Empty ->
+      ()
+  in
+  let check_all f =
+    PTbl.iteri (fun p c -> if not c then begin push p; dequeue f end)
+      considered
+  in
+  check_all
+    (fun p ->
+       let changed = ref false in
+       let f = PTbl.get deps p in
+       let count f = Formula.fold (fun _ n -> n + 1) f 0 in
+       PTbl.set deps p
+         (Formula.filter
+           (fun d ->
+             let remove =
+               PSet.cardinal (Disj.to_lits d) > 1 &&
+               not (PSetSet.mem (Disj.to_lits d) blacklist) &&
+               possibly_irrelevant confl deps d &&
+               not (is_composition add_dependency confl deps p d)
+             in
+             if remove then begin
+               changed := true;
+               PTbl.set removed_deps p
+                 (Formula.conj (PTbl.get removed_deps p) (Formula.of_disj d))
+             end;
+             not remove)
+           f);
+       if debug_irrelevant () then
+         Format.eprintf "XXX %a %b (%d %d)@."
+           (Package.print_name dist) p !changed
+           (count f) (count (PTbl.get deps p));
+       !changed);
+  (deps, removed_deps)
+
+let flatten_and_simplify ?(aggressive=false) dist deps0 confl =
   let confl = Conflict.copy confl in
 let t = Unix.gettimeofday () in
-  let deps = flatten_dependencies dist deps confl in
+  let deps = flatten_dependencies dist deps0 confl in
   let rec remove_conflicts deps =
     let (deps, changed) = remove_self_conflicts dist deps confl in
     remove_redundant_conflicts dist deps confl;
     let deps = flatten_dependencies dist deps confl in
-    if changed then
-      remove_conflicts deps
-    else
-      deps
+    if changed then remove_conflicts deps else deps
   in
   let deps =
     if aggressive then
       remove_conflicts deps
     else begin
       remove_redundant_conflicts dist deps confl;
-      remove_irrelevant_deps confl deps
+      remove_clearly_irrelevant_deps confl deps
     end
   in
 
-  let maybe_remove fd2 p f d =
-    Disj.exists (fun q ->
-      Conflict.for_all confl (fun r ->
-        Formula.exists (fun d' -> Disj.implies d' d && not (Disj.implies1 q d')) (PTbl.get fd2 r)) q
-(*
-&& (
-Format.eprintf "%a =>(%a) %a@." (Package.print_name dist) p (Package.print_name dist) q (Disj.print dist) d;
-true)
-*)
-) d
-  in
-  let compositions = ref PSetMap.empty in
-  let is_composition fd2 p f d =
-    Formula.exists
-      (fun d' ->
-         not (Disj.equiv d d') && not (Disj.equiv (Disj.lit p) d') &&
-         let f' =
-           try
-             PSetMap.find (Disj.to_lits d') !compositions
-           with Not_found ->
-             let f' =
-               Disj.fold
-                 (fun p f ->
-                    simplify_formula confl (Formula.disj (PTbl.get fd2 p) f))
-                 d' Formula._false
-             in
-             compositions := PSetMap.add (Disj.to_lits d') f' !compositions;
-             f'
-         in
-         Formula.exists (fun d'' -> Disj.implies d d'') f')
-      f
-  in
+  let rec try_remove_deps blacklist deps =
+    let (deps', removed_deps) =
+      remove_irrelevant_deps dist confl deps blacklist in
 
-  let rec remove_deps deps =
-    let changed = ref false in
-    compositions := PSetMap.empty;
-    let deps =
-      PTbl.mapi
-        (fun p f ->
-           Formula.filter (fun d ->
-(*if maybe_remove deps p f d then Format.printf ">>>> %a@." (Formula.print dist) f;*)
-             let remove =
-               maybe_remove deps p f d && not (is_composition deps p f d)
-             in
-             if remove then changed := true;
-             not remove) f)
-        deps
-    in
-    if !changed then remove_deps deps else deps
+    let problems = ref PSetSet.empty in
+    PTbl.iteri
+      (fun p f ->
+         if not (Formula.implies Formula._true f) then begin
+           Formula.iter (PTbl.get deps0 p)
+             (fun d' ->
+                Disj.iter d'
+                  (fun q ->
+                     Formula.iter (PTbl.get removed_deps q)
+                       (fun d'' ->
+                          if
+                            Formula.exists (fun d -> Disj.implies d'' d) f
+                          then begin
+                            problems :=
+                              PSetSet.add (Disj.to_lits d'') !problems;
+  (*
+      Format.eprintf "XXXX %a => %a => %a  (%a)@." (Package.print_name dist) p (Package.print_name dist) q (Disj.print dist) d''
+                            (Formula.print dist) f
+  *)
+                          end)))
+         end)
+      deps';
+
+    if PSetSet.is_empty !problems then
+      deps'
+    else
+      try_remove_deps (PSetSet.union blacklist !problems) deps
   in
 
-  let deps = remove_deps deps in
+  let t' = Unix.gettimeofday () in
+  let deps = try_remove_deps PSetSet.empty deps in
 
+  if debug_time () then
+    Format.eprintf "  Removing irrelevant deps: %fs@."
+      (Unix.gettimeofday () -. t');
   if debug_time () then
     Format.eprintf "Flattening: %fs@." (Unix.gettimeofday () -. t);
   (deps, confl)

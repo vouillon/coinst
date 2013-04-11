@@ -43,6 +43,7 @@ module type S = sig
     val iteri : (Package.t -> 'a -> unit) -> 'a t -> unit
     val map : ('a -> 'b) -> 'a t -> 'b t
     val mapi : (Package.t -> 'a -> 'b) -> 'a t -> 'b t
+    val copy : 'a t -> 'a t
   end
 
   module type DISJ = sig

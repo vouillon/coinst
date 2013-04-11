@@ -801,7 +801,7 @@ let analyze ?(check_new_packages = false) ignored_sets
     !new_conflicts;
 *)
   (* As a consequence, some new dependencies might not be relevant anymore. *)
-  let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
+  let deps2 = Coinst.remove_clearly_irrelevant_deps confl2' deps2 in
 
   (* Add self dependencies for packages with conflicts, as we want to
      consider them as well to find possible problems. *)
@@ -1512,7 +1512,7 @@ deps2;
   List.iter (fun (p2, q2) -> Conflict.remove confl2' p2 q2) !new_conflicts;
 *)
   (* As a consequence, some new dependencies might not be relevant anymore. *)
-  let deps2 = Coinst.remove_irrelevant_deps confl2' deps2 in
+  let deps2 = Coinst.remove_clearly_irrelevant_deps confl2' deps2 in
 
   (* Add self dependencies for packages with conflicts, as we want to
      consider them as well to find possible problems. *)

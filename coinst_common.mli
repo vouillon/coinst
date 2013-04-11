@@ -27,7 +27,7 @@ module F (M : Api.S) : sig
   val generate_rules :
     Quotient.t -> Formula.t PTbl.t -> Conflict.t -> M.Solver.state
 
-  val remove_irrelevant_deps :
+  val remove_clearly_irrelevant_deps :
     Conflict.t -> Formula.t PTbl.t -> Formula.t PTbl.t
   val flatten_and_simplify :
     ?aggressive:bool ->
