@@ -173,22 +173,26 @@ let slash = Str.regexp "/"
 let now = truncate ((Unix.time () /. 3600. -. 15.) /. 24.)
 
 let read_package_info file f =
-  let ch = open_in file in
   let h = StringTbl.create 32768 in
-  begin try
-    while true do
-      let l = input_line ch in
-      match Str.split whitespaces l with
-        [name; version; info] ->
-          let version = Deb_lib.parse_version version in
-          StringTbl.add h name (version, f info)
-      | [] ->
-          ()
-      | _ ->
-          assert false
-    done;
-  with End_of_file -> () end;
-  close_in ch;
+  if not (Sys.file_exists file) then
+    Util.print_warning (Format.sprintf "file '%s' not found." file)
+  else begin
+    let ch = open_in file in
+    begin try
+      while true do
+	let l = input_line ch in
+	match Str.split whitespaces l with
+	  [name; version; info] ->
+	    let version = Deb_lib.parse_version version in
+	    StringTbl.add h name (version, f info)
+	| [] ->
+	    ()
+	| _ ->
+	    assert false
+      done;
+    with End_of_file -> () end;
+    close_in ch
+  end;
   h
 
 let read_dates file =
@@ -202,21 +206,25 @@ let read_urgencies file =
          (fun () -> read_package_info file urgency_delay))
 
 let read_bugs file =
-  let ch = open_in file in
   let h = StringTbl.create 4096 in
-  begin try
-    while true do
-      let l = input_line ch in
-      match Str.split whitespaces l with
-        [name; bugs] ->
-          StringTbl.add h name
-            (List.fold_right StringSet.add
-               (Str.split comma bugs) StringSet.empty)
-      | _ ->
-          assert false
-    done;
-  with End_of_file -> () end;
-  close_in ch;
+  if not (Sys.file_exists file) then
+    Util.print_warning (Format.sprintf "file '%s' not found." file)
+  else begin
+    let ch = open_in file in
+    begin try
+      while true do
+	let l = input_line ch in
+	match Str.split whitespaces l with
+	  [name; bugs] ->
+	    StringTbl.add h name
+	      (List.fold_right StringSet.add
+		 (Str.split comma bugs) StringSet.empty)
+	| _ ->
+	    assert false
+      done;
+    with End_of_file -> () end;
+    close_in ch
+  end;
   h
 
 type hint =
