@@ -445,6 +445,18 @@ let load_src_packages suite =
   close_in ch;
   M.src_only_latest dist
 
+let has_bin_packages arch =
+  Sys.file_exists (bin_package_file (testing ()) arch)
+
+let filter_architectures () =
+  if !dir <> "" then begin
+    archs := List.filter has_bin_packages !archs;
+    if !archs = [] then begin
+      Format.eprintf "No binary package control file found.@.";
+      exit 1
+    end
+  end
+
 (**** Possible reasons for a package not to be upgraded ****)
 
 type reason =
@@ -2552,6 +2564,7 @@ let print_equivocal_packages uids solver id_of_source id_offsets t u l =
 
 let f () =
   Util.enable_messages false;
+  filter_architectures ();
   let (dates, urgencies, hints, t, u, testing_bugs, unstable_bugs, l,
        id_of_source, source_of_id, src_uid) as info =
     load_all_files () in
