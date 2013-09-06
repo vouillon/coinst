@@ -1594,6 +1594,11 @@ let arch_constraints
        then
          assume id Unchanged
        else begin
+         let taken_over =
+           match M.find_packages_by_name u' p.M.package with
+             p :: _ -> nm <> fst (p.M.source)
+           | []     -> false
+         in
          (* Binary packages without source of the same version can
             be removed freely when not needed anymore (these are
             binaries left for smooth update).
@@ -1601,7 +1606,10 @@ let arch_constraints
             we have no way to communicate the change to britney... *)
          if not (compute_hints ()) && M.compare_version v v' <> 0 then
            ()
-         (* We cannot remove a binary without removing its source. *)
+         (* No constraint when the source package changes *)
+         else if taken_over then
+           ()
+         (* We cannot remove a binary without removing its source *)
          else if source_changed then
            implies (source_id p) id Source_not_propagated
          else
@@ -1611,6 +1619,10 @@ let arch_constraints
           corresponding binary package still exists.
           We relax this constraint for libraries when upgrading
           a source package. *)
+       (* We only generate a constraint when the source has changed
+          (or to link the source package to the binary package when
+           producing excuses). Indeed, otherwise, the constraint
+          is redundant. *)
        if
          (source_changed || produce_excuses)
            &&
