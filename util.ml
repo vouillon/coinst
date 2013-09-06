@@ -88,7 +88,7 @@ module StringSet = Set.Make (String)
 module ListTbl = struct
   type ('a, 'b) t = ('a, 'b list ref) Hashtbl.t
 
-  let create = Hashtbl.create
+  let create : int -> ('a, 'b) t = Hashtbl.create
 
   let add h n p =
     try
