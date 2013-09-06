@@ -1018,7 +1018,8 @@ if debug_coinst () then M.show_reasons dist2 r;
 
 (****)
 
-let get_clearly_broken_packages dist1_state dist dist2_state forced_pkgs =
+let get_clearly_broken_packages
+          dist1_state dist dist2_state can_break_package =
   let t = Timer.start () in
   let unsat_dep d =
     not (List.exists (fun cstr -> M.dep_can_be_satisfied dist cstr) d) in
@@ -1040,10 +1041,7 @@ let get_clearly_broken_packages dist1_state dist dist2_state forced_pkgs =
          List.filter unsat_dep p.M.depends @
          List.filter unsat_dep p.M.pre_depends
        in
-       if
-         not (StringSet.mem p.M.package forced_pkgs) &&
-         l <> [] && was_installable p
-       then begin
+       if not (can_break_package p) && l <> [] && was_installable p then begin
          List.iter
            (fun d ->
               if debug_coinst () then
@@ -1069,7 +1067,7 @@ let get_clearly_broken_packages dist1_state dist dist2_state forced_pkgs =
   if debug_time () then Format.eprintf "  Clearly broken: %f@." (Timer.stop t);
   !problems
 
-let analyze_installability dist1_state dist dist2_state forced_pkgs =
+let analyze_installability dist1_state dist dist2_state can_break_package =
   let t = Timer.start () in
   let (deps, confl) = Coinst.compute_dependencies_and_conflicts dist in
   if debug_time () then
@@ -1111,8 +1109,7 @@ let analyze_installability dist1_state dist dist2_state forced_pkgs =
          not (Formula.implies Formula._true f) &&
          (Formula.implies f Formula._false ||
           Formula.fold (fun _ n -> n + 1) f 0 > 1) &&
-         not (StringSet.mem (M.package_name dist (Package.index p))
-                forced_pkgs)
+         not (can_break_package (M.find_package_by_num dist (Package.index p)))
        then
          add_package p f)
     deps';
@@ -1166,8 +1163,14 @@ let find_problematic_packages
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
   let forced_pkgs = forced_packages ignored_sets in
+  let can_break_package p =
+(*
+    (break_arch_all && p.M.architecture = "all")
+      ||
+*)
+    StringSet.mem p.M.package forced_pkgs in
   let problems =
-    get_clearly_broken_packages dist1_state dist2 dist2_state forced_pkgs
+    get_clearly_broken_packages dist1_state dist2 dist2_state can_break_package
   in
   if
     List.exists (fun p -> StringSet.cardinal p.p_clause.pos = 1)
@@ -1201,7 +1204,7 @@ let find_problematic_packages
   problems
 
 let find_non_inst_packages
-      ignored_sets dist1_state dist2_state is_preserved =
+      break_arch_all ignored_sets dist1_state dist2_state is_preserved =
   let t = Timer.start () in
   let dist = M.new_pool () in
   M.merge dist (fun p -> not (is_preserved p.M.package)) dist2_state.dist;
@@ -1209,8 +1212,14 @@ let find_non_inst_packages
   if debug_time () then
     Format.eprintf "  Building target dist: %f@." (Timer.stop t);
   let forced_pkgs = forced_packages ignored_sets in
+  let can_break_package p =
+    (break_arch_all && p.M.architecture = "all")
+      ||
+    StringSet.mem p.M.package forced_pkgs
+  in
   let problems =
-    get_clearly_broken_packages dist1_state dist dist2_state forced_pkgs in
+    get_clearly_broken_packages dist1_state dist dist2_state
+      can_break_package in
   if
     List.exists (fun p -> StringSet.cardinal p.p_clause.pos = 1)
       problems
@@ -1218,7 +1227,7 @@ let find_non_inst_packages
     problems
   else begin
     let problems =
-      analyze_installability dist1_state dist dist2_state forced_pkgs in
+      analyze_installability dist1_state dist dist2_state can_break_package in
     if debug_coinst () then
       Format.eprintf ">>> %a@."
         (Util.print_list (fun ch p -> print_clause ch p.p_clause) ", ")

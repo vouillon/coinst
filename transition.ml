@@ -654,7 +654,8 @@ type st =
     id_of_source : HornSolver.var StringTbl.t;
     mutable upgrade_state :
       (Upgrade_common.state * Upgrade_common.state) option;
-    uid : string }
+    uid : string;
+    mutable break_arch_all : bool }
 
 (**** Misc. useful functions ****)
 
@@ -1063,6 +1064,12 @@ let compute_reverse_dependencies st d id_tbl =
   rdeps
 
 let reduce_for_installability st unchanged =
+  (* We only keep:
+     1) packages that have changed,
+     2) packages that depend on these changed packages
+        (if arch:all packages are allowed to break, we omit them here),
+     3) as well as all the packages they depend on.
+  *)
   let t = st.testing in
   let u = st.unstable in
   let d = M.new_pool () in
@@ -1108,7 +1115,18 @@ let reduce_for_installability st unchanged =
            l)
       deps
   in
-  StringTbl.iter (fun nm _ -> add_package nm) predecessors;
+  let arch_all_package_2 d nm =
+    match M.find_packages_by_name d nm with
+      []  -> true
+    | [p] -> p.M.architecture = "all"
+    | l   -> assert false
+  in
+  let arch_all_package nm =
+    arch_all_package_2 t nm && arch_all_package_2 u nm in
+  StringTbl.iter
+    (fun nm _ ->
+       if not (st.break_arch_all && arch_all_package nm) then add_package nm)
+    predecessors;
   pkgs
 
 let compute_conflicts t u =
@@ -1183,7 +1201,7 @@ let reduce_for_coinstallability st unchanged =
      issues, should be kept as well. *)
   let break_candidates = Upgrade_common.ignored_set_domain broken_sets in
   let stronger_deps l =
-    (* Check whether there is a package that satisfies the dependency,
+    (* Check whether there is a package that satisfied the dependency,
        that might not satisfy the dependency anymore. *)
     List.exists
       (fun d ->
@@ -1191,8 +1209,6 @@ let reduce_for_coinstallability st unchanged =
            (fun cstr ->
               List.exists
                 (fun p ->
-                   StringSet.mem p.M.package break_candidates
-                     ||
                    (* If the package is left unchanged, the dependency
                       will remain satisfied *)
                    (StringTbl.mem changed_packages p.M.package &&
@@ -1206,6 +1222,10 @@ let reduce_for_coinstallability st unchanged =
                       d))
                 (M.resolve_package_dep_raw t cstr)
                    ||
+              (* Also include packages that depend on a break candidate;
+                 we have checked that the dependency over packages in t
+                 is included in the dependency over packages in u, hence
+                 we only have to look in u *)
               (not (StringSet.is_empty break_candidates)
                  &&
                List.exists
@@ -1336,7 +1356,8 @@ let load_arch arch
     outdated_binaries = [];
     first_bin_id = first_id; id_of_bin = id_of_bin; bin_of_id = bin_of_id;
     id_of_source = id_of_source;
-    upgrade_state = None; uid = uid }
+    upgrade_state = None; uid = uid;
+    break_arch_all = false (* dummy value *) }
 
 let load_all_files () =
   let load_t = Timer.start () in
@@ -1407,7 +1428,10 @@ let remove_sources central remove_hints t u =
 
 
 let arch_constraints
-      st (produce_excuses, fucked_arch, break_arch, remove_hints) =
+      st (produce_excuses, fucked_arch, break_arch,
+          break_arch_all, remove_hints) =
+  st.break_arch_all <- break_arch_all;
+
   let t = st.testing_srcs in
   let u = st.unstable_srcs in
   let t' = st.testing in
@@ -1760,9 +1784,16 @@ let initial_constraints
            List.mem arch
              (try Hashtbl.find options "BREAK_ARCHES" with Not_found -> [])
          in
+         let break_arch_all =
+           not (List.mem arch
+                  (try
+                     Hashtbl.find options "NOBREAKALL_ARCHES"
+                   with Not_found -> []))
+         in
          (arch,
           arch_constraints t
-            (produce_excuses, fucked_arch, break_arch, hints.h_remove)))
+            (produce_excuses, fucked_arch, break_arch, break_arch_all,
+             hints.h_remove)))
       l
   in
   StringTbl.iter
@@ -1921,7 +1952,7 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
         ~check_new_packages:true broken_sets t' u'
         (fun nm -> is_unchanged st unchanged nm)
     else
-      Upgrade_common.find_non_inst_packages
+      Upgrade_common.find_non_inst_packages st.break_arch_all
         broken_sets t' u' (fun nm -> is_unchanged st unchanged nm)
   in
   let t = Timer.start () in

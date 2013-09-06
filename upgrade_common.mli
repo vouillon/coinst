@@ -56,7 +56,7 @@ val find_problematic_packages :
   state -> state -> (string -> bool) -> problem list
 
 val find_non_inst_packages :
-  ignored_sets -> state -> state -> (string -> bool) -> problem list
+  bool -> ignored_sets -> state -> state -> (string -> bool) -> problem list
 
 val find_clusters :
   state -> state -> (string -> bool) ->
