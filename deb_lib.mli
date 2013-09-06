@@ -74,7 +74,8 @@ val compare_version : version -> version -> int
 type s =
   { mutable s_name : string;
     mutable s_version : version;
-    mutable s_section : string }
+    mutable s_section : string;
+    mutable s_extra_source : bool }
 
 type s_pool =
   { mutable s_size : int;

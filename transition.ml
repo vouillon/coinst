@@ -1496,7 +1496,8 @@ let arch_constraints
        (* Faux packages *)
        if not (StringTbl.mem u.M.s_packages nm) then begin
          StringTbl.add u.M.s_packages nm
-           { M.s_name = nm; s_version = v; s_section = "" };
+           { M.s_name = nm; s_version = v; s_section = "";
+             s_extra_source = false };
          fake_srcs := (nm, v) :: !fake_srcs;
          StringTbl.add is_fake nm ();
          StringTbl.add st.id_of_source nm !last_id;
@@ -1573,7 +1574,8 @@ let arch_constraints
          assert
            (not (StringTbl.mem u.M.s_packages nm) || StringTbl.mem is_fake nm);
          StringTbl.add t.M.s_packages nm
-           { M.s_name = nm; s_version = v; s_section = "" };
+           { M.s_name = nm; s_version = v; s_section = "";
+             s_extra_source = false };
          fake_srcs := (nm, v) :: !fake_srcs;
          StringTbl.add is_fake nm ();
          StringTbl.add st.id_of_source nm !last_id;
@@ -1894,7 +1896,8 @@ let initial_constraints
                 StringTbl.add id_of_source nm !last_id;
                 incr last_id;
                 StringTbl.add t.M.s_packages nm
-                  { M.s_name = nm; s_version = v; s_section = "" };
+                  { M.s_name = nm; s_version = v; s_section = "";
+                    s_extra_source = false };
               end;
               Hashtbl.add id_of_fake !cur_id (StringTbl.find is_fake nm);
               incr cur_id)

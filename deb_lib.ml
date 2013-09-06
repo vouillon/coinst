@@ -615,7 +615,8 @@ let parse_packages pool ignored_packages ch =
 type s =
   { mutable s_name : string;
     mutable s_version : version;
-    mutable s_section : string }
+    mutable s_section : string;
+    mutable s_extra_source : bool }
 
 type s_pool =
   { mutable s_size : int;
@@ -629,7 +630,8 @@ let parse_src_packages pool ch =
   let st = from_channel ch in
   let start () =
     Common.parsing_tick info;
-    { s_name = " "; s_version = dummy_version; s_section = "unknown" }
+    { s_name = " "; s_version = dummy_version; s_section = "unknown";
+      s_extra_source = false }
   in
   let field q f st =
     match f with
@@ -637,6 +639,9 @@ let parse_src_packages pool ch =
     | "Version" -> q.s_version <- parse_version st; parse_field_end st; true
     | "Section" -> q.s_section <-
                      common_string (parse_simple_field_content st);
+                   true
+    | "Extra-Source-Only" ->
+                   q.s_extra_source <- parse_simple_field_content st = "yes";
                    true
     | _         -> false
   in
@@ -1106,9 +1111,11 @@ let src_only_latest h =
   StringTbl.iter
     (fun nm s ->
        try
-         let s' = StringTbl.find h'.s_packages nm in
-         if compare_version s.s_version s'.s_version > 0 then
-           StringTbl.replace h'.s_packages nm s
+         if not s.s_extra_source then begin
+           let s' = StringTbl.find h'.s_packages nm in
+           if compare_version s.s_version s'.s_version > 0 then
+             StringTbl.replace h'.s_packages nm s
+         end
        with Not_found ->
          StringTbl.add h'.s_packages nm s;
          h'.s_size <- h'.s_size + 1)
