@@ -1281,7 +1281,10 @@ let rec get_upgrade_state st unchanged check_coinstallability =
   | None       -> prepare_repository st unchanged check_coinstallability;
                   get_upgrade_state st unchanged check_coinstallability
 
-let clear_upgrade_state = Task.funct (fun st () -> st.upgrade_state <- None)
+let clear_upgrade_state_local st = st.upgrade_state <- None
+
+let clear_upgrade_state =
+  Task.funct (fun st () -> clear_upgrade_state_local st)
 
 let clear_upgrade_states l =
   Task.iter l (fun (arch, st) -> clear_upgrade_state st ()) (fun () -> ())
@@ -1949,9 +1952,40 @@ let initial_constraints
 
   (uids, solver, deferred_constraints, is_fake, id_offsets, get_name_arch)
 
+(**** Dealing with arch:all packages ****)
+
+let is_arch_all st unchanged nm =
+  let is_arch_all dist =
+    match M.find_packages_by_name dist nm with
+      [p] -> p.M.architecture = "all"
+    | _   -> assert false
+  in
+  if is_unchanged st unchanged nm then
+    is_arch_all st.testing
+  else
+    is_arch_all st.unstable
+
+let ignore_arch_all_issues st unchanged problems =
+  if st.break_arch_all then
+    List.partition
+      (fun p ->
+         not (StringSet.exists (fun nm -> is_arch_all st unchanged nm)
+                p.Upgrade_common.p_issue))
+      problems
+  else
+    (problems, [])
+
+let involved_arch_all_packages st unchanged problems =
+  List.fold_left
+    (fun s p ->
+       StringSet.union s
+         (StringSet.filter
+            (fun nm -> is_arch_all st unchanged nm) p.Upgrade_common.p_issue))
+    StringSet.empty problems
+
 (**** Find constraints due to co-installability issues ****)
 
-let find_coinst_constraints st (unchanged, check_coinstallability) =
+let rec find_coinst_constraints st (unchanged, check_coinstallability) =
   Gc.set { (Gc.get ()) with Gc.space_overhead = 80 };
   if debug_gc () then begin
     Gc.full_major (); Gc.print_stat stderr; flush stderr
@@ -1971,6 +2005,8 @@ let find_coinst_constraints st (unchanged, check_coinstallability) =
         broken_sets t' u' (fun nm -> is_unchanged st unchanged nm)
   in
   let t = Timer.start () in
+  let (problems, arch_all_issues) =
+    ignore_arch_all_issues st unchanged problems in
   let is_singleton pos =
     StringSet.cardinal pos = 1
       ||
@@ -2029,7 +2065,19 @@ end;
     Format.eprintf "  New constraints: %f@." (Timer.stop t);
     Format.eprintf "Step duration: %f@." (Timer.stop step_t)
   end;
-  List.rev !changes
+  if !changes = [] && arch_all_issues <> [] then begin
+    let s = involved_arch_all_packages st unchanged arch_all_issues in
+    if debug_coinst () then begin
+      Format.eprintf "Ignoring arch:all packages:";
+      StringSet.iter (fun nm -> Format.eprintf " %s" nm) s;
+      Format.eprintf "@."
+    end;
+    StringSet.iter
+      (fun nm -> Upgrade_common.allow_broken_sets broken_sets nm) s;
+    clear_upgrade_state_local st;
+    find_coinst_constraints st (unchanged, check_coinstallability)
+  end else
+    List.rev !changes
 
 let find_coinst_constraints = Task.funct find_coinst_constraints
 
