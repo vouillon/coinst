@@ -1608,14 +1608,15 @@ let arch_constraints
             be removed freely when not needed anymore (these are
             binaries left for smooth update).
             However, when producing hints, we do not allow this, as
-            we have no way to communicate the change to britney... *)
+            we have no way to communicate the change to britney...
+            Still, below, we do not consider them as bin nmus *)
          if not (compute_hints ()) && M.compare_version v v' <> 0 then
            ()
          (* No constraint when the source package changes *)
          else if taken_over then
            ()
          (* We cannot remove a binary without removing its source *)
-         else if source_changed then
+         else if source_changed || M.compare_version v v' <> 0 then
            implies (source_id p) id Source_not_propagated
          else
            ListTbl.add bin_nmus nm id
