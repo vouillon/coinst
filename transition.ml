@@ -1606,19 +1606,16 @@ let arch_constraints
          in
          (* Binary packages without source of the same version can
             be removed freely when not needed anymore (these are
-            binaries left for smooth update).
-            However, when producing hints, we do not allow this, as
-            we have no way to communicate the change to britney...
-            Still, below, we do not consider them as bin nmus *)
-         if not (compute_hints ()) && M.compare_version v v' <> 0 then
-           ()
-         (* No constraint when the source package changes *)
-         else if taken_over then
+            binaries left for smooth update). *)
+         (* They can be updated freely when the source package changes *)
+         if M.compare_version v v' <> 0  || taken_over then
            ()
          (* We cannot remove a binary without removing its source *)
-         else if source_changed || M.compare_version v v' <> 0 then
+         else if source_changed then
            implies (source_id p) id Source_not_propagated
          else
+         (* We can update binaries when the source is unchanged (Bin NMUs),
+            but only atomically. *)
            ListTbl.add bin_nmus nm id
        end;
        (* We cannot remove or upgrade a source package if a
@@ -2281,7 +2278,7 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
   >> List.sort (Util.compare_list compare_elt)
   >> List.stable_sort (fun l l' -> compare (List.length l) (List.length l'))
 
-let collect_changes st (unchanged, subset) =
+let collect_changes st (unchanged, subset, src_unchanged) =
   let changes = ref [] in
   let u' = st.unstable in
   let t' = st.testing in
@@ -2292,15 +2289,36 @@ let collect_changes st (unchanged, subset) =
          let (src, v) = p.M.source in
          changes := (src, nm, is_unchanged st subset nm) :: !changes
        end);
+  let src_is_unchanged src =
+    BitVect.test src_unchanged (StringTbl.find st.id_of_source src) in
   M.iter_packages t'
     (fun p ->
        let nm = p.M.package in
        if
          not (is_unchanged st unchanged nm)
            &&
-         not (M.has_package_of_name u' nm)
+         (* Do not include a binary package twice,
+            except when it source is different in testing and sid,
+            and migrates in testing *)
+         not (match M.find_packages_by_name u' nm with
+                p' :: _ -> fst (p'.M.source) = fst (p.M.source)
+                             ||
+                           src_is_unchanged (fst p.M.source)
+              | []      -> false)
        then begin
          let (src, v) = p.M.source in
+         let smooth_update =
+           M.compare_version v
+             (StringTbl.find st.testing_srcs.M.s_packages src).M.s_version <> 0
+         in
+         let src =
+           if smooth_update then begin
+             let b = Buffer.create 20 in
+             Format.bprintf b "-%s/%s/%a" nm st.arch M.print_version v;
+             Buffer.contents b
+           end else
+             src
+         in
          changes := (src, nm, is_unchanged st subset nm) :: !changes
        end);
   List.rev !changes
@@ -2318,7 +2336,8 @@ let generate_hints
        (arch,
         collect_changes st
           (extract_unchanged_bin solver id_offsets arch unchanged,
-           extract_unchanged_bin solver id_offsets arch subset)))
+           extract_unchanged_bin solver id_offsets arch subset,
+           unchanged)))
     (fun arch lst ->
        List.iter
          (fun (src, nm, hide) -> ListTbl.add changes src ((nm, arch), hide))
@@ -2328,7 +2347,7 @@ let generate_hints
     BitVect.test unchanged (StringTbl.find id_of_source src) in
   ListTbl.iter
     (fun src l ->
-       if not (is_unchanged src) then
+       if src.[0] <> '-' && not (is_unchanged src) then
          List.iter
            (fun info -> ListTbl.add buckets (src, "source") info)
            l
@@ -2342,7 +2361,10 @@ let generate_hints
     generate_small_hints solver id_offsets l buckets subset_opt in
   if debug_time () then
     Format.eprintf "Generating hints: %f@." (Timer.stop hint_t);
+  let is_smooth_update src = src.[0] = '-' in
   let print_pkg f src arch =
+    (* We are removing a binary package subject to smooth update. *)
+    if is_smooth_update src then Format.fprintf f " %s" src else
     try
       let vers = (StringTbl.find u.M.s_packages src).M.s_version in
       if arch = "source" then begin
@@ -2367,9 +2389,22 @@ let generate_hints
       | None     -> true
     in
     if should_show then begin
-      Format.fprintf f "easy";
-      List.iter (fun (src, arch) -> print_pkg f src arch) l;
-      Format.fprintf f "@."
+      let (su, gen) =
+        List.partition (fun (src, arch) -> is_smooth_update src) l in
+      if gen <> [] then begin
+        Format.fprintf f "easy";
+        List.iter (fun (src, arch) -> print_pkg f src arch) gen;
+        Format.fprintf f "@.";
+        if su <> [] then begin
+          Format.fprintf f "#   ";
+          List.iter (fun (src, arch) -> print_pkg f src arch) su;
+          Format.fprintf f "@."
+        end
+      end else begin
+        Format.fprintf f "#easy";
+        List.iter (fun (src, arch) -> print_pkg f src arch) su;
+        Format.fprintf f "@."
+      end
     end
   in
   let print_hints f =
