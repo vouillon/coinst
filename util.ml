@@ -79,8 +79,10 @@ module Utimer = struct
   let stop t = start () -. t
 end
 
-module IntSet =
+module IntSet = Ptset
+(*
   Set.Make (struct type t = int let compare x (y : int) = compare x y end)
+*)
 module StringSet = Set.Make (String)
 
 (****)

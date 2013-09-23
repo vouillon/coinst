@@ -53,6 +53,9 @@ layout.cmx : layout.cmi
 layout.cmi :
 parallel.cmo : task.cmi file.cmi deb_lib.cmi
 parallel.cmx : task.cmx file.cmx deb_lib.cmx
+ptset.cmo : ptset.cmi
+ptset.cmx : ptset.cmi
+ptset.cmi :
 quotient.cmo : util.cmi repository.cmi formula.cmo quotient.cmi
 quotient.cmx : util.cmx repository.cmx formula.cmx quotient.cmi
 quotient.cmi : repository.cmi formula.cmo

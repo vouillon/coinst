@@ -13,7 +13,7 @@ TASK = bytearray_stubs.o bytearray.cmx task_stubs.o task.cmx
 SVG=viewer/scene.cmx viewer/dot_parser.cmx viewer/dot_lexer.cmx \
     viewer/dot_graph.cmx viewer/dot_render.cmx viewer/scene_svg.cmx \
     viewer/dot_file.cmx
-OBJS = util.cmx file.cmx debug.cmx common.cmx cache.cmx layout.cmx \
+OBJS = ptset.cmx util.cmx file.cmx debug.cmx common.cmx cache.cmx layout.cmx \
        solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx \
        repository.cmx quotient.cmx conflicts.cmx graph.cmx coinst_common.cmx
 COMPFLAGS=-package unix,str,bigarray,cudf -g -I viewer
