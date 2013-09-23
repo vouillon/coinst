@@ -637,7 +637,7 @@ let load_rules solver uids =
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  ignore (Cache.cached ~force:true [] cache ("version 6\n" ^ uids)
+  ignore (Cache.cached ~force:true [] cache ("version 7\n" ^ uids)
             (fun () -> List.rev !learnt_rules))
 
 (**** Global state for per-architecture processes ****)
