@@ -99,7 +99,7 @@ let simplify_formula confl f =
   Formula.filter (fun d -> not_clearly_irrelevant confl d) f
 
 type flatten_data = {
-  f_tbl : (Package.t, Formula.t) Hashtbl.t;
+  f_computed : bool PTbl.t; f_flatten_deps : dependencies;
   f_dist : pool; f_deps : dependencies; f_confl : Conflict.t }
 
 let rec flatten_deps data visited l =
@@ -121,9 +121,9 @@ sample (fun () -> Format.eprintf "(2) %a@." (Formula.print data.f_dist) l);
 
 and flatten_dep data visited i =
 let res =
-  try
-    (Hashtbl.find data.f_tbl i, PSet.empty)
-  with Not_found ->
+  if PTbl.get data.f_computed i then
+    (PTbl.get data.f_flatten_deps i, PSet.empty)
+  else
     let res =
       if List.mem i visited then
         (Formula._true, PSet.singleton i)
@@ -139,7 +139,10 @@ let res =
       end
     in
     (* Only cache the result if it is unconditionally true *)
-    if PSet.is_empty (snd res) then Hashtbl.add data.f_tbl i (fst res);
+    if PSet.is_empty (snd res) then begin
+      PTbl.set data.f_flatten_deps i (fst res);
+      PTbl.set data.f_computed i true
+    end;
     res
 in
 (*
@@ -149,10 +152,12 @@ res
 
 let flatten_dependencies dist deps confl =
   let data =
-    { f_tbl = Hashtbl.create 17; f_dist = dist;
-      f_deps = deps; f_confl = confl }
+    { f_flatten_deps = PTbl.create dist Formula._true;
+      f_computed = PTbl.create dist false;
+      f_dist = dist; f_deps = deps; f_confl = confl }
   in
-  PTbl.init dist (fun p -> fst (flatten_dep data [] p))
+  PTbl.iteri (fun p _ -> ignore (flatten_dep data [] p)) data.f_computed;
+  data.f_flatten_deps
 
 (****)
 

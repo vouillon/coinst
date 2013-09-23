@@ -18,16 +18,17 @@
  *)
 
 type rel
+type package_name
 type version
-type dep = (string * (rel * version) option) list
-type deps = dep list
+type 'a dep = ('a * (rel * version) option) list
+type deps = package_name dep list
 type deb_reason =
-    R_conflict of int * int * (int * dep) option
-  | R_depends of int * dep
+    R_conflict of int * int * (int * package_name dep) option
+  | R_depends of int * package_name dep
 
 type p =
   { mutable num : int;
-    mutable package : string;
+    mutable package : package_name;
     mutable version : version;
     mutable source : string * version;
     mutable section : string;
@@ -46,19 +47,32 @@ type deb_pool
 
 include Api.S with type reason = deb_reason and type pool = deb_pool
 
+module Dict : sig type t end
+val name_of_id : package_name -> string
+val id_of_name : string -> package_name
+val add_name : string -> package_name
+val set_dict : Dict.t -> unit
+val current_dict : unit -> Dict.t
+
+module PkgTbl : Hashtbl.S with type key = package_name
+module PkgSet : Set.S with type elt = package_name
+
 val find_package_by_num : pool -> int -> p
-val find_packages_by_name : pool -> string -> p list
-val has_package_of_name : pool -> string -> bool
-val find_provided_packages : pool -> string -> p list
+val find_packages_by_name : pool -> package_name -> p list
+val has_package_of_name : pool -> package_name -> bool
+val find_provided_packages : pool -> package_name -> p list
 val iter_packages : pool -> (p -> unit) -> unit
-val iter_packages_by_name : pool -> (string -> p list -> unit) -> unit
+val iter_packages_by_name : pool -> (package_name -> p list -> unit) -> unit
 val pool_size : pool -> int
 
 val package_name : pool -> int -> string
 
-val resolve_package_dep : pool -> string * (rel * version) option -> int list
-val resolve_package_dep_raw : pool -> string * (rel * version) option -> p list
-val dep_can_be_satisfied : pool -> string * (rel * version) option -> bool
+val resolve_package_dep :
+  pool -> package_name * (rel * version) option -> int list
+val resolve_package_dep_raw :
+  pool -> package_name * (rel * version) option -> p list
+val dep_can_be_satisfied :
+  pool -> package_name * (rel * version) option -> bool
 
 val copy : pool -> pool
 val merge : pool -> (p -> bool) -> pool -> unit
@@ -87,4 +101,4 @@ val src_only_latest : s_pool -> s_pool
 
 val generate_rules_restricted : pool -> Util.IntSet.t -> Solver.state
 
-val print_package_dependency : Format.formatter -> deps -> unit
+val print_package_dependency : Format.formatter -> string dep list -> unit

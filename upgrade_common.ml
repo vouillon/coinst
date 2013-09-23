@@ -46,14 +46,18 @@ module Timer = Util.Timer
 
 (****)
 
-type ignored_sets = (Util.StringSet.t list * bool) list ref
+type ignored_sets = (StringSet.t list * bool) list ref
 
 type ignored_sets_2 = (PSet.t list * bool) list
 
 let ignored_set_domain l =
   List.fold_left
-    (fun s (l, ext) -> List.fold_left StringSet.union s l)
-    StringSet.empty !l
+    (fun s (l, ext) ->
+       List.fold_left
+         (fun s s' ->
+            StringSet.fold (fun nm s -> M.PkgSet.add (M.id_of_name nm) s) s' s)
+         s l)
+    M.PkgSet.empty !l
 
 let forced_packages l =
   List.fold_left
@@ -319,8 +323,8 @@ type state =
 
 type pkg_ref = string * bool * bool
 type reason =
-    R_depends of pkg_ref * M.dep * pkg_ref list
-  | R_conflict of pkg_ref * M.dep * pkg_ref
+    R_depends of pkg_ref * string M.dep * pkg_ref list
+  | R_conflict of pkg_ref * string M.dep * pkg_ref
 type clause = { pos : StringSet.t; neg : StringSet.t }
 
 let print_clause ch clause =
@@ -336,24 +340,27 @@ let problematic_packages dist1 dist dist2 reasons =
     List.fold_left
       (fun s cstr ->
          List.fold_left
-           (fun s p -> StringSet.add p.M.package s)
+           (fun s p -> StringSet.add (M.name_of_id p.M.package) s)
            s (M.resolve_package_dep_raw dist cstr))
       StringSet.empty l
   in
+  let extern_deps l =
+    List.map (fun (id, rel) -> (M.name_of_id id, rel)) l in
   let (s1, s2, lst) =
     List.fold_left
       (fun (s1, s2, lst) r ->
          match r with
            M.R_depends (n, l) ->
              let p = M.find_package_by_num dist n in
-             let nm = p.M.package in
+             let id = p.M.package in
+             let nm = M.name_of_id id in
              let d = resolve_dep dist l in
              let d1 = resolve_dep dist1 l in
              let d2 = resolve_dep dist2 l in
              let s1 = StringSet.union (StringSet.diff d1 d) s1 in
              let s2 = StringSet.union (StringSet.diff d2 d) s2 in
              let unchanged_dep dist =
-               match M.find_packages_by_name dist nm with
+               match M.find_packages_by_name dist id with
                  [] ->
                    false
                | [q] ->
@@ -382,7 +389,7 @@ let problematic_packages dist1 dist dist2 reasons =
              let d12 = StringSet.union d1 d2 in
              let other_deps u dist old lst =
                if u then lst else
-               match M.find_packages_by_name dist nm with
+               match M.find_packages_by_name dist id with
                  [] ->
                    lst
                | [q] ->
@@ -395,7 +402,8 @@ let problematic_packages dist1 dist dist2 reasons =
                             &&
                           StringSet.subset d2' d12
                         then
-                          R_depends ((nm, old, not old), l', pkgs d1' d2') :: lst
+                          R_depends ((nm, old, not old), extern_deps l',
+                                     pkgs d1' d2') :: lst
                         else
                           lst)
                      lst (q.M.pre_depends @ q.M.depends)
@@ -404,13 +412,15 @@ let problematic_packages dist1 dist dist2 reasons =
              in
              let lst = other_deps u1 dist1 true lst in
              let lst = other_deps u2 dist2 false lst in
-             (s1, s2, R_depends ((nm, u1, u2), l, pkgs d1 d2) :: lst)
+             (s1, s2,
+              R_depends ((nm, u1, u2), extern_deps l, pkgs d1 d2) :: lst)
          | M.R_conflict (j, k, Some (i, l)) ->
              let i' = if i = j then k else j in
              let p = M.find_package_by_num dist i in
              let p' = M.find_package_by_num dist i' in
-             let nm = p.M.package in
-             let nm' = p'.M.package in
+             let id = p.M.package in
+             let nm = M.name_of_id id in
+             let nm' = M.name_of_id p'.M.package in
              let c1 = resolve_dep dist1 l in
              let c2 = resolve_dep dist2 l in
              let u1' = StringSet.mem nm' c1 in
@@ -418,7 +428,7 @@ let problematic_packages dist1 dist dist2 reasons =
              let u2' = StringSet.mem nm' c2 in
              let s2 = if u2' then s2 else StringSet.add nm' s2 in
              let unchanged_cfl dist =
-               match M.find_packages_by_name dist nm with
+               match M.find_packages_by_name dist id with
                  [] ->
                    false
                | [q] ->
@@ -438,7 +448,8 @@ Format.eprintf "%s ## %s (%a): %b %b %b %b@." nm nm' M.print_package_dependency 
              let u2 = unchanged_cfl dist2 in
              let s1 = if u1 then s1 else StringSet.add nm s1 in
              let s2 = if u2 then s2 else StringSet.add nm s2 in
-             (s1, s2, R_conflict ((nm, u1, u2), l, (nm', u1', u2')) :: lst)
+             (s1, s2,
+              R_conflict ((nm, u1, u2), extern_deps l, (nm', u1', u2')) :: lst)
          | M.R_conflict (_, _, None) ->
              assert false)
       (StringSet.empty, StringSet.empty, []) reasons
@@ -456,8 +467,10 @@ let compute_support dist1 dist2 reasons =
      StringSet.empty reasons
   in
   (support,
-   StringSet.filter (M.has_package_of_name dist1) support,
-   StringSet.filter (M.has_package_of_name dist2) support)
+   StringSet.filter
+     (fun nm -> M.has_package_of_name dist1 (M.id_of_name nm)) support,
+   StringSet.filter
+     (fun nm -> M.has_package_of_name dist2 (M.id_of_name nm)) support)
 
 let problematic_packages dist1 dist dist2 s reasons =
   let (clause, reasons) = problematic_packages dist1 dist dist2 reasons in
@@ -473,12 +486,13 @@ let problematic_packages dist1 dist dist2 s reasons =
   PSet.iter
     (fun p ->
        let p = M.find_package_by_num dist (Package.index p) in
-       Hashtbl.add conflict p.M.package ())
+       Hashtbl.add conflict (M.name_of_id p.M.package) ())
     s;
 
   let in_testing nm =
     match
-      M.find_packages_by_name dist1 nm, M.find_packages_by_name dist nm
+      M.find_packages_by_name dist1 (M.id_of_name nm),
+      M.find_packages_by_name dist (M.id_of_name nm)
     with
       [p1], [p] -> M.compare_version p1.M.version p.M.version = 0
     | [], []    -> true
@@ -1043,17 +1057,21 @@ let get_clearly_broken_packages
        if not (can_break_package p) && l <> [] && was_installable p then begin
          List.iter
            (fun d ->
-              if debug_coinst () then
+              if debug_coinst () then begin
+                let d' =
+                  List.map (fun (id, rel) -> (M.name_of_id id, rel)) d in
                 Format.eprintf "Broken dependency: %a ==> %a@."
                   (Package.print dist) (Package.of_index p.M.num)
-                  M.print_package_dependency [d];
+                  M.print_package_dependency [d']
+              end;
              let r = [M.R_depends (p.M.num, d)] in
              let (clause, explanation, support1, support2) =
                problematic_packages dist1_state.dist dist dist2_state.dist
                  (PSet.singleton (Package.of_index p.M.num)) r
              in
              problems :=
-               { p_clause = clause; p_issue = StringSet.singleton p.M.package;
+               { p_clause = clause;
+                 p_issue = StringSet.singleton (M.name_of_id p.M.package);
                  p_explain = explanation;
                  p_support1 = support1; p_support2 = support2 }
                :: !problems)
@@ -1138,7 +1156,8 @@ let analyze_installability dist1_state dist dist2_state can_break_package =
              problematic_packages dist1_state.dist dist dist2_state.dist
                (PSet.singleton p) r
            in
-           { p_clause = clause; p_issue = StringSet.singleton (package_name p);
+           { p_clause = clause;
+             p_issue = StringSet.singleton (M.name_of_id (package_name p));
              p_explain = explanation;
              p_support1 = support1; p_support2 = support2 } :: l)
         !broken_pkgs []
@@ -1167,7 +1186,7 @@ let find_problematic_packages
     (break_arch_all && p.M.architecture = "all")
       ||
 *)
-    StringSet.mem p.M.package forced_pkgs in
+    StringSet.mem (M.name_of_id p.M.package) forced_pkgs in
   let problems =
     get_clearly_broken_packages dist1_state dist2 dist2_state can_break_package
   in
@@ -1214,7 +1233,7 @@ let find_non_inst_packages
   let can_break_package p =
     (break_arch_all && p.M.architecture = "all")
       ||
-    StringSet.mem p.M.package forced_pkgs
+    StringSet.mem (M.name_of_id p.M.package) forced_pkgs
   in
   let problems =
     get_clearly_broken_packages dist1_state dist dist2_state
@@ -1256,9 +1275,10 @@ let find_clusters dist1_state dist2_state is_preserved groups merge =
        let pkg v =
          let pseudo = "<" ^ q ^ "/" ^ v ^ ">" in
          Hashtbl.add group_reprs pseudo q;
-         let provides = "<" ^ q ^ ">" in
+         let provides = M.add_name ("<" ^ q ^ ">") in
          let v = M.parse_version "0" in
-         { M.num = 0; package = pseudo; version = v; source = (pseudo, v);
+         { M.num = 0; package = M.add_name pseudo;
+           version = v; source = (pseudo, v);
            section = ""; architecture = "";
            depends = []; recommends = []; suggests = []; enhances = [];
            pre_depends = []; provides = [[provides, None]];

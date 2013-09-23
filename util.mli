@@ -57,6 +57,7 @@ module ListTbl : sig
 end
 
 module StringTbl : Hashtbl.S with type key = string
+module IntTbl : Hashtbl.S with type key = int
 
 val array_extend : 'a array -> int -> 'a -> 'a array
 val string_extend : string -> int -> char -> string

@@ -33,8 +33,8 @@ val prepare_analyze : pool -> state
 
 type pkg_ref = string * bool * bool
 type reason =
-    R_depends of pkg_ref * Deb_lib.dep * pkg_ref list
-  | R_conflict of pkg_ref * Deb_lib.dep * pkg_ref
+    R_depends of pkg_ref * string Deb_lib.dep * pkg_ref list
+  | R_conflict of pkg_ref * string Deb_lib.dep * pkg_ref
 type clause = { pos : Util.StringSet.t; neg : Util.StringSet.t }
 type problem =
   { p_clause : clause; p_issue : Util.StringSet.t; p_explain : reason list;
@@ -53,18 +53,19 @@ val analyze :
 
 val find_problematic_packages :
   ?check_new_packages:bool -> ignored_sets ->
-  state -> state -> (string -> bool) -> problem list
+  state -> state -> (Deb_lib.package_name -> bool) -> problem list
 
 val find_non_inst_packages :
-  bool -> ignored_sets -> state -> state -> (string -> bool) -> problem list
+  bool -> ignored_sets -> state -> state -> (Deb_lib.package_name -> bool) ->
+  problem list
 
 val find_clusters :
-  state -> state -> (string -> bool) ->
+  state -> state -> (Deb_lib.package_name -> bool) ->
   (string list * 'a) list -> ('a -> 'a -> unit) -> unit
 
 val output_conflict_graph : Format.formatter -> problem -> unit
 
-val ignored_set_domain : ignored_sets -> Util.StringSet.t
+val ignored_set_domain : ignored_sets -> Deb_lib.PkgSet.t
 val is_ignored_set : ignored_sets -> Util.StringSet.t -> bool
 
 val conj_dependencies : pool -> Formula.t PTbl.t -> PSet.t option PTbl.t

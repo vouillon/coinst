@@ -152,6 +152,7 @@ module IntSet = Util.IntSet
 module Timer = Util.Timer
 module ListTbl = Util.ListTbl
 module StringTbl = Util.StringTbl
+module IntTbl = Util.IntTbl
 module BitVect = Util.BitVect
 module Union_find = Util.Union_find
 
@@ -650,7 +651,7 @@ type st =
     testing_bugs : StringSet.t StringTbl.t;
     mutable outdated_binaries : M.p list;
     first_bin_id : int;
-    id_of_bin : HornSolver.var StringTbl.t; bin_of_id : string array;
+    id_of_bin : HornSolver.var M.PkgTbl.t; bin_of_id : M.package_name array;
     id_of_source : HornSolver.var StringTbl.t;
     mutable upgrade_state :
       (Upgrade_common.state * Upgrade_common.state) option;
@@ -802,7 +803,7 @@ let output_reasons
        end)
     source_of_id;
 
-  let name_of_binary = Hashtbl.create 1024 in
+  let name_of_binary = IntTbl.create 1024 in
   Task.iteri l
     (fun (arch, st) ->
        let (first, offset, len) = StringTbl.find id_offsets arch in
@@ -814,11 +815,12 @@ let output_reasons
        (arch, binary_names st (pos, l)))
     (fun arch l ->
        List.iter
-         (fun (id, nm, src) -> Hashtbl.add name_of_binary id (nm, arch, src))
+         (fun (id, nm, src) ->
+            IntTbl.add name_of_binary id (M.name_of_id nm, arch, src))
          l);
 
   let print_binary _ id =
-    let (nm, arch, source) = Hashtbl.find name_of_binary id in
+    let (nm, arch, source) = IntTbl.find name_of_binary id in
     let txt =
       if source = nm then
         L.code (L.s nm)
@@ -871,7 +873,7 @@ let output_reasons
            >> Util.group compare
            >> List.map
                 (fun (id, l) ->
-                   let (name, arch, _) = Hashtbl.find name_of_binary id in
+                   let (name, arch, _) = IntTbl.find name_of_binary id in
                    let is_removal =
                      List.for_all (fun r -> r = Binary_not_removed) l in
                    (name, (arch, (id, is_removal))))
@@ -1024,7 +1026,7 @@ let extract_unchanged_bin solver id_offsets arch unch =
   BitVect.sub unch (first + offset) len
 
 let is_unchanged st unch nm =
-  BitVect.test unch (StringTbl.find st.id_of_bin nm - st.first_bin_id)
+  BitVect.test unch (M.PkgTbl.find st.id_of_bin nm - st.first_bin_id)
 
 (**** Prepare repositories before looking for (co-)installability issues ****)
 
@@ -1079,15 +1081,15 @@ let reduce_for_installability st unchanged =
   M.iter_packages d
     (fun p ->
        PTbl.set id_tbl
-         (Package.of_index p.M.num) (StringTbl.find st.id_of_bin p.M.package));
+         (Package.of_index p.M.num) (M.PkgTbl.find st.id_of_bin p.M.package));
 
   let rdeps = compute_reverse_dependencies st d id_tbl in
 
-  let predecessors = StringTbl.create 1024 in
+  let predecessors = M.PkgTbl.create 1024 in
   let rec add_preds nm =
-    if not (StringTbl.mem predecessors nm) then begin
-      StringTbl.add predecessors nm ();
-      let id = StringTbl.find st.id_of_bin nm in
+    if not (M.PkgTbl.mem predecessors nm) then begin
+      M.PkgTbl.add predecessors nm ();
+      let id = M.PkgTbl.find st.id_of_bin nm in
       List.iter (fun id -> add_preds st.bin_of_id.(id - st.first_bin_id))
         rdeps.(id - st.first_bin_id)
     end
@@ -1096,10 +1098,10 @@ let reduce_for_installability st unchanged =
     (fun nm -> if not (is_unchanged st unchanged nm) then add_preds nm)
     st.bin_of_id;
 
-  let pkgs = StringTbl.create 1024 in
+  let pkgs = M.PkgTbl.create 1024 in
   let rec add_package nm =
-    if not (StringTbl.mem pkgs nm) then begin
-      StringTbl.add pkgs nm ();
+    if not (M.PkgTbl.mem pkgs nm) then begin
+      M.PkgTbl.add pkgs nm ();
       List.iter follow_deps (M.find_packages_by_name d nm);
     end
   and follow_deps p =
@@ -1123,7 +1125,7 @@ let reduce_for_installability st unchanged =
   in
   let arch_all_package nm =
     arch_all_package_2 t nm && arch_all_package_2 u nm in
-  StringTbl.iter
+  M.PkgTbl.iter
     (fun nm _ ->
        if not (st.break_arch_all && arch_all_package nm) then add_package nm)
     predecessors;
@@ -1160,19 +1162,19 @@ let reduce_for_coinstallability st unchanged =
 
   let conflicts = compute_conflicts t u in
 
-  let changed_packages = StringTbl.create 101 in
+  let changed_packages = M.PkgTbl.create 101 in
   let consider_package p =
     let nm = p.M.package in
     if not (is_unchanged st unchanged nm) then
-      StringTbl.replace changed_packages nm ()
+      M.PkgTbl.replace changed_packages nm ()
   in
   M.iter_packages t consider_package;
   M.iter_packages u consider_package;
 
-  let pkgs = StringTbl.create 1024 in
+  let pkgs = M.PkgTbl.create 1024 in
   let rec add_package p =
-    if not (StringTbl.mem pkgs p) then begin
-      StringTbl.add pkgs p ();
+    if not (M.PkgTbl.mem pkgs p) then begin
+      M.PkgTbl.add pkgs p ();
       List.iter add_package (ListTbl.find conflicts p);
       List.iter follow_deps (M.find_packages_by_name t p);
       List.iter follow_deps (M.find_packages_by_name u p)
@@ -1194,7 +1196,7 @@ let reduce_for_coinstallability st unchanged =
   in
 
   (* Changed packages should be kept. *)
-  StringTbl.iter (fun p _ -> add_package p) changed_packages;
+  M.PkgTbl.iter (fun p _ -> add_package p) changed_packages;
 
   (* Packages unchanged but with stronger dependencies, or that may
      depend on a package for which we ignore some co-installability
@@ -1211,7 +1213,7 @@ let reduce_for_coinstallability st unchanged =
                 (fun p ->
                    (* If the package is left unchanged, the dependency
                       will remain satisfied *)
-                   (StringTbl.mem changed_packages p.M.package &&
+                   (M.PkgTbl.mem changed_packages p.M.package &&
                     (* Otherwise, we check whether a replacement exists,
                        that still satisfies the dependency *)
                     List.for_all
@@ -1226,10 +1228,10 @@ let reduce_for_coinstallability st unchanged =
                  we have checked that the dependency over packages in t
                  is included in the dependency over packages in u, hence
                  we only have to look in u *)
-              (not (StringSet.is_empty break_candidates)
+              (not (M.PkgSet.is_empty break_candidates)
                  &&
                List.exists
-                 (fun p -> StringSet.mem p.M.package break_candidates)
+                 (fun p -> M.PkgSet.mem p.M.package break_candidates)
                  (M.resolve_package_dep_raw u cstr)))
            d)
       l
@@ -1238,7 +1240,7 @@ let reduce_for_coinstallability st unchanged =
      look in testing. *)
   M.iter_packages t
     (fun p ->
-       if not (StringTbl.mem pkgs p.M.package) then
+       if not (M.PkgTbl.mem pkgs p.M.package) then
          if stronger_deps p.M.depends || stronger_deps p.M.pre_depends then
            add_package p.M.package);
   pkgs
@@ -1261,7 +1263,7 @@ let prepare_repository st unchanged check_coinstallability =
   let filter p =
     incr m;
     let nm = p.M.package in
-    let keep = StringTbl.mem pkgs nm in
+    let keep = M.PkgTbl.mem pkgs nm in
     if keep then incr n;
     keep
   in
@@ -1293,14 +1295,14 @@ let clear_upgrade_states l =
 
 let compute_bin_ids first_id t u =
   let id = ref first_id in
-  let id_of_bin = StringTbl.create 16384 in
+  let id_of_bin = M.PkgTbl.create 16384 in
   let bin_of_id = ref [] in
   let insert nm =
-    StringTbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
+    M.PkgTbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
   in
   M.iter_packages_by_name t (fun nm _ -> insert nm);
   M.iter_packages_by_name u
-    (fun nm _ -> if not (StringTbl.mem id_of_bin nm) then insert nm);
+    (fun nm _ -> if not (M.PkgTbl.mem id_of_bin nm) then insert nm);
   let bin_of_id = Array.of_list (List.rev !bin_of_id) in
   (id_of_bin, bin_of_id)
 
@@ -1343,13 +1345,17 @@ let load_arch arch
      bin_package_file (unstable ()) arch]
   in
   let cache = bin_package_file cache_dir arch in
-  let ((t, u), uid) =
+  let ((dict, (t, u)), uid) =
     Cache.cached files cache "version 2"
       (fun () ->
-        share_packages
-         (load_bin_packages (testing ()) arch,
-          load_bin_packages (unstable ()) arch))
+         let packages =
+           share_packages
+             (load_bin_packages (testing ()) arch,
+              load_bin_packages (unstable ()) arch)
+         in
+         (M.current_dict (), packages))
   in
+  M.set_dict dict;
   let (id_of_bin, bin_of_id) = compute_bin_ids first_id t u in
   { arch = arch;
     testing = t;
@@ -1450,7 +1456,7 @@ let arch_constraints
            if debug_remove () then
              Format.eprintf
                "Trying to remove binary package %s/%s (source: %s)@."
-               p.M.package st.arch nm;
+               (M.name_of_id p.M.package) st.arch nm;
            removed_pkgs := p :: !removed_pkgs
          end
        with Not_found ->
@@ -1472,6 +1478,7 @@ let arch_constraints
     try StringTbl.find bugs p with Not_found -> StringSet.empty
   in
   let no_new_bugs is_new p =
+    let p = M.name_of_id p in
     if is_new then
       StringSet.is_empty (get_bugs u st.unstable_bugs p)
     else
@@ -1480,6 +1487,7 @@ let arch_constraints
         (get_bugs t st.testing_bugs p)
   in
   let new_bugs is_new p =
+    let p = M.name_of_id p in
     if is_new then
       get_bugs u st.unstable_bugs p
     else
@@ -1489,7 +1497,7 @@ let arch_constraints
   in
   let bin_nmus = ListTbl.create 101 in
   let source_id p = StringTbl.find st.id_of_source (fst p.M.source) in
-  let bin_id p = StringTbl.find st.id_of_bin p.M.package in
+  let bin_id p = M.PkgTbl.find st.id_of_bin p.M.package in
   let bin_id_count = Array.length st.bin_of_id in
   let last_id = ref (st.first_bin_id + bin_id_count) in
   M.iter_packages u'
@@ -1554,10 +1562,10 @@ let arch_constraints
      updates, libraries in sid are rather replaced by their counterpart in
      testing. This way, the 'Binary_not_propagated' constraint just above
      can always be satisfied when the 'Not_yet_build' constraint is removed. *)
-  let is_outdated = StringTbl.create 400 in
+  let is_outdated = M.PkgTbl.create 400 in
   List.iter
     (fun p ->
-       StringTbl.add is_outdated p.M.package ();
+       M.PkgTbl.add is_outdated p.M.package ();
        if
          allow_smooth_updates p &&
          M.has_package_of_name t' p.M.package
@@ -1593,7 +1601,7 @@ let arch_constraints
           never consider to be unchanged, so that we can test smooth
           upgrades. *)
        if
-         not (StringTbl.mem is_outdated p.M.package)
+         not (M.PkgTbl.mem is_outdated p.M.package)
            &&
          (no_new_bin t' u' p.M.package || StringTbl.mem is_fake nm)
        then
@@ -1646,7 +1654,7 @@ let arch_constraints
        StringTbl.remove st.id_of_source nm)
     !fake_srcs;
   (List.rev !l, st.uid, !sources_with_binaries, !fake_srcs, bin_id_count,
-   st.bin_of_id)
+   Array.map M.name_of_id st.bin_of_id)
 
 let arch_constraints = Task.funct arch_constraints
 
@@ -1953,6 +1961,7 @@ let initial_constraints
 (**** Dealing with arch:all packages ****)
 
 let is_arch_all st unchanged nm =
+  let nm = M.id_of_name nm in
   let is_arch_all dist =
     match M.find_packages_by_name dist nm with
       [p] -> p.M.architecture = "all"
@@ -1967,7 +1976,8 @@ let ignore_arch_all_issues st unchanged problems =
   if st.break_arch_all then
     List.partition
       (fun p ->
-         not (StringSet.exists (fun nm -> is_arch_all st unchanged nm)
+         not (StringSet.exists
+                (fun nm -> is_arch_all st unchanged nm)
                 p.Upgrade_common.p_issue))
       problems
   else
@@ -2009,7 +2019,7 @@ let rec find_coinst_constraints st (unchanged, check_coinstallability) =
     StringSet.cardinal pos = 1
       ||
     let source nm =
-      match M.find_packages_by_name st.testing nm with
+      match M.find_packages_by_name st.testing (M.id_of_name nm) with
         [p] when not (allow_smooth_updates p) -> Some p.M.source
       | _                                     -> None
     in
@@ -2043,12 +2053,14 @@ StringSet.iter
 
          let to_ids s =
            StringSet.fold
-             (fun nm s -> IntSet.add (StringTbl.find st.id_of_bin nm) s)
+             (fun nm s ->
+                IntSet.add (M.PkgTbl.find st.id_of_bin (M.id_of_name nm)) s)
              s IntSet.empty
          in
          let neg = to_ids neg in
          let s' = to_ids s in
-         let id = StringTbl.find st.id_of_bin (StringSet.choose pos) in
+         let id =
+           M.PkgTbl.find st.id_of_bin (M.id_of_name (StringSet.choose pos)) in
          let r = Array.of_list (id :: IntSet.elements neg) in
 if not singleton && debug_choice () then begin
 Format.eprintf "Warning: cannot migrate all of";
@@ -2154,15 +2166,17 @@ let output_arch_changes st unchanged =
            Some v' ->
              Format.eprintf
                "Upgrade binary package %s/%s from %a to %a@."
-               nm arch M.print_version v M.print_version v'
+               (M.name_of_id nm) arch M.print_version v M.print_version v'
          | None ->
-             Format.eprintf "Remove binary package %s/%s@." nm arch);
+             Format.eprintf "Remove binary package %s/%s@."
+               (M.name_of_id nm) arch);
   M.iter_packages u'
     (fun p ->
        let nm = p.M.package in
        if not (is_unchanged st unchanged nm) then
          if not (M.has_package_of_name t' nm) then
-           Format.eprintf "Adding binary package %s/%s@." nm arch)
+           Format.eprintf "Adding binary package %s/%s@."
+             (M.name_of_id nm) arch)
 
 let output_arch_changes = Task.funct output_arch_changes
 
@@ -2287,7 +2301,8 @@ let collect_changes st (unchanged, subset, src_unchanged) =
        let nm = p.M.package in
        if not (is_unchanged st unchanged nm) then begin
          let (src, v) = p.M.source in
-         changes := (src, nm, is_unchanged st subset nm) :: !changes
+         changes :=
+           (src, M.name_of_id nm, is_unchanged st subset nm) :: !changes
        end);
   let src_is_unchanged src =
     BitVect.test src_unchanged (StringTbl.find st.id_of_source src) in
@@ -2314,12 +2329,14 @@ let collect_changes st (unchanged, subset, src_unchanged) =
          let src =
            if smooth_update then begin
              let b = Buffer.create 20 in
-             Format.bprintf b "-%s/%s/%a" nm st.arch M.print_version v;
+             Format.bprintf b "-%s/%s/%a"
+               (M.name_of_id nm) st.arch M.print_version v;
              Buffer.contents b
            end else
              src
          in
-         changes := (src, nm, is_unchanged st subset nm) :: !changes
+         changes :=
+           (src, M.name_of_id nm, is_unchanged st subset nm) :: !changes
        end);
   List.rev !changes
 
@@ -2447,7 +2464,7 @@ let heidi_arch st unchanged =
        let sect = if p.M.section = "" then "faux" else p.M.section in
        if is_unchanged st unchanged nm then begin
          register_source p;
-         heidi_line lines nm p.M.version p.M.architecture sect
+         heidi_line lines (M.name_of_id nm) p.M.version p.M.architecture sect
        end);
   M.iter_packages u
     (fun p ->
@@ -2455,7 +2472,7 @@ let heidi_arch st unchanged =
        let sect = if p.M.section = "" then "faux" else p.M.section in
        if not (is_unchanged st unchanged nm) then begin
          register_source p;
-         heidi_line lines nm p.M.version p.M.architecture sect
+         heidi_line lines (M.name_of_id nm) p.M.version p.M.architecture sect
        end);
   (String.concat "" (List.sort compare !lines), !sources_with_binaries)
 

@@ -19,6 +19,88 @@
 
 module ListTbl = Util.ListTbl
 module StringTbl = Util.StringTbl
+module IntTbl = Util.IntTbl
+module PkgTbl = Util.IntTbl
+module PkgSet = Util.IntSet
+
+module Extarray = struct
+  type 'a t =
+    { def : 'a; mutable a : 'a array; mutable b : bool array }
+
+  let create len def =
+    { def = def;
+      a = Array.create (max 1000 len) def;
+      b = Array.create (max 1000 len) false }
+
+  let get a i =
+    a.a.(i)
+
+  let get_list a i =
+    if i >= Array.length a.a then [] else a.a.(i)
+
+  let iter f a =
+    for i = 0 to Array.length a.a - 1 do
+      if a.b.(i) then f a.a.(i)
+    done
+
+  let iteri f a =
+    for i = 0 to Array.length a.a - 1 do
+      if a.b.(i) then f i a.a.(i)
+    done
+
+  let resize a i =
+    let l = Array.length a.a in
+    let a' = Array.create (2 * l) a.def in
+    Array.blit a.a 0 a' 0 l;
+    a.a <- a';
+    let b' = Array.create (2 * l) false in
+    Array.blit a.b 0 b' 0 l;
+    a.b <- b'
+    
+  let add a i v =
+    while i >= Array.length a.a do resize a i done;
+    assert (not a.b.(i));
+    a.a.(i) <- v;
+    a.b.(i) <- true
+
+  let add_to_list a i v =
+    while i >= Array.length a.a do resize a i done;
+    a.a.(i) <- v :: a.a.(i);
+    a.b.(i) <- true
+
+  let remove a i =
+    assert (a.b.(i));
+    a.a.(i) <- a.def;
+    a.b.(i) <- false
+
+  let remove_from_list a i p =
+    let l = List.filter (fun v -> not (p v)) a.a.(i) in
+    a.a.(i) <- l;
+    a.b.(i) <- l <> []
+
+  let copy a = {a with a = Array.copy a.a; b = Array.copy a.b}
+
+  let mem a i = a.b.(i)
+end
+
+module Dict = struct
+  type t =
+    { mutable next : int; to_id : int StringTbl.t; of_id : string Extarray.t }
+  let create () =
+    { next = 0;
+      to_id = StringTbl.create 32768; of_id = Extarray.create 32768 "" }
+  let to_id d s = StringTbl.find d.to_id s
+  let add d s =
+    try
+      to_id d s
+    with Not_found ->
+      let n = d.next in
+      d.next <- n + 1;
+      StringTbl.add d.to_id s n;
+      Extarray.add d.of_id n s;
+      n
+  let of_id d n = Extarray.get d.of_id n
+end
 
 (****)
 
@@ -202,12 +284,13 @@ let common_string s =
 (****)
 
 type rel = SE | E | EQ | L | SL
+type package_name = int
 type version = string
-type dep = (string * (rel * version) option) list
-type deps = dep list
+type 'a dep = ('a * (rel * version) option) list
+type deps = package_name dep list
 type p =
   { mutable num : int;
-    mutable package : string;
+    mutable package : package_name;
     mutable version : version;
     mutable source : string * version;
     mutable section : string;
@@ -221,6 +304,19 @@ type p =
     mutable conflicts : deps;
     mutable breaks : deps;
     mutable replaces : deps }
+
+let dummy_package =
+  { num = -1; package = -1; version = ""; source = ("", ""); section = "";
+    architecture = ""; depends = []; recommends = []; suggests = [];
+    enhances = []; pre_depends = []; provides = []; conflicts = [];
+    breaks = []; replaces = [] }
+
+let dict = ref (Dict.create ())
+let current_dict () = !dict
+let set_dict d = dict := d
+let name_of_id id = Dict.of_id !dict id
+let id_of_name nm = Dict.to_id !dict nm
+let add_name nm = Dict.add !dict nm
 
 (****)
 
@@ -341,8 +437,6 @@ let dummy_version = Version.dummy
 
 (****)
 
-let package_names = Util.StringTbl.create 32768
-
 let parse_package st =
   start_token st;
   let bad = ref false in
@@ -365,11 +459,7 @@ let parse_package st =
   let s = get_token st 0 in
   if !bad || String.length s < 2 then
     Util.print_warning (Format.sprintf "bad package name '%s'" s);
-  try
-    Util.StringTbl.find package_names s
-  with Not_found ->
-    Util.StringTbl.add package_names s s;
-    s
+  s
 
 let parse_arch st =
   start_token st;
@@ -465,6 +555,7 @@ let parse_package_dep f vers st =
     end else
       name
   in
+  let name = Dict.add !dict name in
   if accept st '(' then begin
     if not vers then
       failwith (Format.sprintf "Package version not allowed in '%s'" f);
@@ -528,29 +619,32 @@ let parse_package_source st =
 
 type deb_pool =
   { mutable size : int;
-    packages_by_name : (string, p) ListTbl.t;
-    packages_by_num : (int, p) Hashtbl.t;
-    provided_packages : (string, p) ListTbl.t }
+    packages_by_name : p list Extarray.t;
+    packages_by_num : p Extarray.t;
+    provided_packages : p list Extarray.t }
 
 type pool = deb_pool
 
 let new_pool () =
   { size = 0;
-    packages_by_name = ListTbl.create 32768;
-    packages_by_num = Hashtbl.create 32768;
-    provided_packages = ListTbl.create 32768 }
+    packages_by_name = Extarray.create 32768 [];
+    packages_by_num = Extarray.create 32768 dummy_package;
+    provided_packages = Extarray.create 32768 [] }
 
-let find_package_by_num pool n = Hashtbl.find pool.packages_by_num n
-let find_packages_by_name pool nm = ListTbl.find pool.packages_by_name nm
-let has_package_of_name pool nm = ListTbl.mem pool.packages_by_name nm
-let iter_packages_by_name pool f = ListTbl.iter f pool.packages_by_name
+let find_package_by_num pool n = Extarray.get pool.packages_by_num n
+let find_packages_by_name pool nm = Extarray.get_list pool.packages_by_name nm
+let has_package_of_name pool nm =
+  Extarray.get_list pool.packages_by_name nm <> []
+let iter_packages_by_name pool f = Extarray.iteri f pool.packages_by_name
 let iter_packages pool f =
-  (*iter_packages_by_name pool (fun _ l -> List.iter f l)*)Hashtbl.iter (fun _ p -> f p) pool.packages_by_num
+  (*iter_packages_by_name pool (fun _ l -> List.iter f l)*)
+  Extarray.iter f pool.packages_by_num
 let pool_size pool = pool.size
 let find_provided_packages pool nm =
-  find_packages_by_name pool nm @ ListTbl.find pool.provided_packages nm
+  find_packages_by_name pool nm @ Extarray.get_list pool.provided_packages nm
 let package_is_provided pool nm =
-  has_package_of_name pool nm || ListTbl.mem pool.provided_packages nm
+  has_package_of_name pool nm ||
+  Extarray.get_list pool.provided_packages nm <> []
 
 let has_package pool nm v =
   List.exists (fun p -> compare_version p.version v = 0)
@@ -560,23 +654,24 @@ let insert_package pool p =
   if not (has_package pool p.package p.version) then begin
     p.num <- pool.size;
     pool.size <- pool.size + 1;
-    Hashtbl.add pool.packages_by_num p.num p;
-    ListTbl.add pool.packages_by_name p.package p;
+    Extarray.add pool.packages_by_num p.num p;
+    Extarray.add_to_list pool.packages_by_name p.package p;
     List.iter
       (fun l ->
          match l with
-           [(n, None)] -> ListTbl.add pool.provided_packages n p
+           [(n, None)] -> Extarray.add_to_list pool.provided_packages n p
          | _           -> assert false)
       p.provides
   end
 
 let remove_package pool p =
-  Hashtbl.remove pool.packages_by_num p.num;
-  ListTbl.remove pool.packages_by_name p.package (fun q -> q.num = p.num);
+  Extarray.remove pool.packages_by_num p.num;
+  Extarray.remove_from_list
+    pool.packages_by_name p.package (fun q -> q.num = p.num);
   List.iter
     (fun l ->
        match l with
-         [(n, None)] -> ListTbl.remove pool.provided_packages n
+         [(n, None)] -> Extarray.remove_from_list pool.provided_packages n
                           (fun q -> q.num = p.num)
        | _           -> assert false)
     p.provides
@@ -585,36 +680,39 @@ let replace_package pool q p =
   let p = {p with num = q.num} in
   remove_package pool q;
   assert (not (has_package pool p.package p.version));
-  Hashtbl.add pool.packages_by_num p.num p;
-  ListTbl.add pool.packages_by_name p.package p;
+  Extarray.add pool.packages_by_num p.num p;
+  Extarray.add_to_list pool.packages_by_name p.package p;
   List.iter
     (fun l ->
        match l with
-         [(n, None)] -> ListTbl.add pool.provided_packages n p
+         [(n, None)] -> Extarray.add_to_list pool.provided_packages n p
        | _           -> assert false)
     p.provides
 
 let parse_packages pool ignored_packages ch =
+  let ignored_packages = List.map (Dict.add !dict) ignored_packages in
   let info = Common.start_parsing true ch in
   let st = from_channel ch in
   let start () =
     Common.parsing_tick info;
-    { num = 0; package = " "; version = dummy_version;
-      source = (" ", dummy_version); section = ""; architecture = "";
+    { num = 0; package = -1; version = dummy_version;
+      source = ("", dummy_version); section = ""; architecture = "";
       depends = []; recommends = []; suggests = []; enhances = [];
       pre_depends = []; provides = []; conflicts = []; breaks = [];
       replaces = [] }
   in
   let finish q =
-    assert (q.package <> " "); assert (q.version <> dummy_version);
-    if fst q.source = " " then q.source <- (q.package, q.version);
+    assert (q.package <> -1); assert (q.version <> dummy_version);
+    if fst q.source = "" then
+      q.source <- (Dict.of_id !dict q.package, q.version);
     if snd q.source = dummy_version then q.source <- (fst q.source, q.version);
 
     if not (List.mem q.package ignored_packages) then insert_package pool q
   in
   let field q f st =
     match f with
-      "Package"      -> q.package <- parse_package st; parse_field_end st; true
+      "Package"      -> q.package <- Dict.add !dict (parse_package st);
+                        parse_field_end st; true
     | "Version"      -> q.version <- parse_version st; parse_field_end st; true
     | "Source"       -> q.source <- parse_package_source st; true
     | "Section"      -> q.section <-
@@ -649,15 +747,14 @@ type s_pool =
   { mutable s_size : int;
     s_packages : s StringTbl.t }
 
-let new_src_pool () =
-  { s_size = 0; s_packages = StringTbl.create 16384 }
+let new_src_pool () = { s_size = 0; s_packages = StringTbl.create 16384 }
 
 let parse_src_packages pool ch =
   let info = Common.start_parsing true ch in
   let st = from_channel ch in
   let start () =
     Common.parsing_tick info;
-    { s_name = " "; s_version = dummy_version; s_section = "unknown";
+    { s_name = ""; s_version = dummy_version; s_section = "unknown";
       s_extra_source = false }
   in
   let field q f st =
@@ -673,7 +770,7 @@ let parse_src_packages pool ch =
     | _         -> false
   in
   let finish q =
-    assert (q.s_name <> " "); assert (q.s_version <> dummy_version);
+    assert (q.s_name <> ""); assert (q.s_version <> dummy_version);
     StringTbl.add pool.s_packages q.s_name q;
     pool.s_size <- pool.s_size + 1
   in
@@ -683,15 +780,15 @@ let parse_src_packages pool ch =
 (****)
 
 let package_name pool n =
-  let p = Hashtbl.find pool.packages_by_num n in
-  p.package
+  let p = Extarray.get pool.packages_by_num n in
+  Dict.of_id !dict p.package
 
 let print_pack pool ch n =
-  let p = Hashtbl.find pool.packages_by_num n in
-  Format.fprintf ch "%s (= %a)" p.package print_version p.version
+  let p = Extarray.get pool.packages_by_num n in
+  Format.fprintf ch "%s (= %a)"
+    (Dict.of_id !dict p.package) print_version p.version
 
-let print_pack_name pool ch n =
-  Format.fprintf ch "%s" (package_name pool n)
+let print_pack_name pool ch n = Format.fprintf ch "%s" (package_name pool n)
 
 (****)
 
@@ -718,8 +815,8 @@ let normalize_set (l : int list) =
 (****)
 
 type deb_reason =
-    R_conflict of int * int * (int * dep) option
-  | R_depends of int * dep
+    R_conflict of int * int * (int * package_name dep) option
+  | R_depends of int * package_name dep
 
 type reason = deb_reason
 
@@ -784,7 +881,7 @@ let resolve_package_dep_raw pool (n, cstr) =
   | Some (rel, vers) ->
       List.filter
         (fun p -> filter_rel rel (compare_version p.version vers))
-        (ListTbl.find pool.packages_by_name n)
+        (Extarray.get_list pool.packages_by_name n)
 
 let resolve_package_dep pool d =
   List.map (fun p -> p.num) (resolve_package_dep_raw pool d)
@@ -796,7 +893,7 @@ let dep_can_be_satisfied pool (n, cstr) =
   | Some (rel, vers) ->
       List.exists
         (fun p -> filter_rel rel (compare_version p.version vers))
-        (ListTbl.find pool.packages_by_name n)
+        (Extarray.get_list pool.packages_by_name n)
 
 let single l =
   match l with
@@ -807,15 +904,15 @@ let generate_rules pool =
   let st = Common.start_generate (not !print_rules) pool.size in
   let pr = Solver.initialize_problem ~print_var:(print_pack pool) pool.size in
   (* Cannot install two packages with the same name *)
-  ListTbl.iter
-    (fun _ l ->
-       add_conflict pr None (List.map (fun p -> p.num) l))
+  Extarray.iter
+    (fun l -> add_conflict pr None (List.map (fun p -> p.num) l))
     pool.packages_by_name;
   iter_packages pool
     (fun p ->
        Common.generate_next st;
        if !print_rules then
-         Format.eprintf "%s %a@." p.package print_version p.version;
+         Format.eprintf "%s %a@."
+           (Dict.of_id !dict p.package) print_version p.version;
        (* Dependences *)
        List.iter
          (fun l ->
@@ -858,7 +955,7 @@ let generate_rules_restricted pool s =
     let n = IntSet.choose !s in
     s := IntSet.remove n !s;
     visited := IntSet.add n !visited;
-    let p = Hashtbl.find pool.packages_by_num n in
+    let p = Extarray.get pool.packages_by_num n in
     (* Dependences *)
     let add_deps l =
       let l' =
@@ -888,9 +985,7 @@ let generate_rules_restricted pool s =
       c
   done;
   (* Cannot install two packages with the same name *)
-  ListTbl.iter
-    (fun _ l ->
-       add_conflict pr None (List.map (fun p -> p.num) l))
+  Extarray.iter (fun l -> add_conflict pr None (List.map (fun p -> p.num) l))
     pool.packages_by_name;
   Solver.propagate pr;
   pr
@@ -905,7 +1000,8 @@ let parse_package_dependency pool s =
   resolve_package_dep pool d
 
 let parse_package_name pool s =
-  List.map (fun p -> p.num) (ListTbl.find pool.packages_by_name s)
+  List.map (fun p -> p.num)
+    (Extarray.get_list pool.packages_by_name (Dict.add !dict s))
 
 let parse_version s =
   let st = from_string s in
@@ -927,30 +1023,31 @@ let print_rel ch rel =
      | L  -> ">="
      | SL -> ">>")
 
-let print_package_ref ch (p, v) =
-  Format.fprintf ch "%s" p;
+let print_package_ref pr ch (p, v) =
+  pr ch p;
   match v with
     None ->
       ()
   | Some (rel, vers) ->
       Format.fprintf ch " (%a %a)" print_rel rel print_version vers
 
-let rec print_package_disj ch l =
+let rec print_package_disj pr ch l =
   match l with
     []     -> ()
-  | [p]    -> print_package_ref ch p
-  | p :: r -> print_package_ref ch p; Format.fprintf ch " | ";
-              print_package_disj ch r
+  | [p]    -> print_package_ref pr ch p
+  | p :: r -> print_package_ref pr ch p; Format.fprintf ch " | ";
+              print_package_disj pr ch r
 
 let print_package_dependency ch l =
-  Util.print_list print_package_disj ", " ch l
+  let pr ch nm = Format.fprintf ch "%s" nm in
+  Util.print_list (print_package_disj pr) ", " ch l
 
 let check pool st =
   let assign = Solver.assignment st in
   Array.iteri
     (fun i v ->
        if v = Solver.True then begin
-         let p = Hashtbl.find pool.packages_by_num i in
+         let p = Extarray.get pool.packages_by_num i in
          Format.printf "Package: %a@." (print_pack pool) i;
          (* XXX No other package of the same name *)
          List.iter
@@ -960,12 +1057,13 @@ let check pool st =
                   (print_pack pool) p.num;
                 exit 1
               end)
-           (ListTbl.find pool.packages_by_name p.package);
+           (Extarray.get_list pool.packages_by_name p.package);
+         let pr_pkg ch nm = Format.fprintf ch "%s" (Dict.of_id !dict nm) in
          if p.depends <> [] then begin
            Format.printf "Depends: ";
            List.iter
              (fun l ->
-                Format.printf "%a " print_package_disj l;
+                Format.printf "%a " (print_package_disj pr_pkg) l;
                 try
                   let n =
                     List.find (fun n -> assign.(n) = Solver.True)
@@ -982,7 +1080,7 @@ let check pool st =
            Format.printf "Pre-Depends: ";
            List.iter
              (fun l ->
-                Format.printf "%a " print_package_disj l;
+                Format.printf "%a " (print_package_disj pr_pkg) l;
                 try
                   let n =
                     List.find (fun n -> assign.(n) = Solver.True)
@@ -999,7 +1097,7 @@ let check pool st =
            Format.printf "Conflicts: ";
            List.iter
              (fun l ->
-                Format.printf "%a " print_package_disj l;
+                Format.printf "%a " (print_package_disj pr_pkg) l;
                 try
                   let n =
                     List.find
@@ -1017,7 +1115,7 @@ let check pool st =
            Format.printf "Breaks: ";
            List.iter
              (fun l ->
-                Format.printf "%a " print_package_disj l;
+                Format.printf "%a " (print_package_disj pr_pkg) l;
                 try
                   let n =
                     List.find
@@ -1047,6 +1145,7 @@ let print_package_list pool ch l =
 let show_reasons pool l =
   if l <> [] then begin
     Format.printf "The following constraints cannot be satisfied:@.";
+    let pr_pkg ch nm = Format.fprintf ch "%s" (Dict.of_id !dict nm) in
     List.iter
       (fun r ->
          match r with
@@ -1055,7 +1154,7 @@ let show_reasons pool l =
                (print_pack pool) n1 (print_pack pool) n2
          | R_depends (n, l) ->
              Format.printf "  %a depends on %a %a@."
-               (print_pack pool) n print_package_disj l
+               (print_pack pool) n (print_package_disj pr_pkg) l
                (print_package_list pool)
                (List.flatten (List.map (resolve_package_dep pool) l)))
       l
@@ -1090,7 +1189,7 @@ let compute_conflicts pool =
 
 let compute_deps dist =
   Array.init dist.size (fun i ->
-    let p = Hashtbl.find dist.packages_by_num i in
+    let p = Extarray.get dist.packages_by_num i in
     List.map
       (fun l ->
          match l with
@@ -1110,8 +1209,8 @@ let pool_size p = p.size
 
 let only_latest pool' =
   let pool = new_pool () in
-  ListTbl.iter
-    (fun _ l ->
+  Extarray.iter
+    (fun l ->
        let l =
          List.sort (fun p1 p2 -> - compare_version p1.version p2.version) l in
        insert_package pool {(List.hd l) with num = pool.size})
@@ -1120,9 +1219,9 @@ let only_latest pool' =
 
 let copy pool =
   { size = pool.size;
-    packages_by_name = ListTbl.copy pool.packages_by_name;
-    packages_by_num = Hashtbl.copy pool.packages_by_num;
-    provided_packages = ListTbl.copy pool.provided_packages }
+    packages_by_name = Extarray.copy pool.packages_by_name;
+    packages_by_num = Extarray.copy pool.packages_by_num;
+    provided_packages = Extarray.copy pool.provided_packages }
 
 let merge pool filter pool' =
   iter_packages pool'
