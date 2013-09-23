@@ -38,6 +38,15 @@ let get_token st ofs =
   st.start <- -1;
   t
 
+let get_token_suffixed st ofs suffix =
+  let len = st.pos - st.start - ofs in
+  let len' = String.length suffix in
+  let t = String.create (len + len') in
+  String.blit st.buf st.start t 0 len;
+  String.blit suffix 0 t len len';
+  st.start <- -1;
+  t
+
 let ignore_token st = st.start <- -1
 
 let from_channel ch =
@@ -193,7 +202,7 @@ let common_string s =
 (****)
 
 type rel = SE | E | EQ | L | SL
-type version = int * string * string option
+type version = string
 type dep = (string * (rel * version) option) list
 type deps = dep list
 type p =
@@ -213,7 +222,122 @@ type p =
     mutable breaks : deps;
     mutable replaces : deps }
 
-let dummy_version = (-1, "", None)
+(****)
+
+module Version = struct
+  let rec epoch s i =
+    let c = String.unsafe_get s i in
+    match c  with
+      '0' .. '9' -> epoch s (i + 1)
+    | _          -> if c = ':' then i else -1
+
+  let rec compare_substring s i s' i' n =
+    if n = 0 then 0 else begin
+      let c = Char.code (String.unsafe_get s i) in
+      let c' = Char.code (String.unsafe_get s' i') in
+      if c < c' then -1 else
+      if c > c' then 1 else
+      compare_substring s (i + 1) s' (i' + 1) (n - 1)
+    end
+
+  let rec skip_zeroes s i =
+    if String.unsafe_get s i = '0' then skip_zeroes s (i + 1) else i
+
+  let rec skip_digits s i =
+    match String.unsafe_get s i with
+      '0' .. '9' -> skip_digits s (i + 1)
+    | _          -> i
+
+  let rec digit_start s i =
+    if i = 0 then 0 else
+    let i' = i - 1 in
+    match String.unsafe_get s i' with
+      '0'..'9' -> digit_start s (i - 1)
+    | _        -> i
+
+  let is_letter c = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+  let is_digit c = c >= '0' && c <= '9'
+
+  let char_map =
+    Array.init 256
+      (fun c ->
+         if Char.chr c = '~' then c - 512 else
+         if Char.chr c = ' ' || is_digit (Char.chr c) then c - 256 else
+         if is_letter (Char.chr c) then c else
+         c + 256)
+
+  let rec compare_versions_rec s s' i i' c'' =
+    let c = String.unsafe_get s i in
+    let c' = String.unsafe_get s' i' in
+    if c = c' then
+      compare_versions_rec s s' (i + 1) (i' + 1) c
+    else
+      match c, c', c'' with
+        '0'..'9', _, '0'..'9'
+      | _, '0'..'9', '0'..'9'
+      | '0'..'9', '0'..'9', _ ->
+          let j = digit_start s i in
+          let j' = i' - i + j in
+          let j = skip_zeroes s j in
+          let j' = skip_zeroes s' j' in
+          let l = skip_digits s i in
+          let l' = skip_digits s' i' in
+          let n = l - j in
+          let n' = l' - j' in
+          if n < n' then -1 else
+          if n > n' then 1 else
+          let c = compare_substring s j s' j' n in
+          if c <> 0 then c else
+          compare_versions_rec s s' l l' ' '
+      | _ ->
+          let c = char_map.(Char.code c) in
+          let c' = char_map.(Char.code c') in
+          if c < c' then -1 else
+          if c > c' then 1 else
+          0
+
+  let compare s s' =
+    if s = s' then 0 else
+    let i = epoch s 0 in
+    let i' = epoch s' 0 in
+    if i >= 0 || i' >= 0 then begin
+      let j = skip_zeroes s 0 in
+      let j' = skip_zeroes s' 0 in
+      let l = max 0 i in
+      let l' = max 0 i' in
+      let n = l - j in
+      let n' = l' - j' in
+      if n < n' then -1 else
+      if n > n' then 1 else
+      let c = compare_substring s j s' j' n in
+      if c <> 0 then c else
+      compare_versions_rec s s' (i + 1) (i' + 1) ' '
+    end else
+      compare_versions_rec s s' 0 0 ' '
+
+  let print ch v =
+    let len = String.length v - 2 in
+    let s = String.sub v 0 len in
+    for i = 0 to len - 1 do
+      if s.[i] = ' ' then s.[i] <- '-'
+    done;
+    Format.fprintf ch "%s" s
+
+  let dummy = ""
+
+  let get st =
+    let v = get_token_suffixed st 0 "  " in
+    try
+      let i = String.rindex v '-' in
+      v.[i] <- ' ';
+      v
+    with Not_found ->
+      v
+end
+
+let print_version = Version.print
+let compare_version = Version.compare
+let dummy_version = Version.dummy
 
 (****)
 
@@ -260,44 +384,38 @@ let parse_arch st =
 
 let debug_versions = Debug.make "versions" "Print bad version warnings" []
 
-let parse_version_end st epoch n bad hyphen =
+let parse_version_end st n bad hyphen =
   unread st;
   if n = 0 then
-    failwith (Format.sprintf "Bad version %d:%s" epoch (get_token st 0));
-  let s = get_token st 0 in
+    failwith (Format.sprintf "Bad version %s" (get_token st 0));
+  let s = Version.get st in
   if bad && debug_versions () then
-    Util.print_warning (Format.sprintf "bad version '%d:%s'" epoch s);
-  if hyphen = -1 then
-    (epoch, s, None)
-  else
-    (epoch, String.sub s 0 hyphen,
-     Some (String.sub s (hyphen + 1) (String.length s - hyphen - 1)))
+    Util.print_warning (Format.sprintf "bad version '%s'" s);
+  s
 
-let rec parse_upstream_version st epoch n bad hyphen =
+let rec parse_upstream_version st n bad hyphen =
   match next st with
     '0'..'9' ->
-      parse_upstream_version st epoch (n + 1) bad hyphen
+      parse_upstream_version st (n + 1) bad hyphen
   | '-' ->
-      parse_upstream_version st epoch (n + 1) (bad || n = 0) n
+      parse_upstream_version st (n + 1) (bad || n = 0) n
   | 'A'..'Z' | 'a'..'z' | '.' | '_' | '+' | '~' | ':' ->
-      parse_upstream_version st epoch (n + 1) (bad || n = 0) hyphen
+      parse_upstream_version st (n + 1) (bad || n = 0) hyphen
   | _ ->
-      parse_version_end st epoch n bad hyphen
+      parse_version_end st n bad hyphen
 
 let rec parse_epoch st n =
   match next st with
     '0'..'9' ->
       parse_epoch st (n + 1)
   | ':' when n > 0 ->
-      let epoch = int_of_string (get_token st 1) in
-      start_token st;
-      parse_upstream_version st epoch 0 false (-1)
+      parse_upstream_version st 0 false (-1)
   | 'A'..'Z' | 'a'..'z' | '.' | '_' | '+' | '~' | ':' ->
-      parse_upstream_version st 0 (n + 1) (n = 0) (-1)
+      parse_upstream_version st (n + 1) (n = 0) (-1)
   | '-' ->
-      parse_upstream_version st 0 (n + 1) (n = 0) n
+      parse_upstream_version st (n + 1) (n = 0) n
   | _ ->
-      parse_version_end st 0 n false (-1)
+      parse_version_end st n false (-1)
 
 let parse_version st =
   start_token st;
@@ -405,97 +523,6 @@ let parse_package_source st =
     if not (accept st '\n' || at_eof st) then assert false;
     (name, dummy_version)
   end
-
-(****)
-
-let is_letter c = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-let is_num c = c >= '0' && c <= '9'
-
-let char_map =
-  Array.init 256
-    (fun c ->
-      if Char.chr c = '~' then c - 256 else
-	if is_letter (Char.chr c) then c else
-          c + 256)
-
-let compare_ver_char c1 c2 =
-  compare (char_map.(Char.code c1)) (char_map.(Char.code c2))
-
-let compare_ver_str s1 s2 =
-  let l1 = String.length s1 in
-  let l2 = String.length s2 in
-  let p1 = ref 0 in
-  let p2 = ref 0 in
-  while !p1 < l1 && !p2 < l2 && s1.[!p1] = s2.[!p2] do
-    incr p1; incr p2
-  done;
-    if !p1 = l1 
-    then
-      if !p2 = l2 
-      then
-	0
-      else
-	if s2.[!p2] = '~' then 1 else -1
-    else
-      if !p2 = l2 
-      then
-	if s1.[!p1] = '~' then -1 else 1
-      else
-	compare_ver_char s1.[!p1] s2.[!p2]
-
-
-let first_num s p l =
-  let p = ref p in
-  while !p < l && (s.[!p] < '0' || s.[!p] > '9') do incr p done;
-  !p
-
-let last_num s p l =
-  let p = ref p in
-  while !p < l && (s.[!p] >= '0' && s.[!p] <= '9') do incr p done;
-  !p
-
-let rec compare_rev_rec s1 p1 l1 s2 p2 l2 =
-  let p1' = first_num s1 p1 l1 in
-  let p2' = first_num s2 p2 l2 in
-  let s1' = String.sub s1 p1 (p1' - p1) in
-  let s2' = String.sub s2 p2 (p2' - p2) in
-  let c = compare_ver_str s1' s2' in
-  if c <> 0 then c else
-  let p1'' = last_num s1 p1' l1 in
-  let p2'' = last_num s2 p2' l2 in
-  let s1' = String.sub s1 p1' (p1'' - p1') in
-  let s2' = String.sub s2 p2' (p2'' - p2') in
-  let i1 = if s1' = "" then 0. else float_of_string s1' in
-  let i2 = if s2' = "" then 0. else float_of_string s2' in
-  let c = compare i1 i2 in
-  if c <> 0 then c else
-  if p1'' = l1 && p2'' = l2 then 0 else
-  compare_rev_rec s1 p1'' l1 s2 p2'' l2
-
-let compare_rev s1 s2 =
-  if s1 = s2 then 0 else
-  compare_rev_rec s1 0 (String.length s1) s2 0 (String.length s2)
-
-let compare_version (v1 : version) (v2 : version) =
-  let (epoch1, upstream_version1, debian_revision1) = v1 in
-  let (epoch2, upstream_version2, debian_revision2) = v2 in
-  let c = compare epoch1 epoch2 in
-  if c <> 0 then c else
-  let c = compare_rev upstream_version1 upstream_version2 in
-  if c <> 0 then c else
-  match debian_revision1, debian_revision2 with
-    None, None       -> 0
-  | None, _          -> -1
-  | _, None          -> 1
-  | Some r1, Some r2 -> compare_rev r1 r2
-
-let print_version ch v =
-  let (epoch, upstream_version, debian_revision) = v in
-  if epoch <> 0 then Format.fprintf ch "%d:" epoch;
-  Format.fprintf ch "%s" upstream_version;
-  match debian_revision with
-    None   -> ()
-  | Some r -> Format.fprintf ch "-%s" r
 
 (****)
 
