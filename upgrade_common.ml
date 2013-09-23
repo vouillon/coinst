@@ -41,7 +41,6 @@ module Quotient = Coinst.Quotient
 module Graph = Graph.F (Coinst.Repository)
 
 module PSetSet = Set.Make (PSet)
-module PSetMap = Map.Make (PSet)
 
 module Timer = Util.Timer
 
@@ -211,7 +210,7 @@ let rec add_piece st i cont =
        by any of the dependencies of a package already in st.set *)
     (PSet.mem p st.set ||
      not (PSet.exists
-            (fun p -> Formula.implies (PTbl.get st.deps p) (Formula.of_disj d))
+            (fun p -> Formula.implies1 (PTbl.get st.deps p) d)
             st.set))
       &&
     (* If we are adding a package, we check whether the set is still

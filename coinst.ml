@@ -60,10 +60,6 @@ let simplify_formula confl f =
     f
 
 let filter_conflicts confl p f =
-  Formula.map
-    (fun d -> Disj.filter (fun q -> not (Conflict.check confl p q)) d) f
-
-let filter_conflicts confl p f =
   Formula.fold
     (fun d nf ->
        Formula.conj nf

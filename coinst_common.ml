@@ -26,8 +26,6 @@ module F (M : Api.S) = struct
 module Repository = Repository.F(M)
 open Repository
 module Quotient = Quotient.F (Repository)
-module PSetMap = Map.Make (PSet)
-module PSetSet = Set.Make (PSet)
 
 (****)
 
@@ -221,25 +219,20 @@ Format.printf "self conflict: %a@." (Package.print_name dist) p;
 let remove_clearly_irrelevant_deps confl deps =
   PTbl.map (simplify_formula confl) deps
 
-let compose_deps d p d' =
-  Disj.of_lits (PSet.union (PSet.remove p (Disj.to_lits d)) (Disj.to_lits d'))
-
 let is_composition add_dependency (*dist*) confl deps p d0 =
   let f = PTbl.get deps p in
   Formula.exists
     (fun d' ->
        not (Disj.equiv d0 d') && not (Disj.equiv (Disj.lit p) d') &&
-       let s = PSet.diff (Disj.to_lits d0) (Disj.to_lits d') in
+       let s = Disj.diff d0 d' in
        Disj.exists
          (fun q ->
-            let d =
-              Disj.of_lits (if Disj.implies1 q d0 then PSet.add q s else s) in
+            let d = if Disj.implies1 q d0 then Disj.disj1 q s else s in
             Formula.exists
               (fun d'' ->
                  let res =
                    Disj.implies d d'' &&
-                   not_clearly_irrelevant confl
-                     (compose_deps d' q d'')
+                   not_clearly_irrelevant confl (Disj.cut d' q d'')
                  in
 (*
 if res then Format.eprintf "%a %a@." (Package.print_name dist) p (Package.print_name dist) q;
@@ -311,8 +304,8 @@ let remove_irrelevant_deps dist confl deps blacklist =
          (Formula.filter
            (fun d ->
              let remove =
-               PSet.cardinal (Disj.to_lits d) > 1 &&
-               not (PSetSet.mem (Disj.to_lits d) blacklist) &&
+               Disj.cardinal d > 1 &&
+               not (Disj.Set.mem d blacklist) &&
                possibly_irrelevant confl deps d &&
                not (is_composition add_dependency confl deps p d)
              in
@@ -353,7 +346,7 @@ let t = Unix.gettimeofday () in
     let (deps', removed_deps) =
       remove_irrelevant_deps dist confl deps blacklist in
 
-    let problems = ref PSetSet.empty in
+    let problems = ref Disj.Set.empty in
     PTbl.iteri
       (fun p f ->
          if not (Formula.implies Formula._true f) then begin
@@ -367,7 +360,7 @@ let t = Unix.gettimeofday () in
                             Formula.exists (fun d -> Disj.implies d'' d) f
                           then begin
                             problems :=
-                              PSetSet.add (Disj.to_lits d'') !problems;
+                              Disj.Set.add d'' !problems;
   (*
       Format.eprintf "XXXX %a => %a => %a  (%a)@." (Package.print_name dist) p (Package.print_name dist) q (Disj.print dist) d''
                             (Formula.print dist) f
@@ -376,14 +369,14 @@ let t = Unix.gettimeofday () in
          end)
       deps';
 
-    if PSetSet.is_empty !problems then
+    if Disj.Set.is_empty !problems then
       deps'
     else
-      try_remove_deps (PSetSet.union blacklist !problems) deps
+      try_remove_deps (Disj.Set.union blacklist !problems) deps
   in
 
   let t' = Unix.gettimeofday () in
-  let deps = try_remove_deps PSetSet.empty deps in
+  let deps = try_remove_deps Disj.Set.empty deps in
 
   if debug_time () then
     Format.eprintf "  Removing irrelevant deps: %fs@."

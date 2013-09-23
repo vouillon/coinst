@@ -1,138 +1,151 @@
-api.cmo: solver.cmi api.cmi
-api.cmx: solver.cmx api.cmi
-api.cmi: solver.cmi
-bytearray.cmo: bytearray.cmi
-bytearray.cmx: bytearray.cmi
-bytearray.cmi:
-cache.cmo: util.cmi cache.cmi
-cache.cmx: util.cmx cache.cmi
-cache.cmi:
-coinst_common.cmo: repository.cmi quotient.cmi debug.cmi api.cmi \
-    coinst_common.cmi
-coinst_common.cmx: repository.cmx quotient.cmx debug.cmx api.cmx \
-    coinst_common.cmi
-coinst_common.cmi: repository.cmi quotient.cmi api.cmi
-coinst.cmo: util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi \
-    file.cmi deb_lib.cmi api.cmi
-coinst.cmx: util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
-    file.cmx deb_lib.cmx api.cmx
-common.cmo: util.cmi common.cmi
-common.cmx: util.cmx common.cmi
-common.cmi:
-conflicts.cmo: repository.cmi quotient.cmi
-conflicts.cmx: repository.cmx quotient.cmx
-cudf_lib.cmo: solver.cmi common.cmi cudf_lib.cmi
-cudf_lib.cmx: solver.cmx common.cmx cudf_lib.cmi
-cudf_lib.cmi: api.cmi
-deb_lib.cmo: util.cmi solver.cmi common.cmi deb_lib.cmi
-deb_lib.cmx: util.cmx solver.cmx common.cmx deb_lib.cmi
-deb_lib.cmi: util.cmi solver.cmi api.cmi
-debug.cmo: debug.cmi
-debug.cmx: debug.cmi
-debug.cmi:
-dgraph.cmo: dgraph.cmi
-dgraph.cmx: dgraph.cmi
-dgraph.cmi:
-file.cmo: file.cmi
-file.cmx: file.cmi
-file.cmi:
-graph.cmo: repository.cmi quotient.cmi conflicts.cmo graph.cmi
-graph.cmx: repository.cmx quotient.cmx conflicts.cmx graph.cmi
-graph.cmi: repository.cmi quotient.cmi
-horn.cmo: util.cmi debug.cmi horn.cmi
-horn.cmx: util.cmx debug.cmx horn.cmi
-horn.cmi: util.cmi
-layout.cmo: layout.cmi
-layout.cmx: layout.cmi
-layout.cmi:
-parallel.cmo: task.cmi file.cmi deb_lib.cmi
-parallel.cmx: task.cmx file.cmx deb_lib.cmx
-quotient.cmo: util.cmi repository.cmi quotient.cmi
-quotient.cmx: util.cmx repository.cmx quotient.cmi
-quotient.cmi: repository.cmi
-repository.cmo: util.cmi api.cmi repository.cmi
-repository.cmx: util.cmx api.cmx repository.cmi
-repository.cmi: util.cmi api.cmi
-rpm_lib.cmo: util.cmi solver.cmi common.cmi rpm_lib.cmi
-rpm_lib.cmx: util.cmx solver.cmx common.cmx rpm_lib.cmi
-rpm_lib.cmi: api.cmi
-solver.cmo: solver.cmi
-solver.cmx: solver.cmi
-solver.cmi:
-task.cmo: util.cmi debug.cmi bytearray.cmi task.cmi
-task.cmx: util.cmx debug.cmx bytearray.cmx task.cmi
-task.cmi:
-transition.cmo: util.cmi upgrade_common.cmi update_data.cmi task.cmi \
+api.cmo : solver.cmi api.cmi
+api.cmx : solver.cmx api.cmi
+api.cmi : solver.cmi
+bytearray.cmo : bytearray.cmi
+bytearray.cmx : bytearray.cmi
+bytearray.cmi :
+cache.cmo : util.cmi cache.cmi
+cache.cmx : util.cmx cache.cmi
+cache.cmi :
+check_recent.cmo :
+check_recent.cmx :
+coinst_common.cmo : repository.cmi quotient.cmi formula.cmo debug.cmi \
+    api.cmi coinst_common.cmi
+coinst_common.cmx : repository.cmx quotient.cmx formula.cmx debug.cmx \
+    api.cmx coinst_common.cmi
+coinst_common.cmi : repository.cmi quotient.cmi formula.cmo api.cmi
+coinst.cmo : util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi \
+    formula.cmo file.cmi deb_lib.cmi cudf_lib.cmi api.cmi
+coinst.cmx : util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
+    formula.cmx file.cmx deb_lib.cmx cudf_lib.cmx api.cmx
+common.cmo : util.cmi common.cmi
+common.cmx : util.cmx common.cmi
+common.cmi :
+conflicts.cmo : repository.cmi quotient.cmi
+conflicts.cmx : repository.cmx quotient.cmx
+cudf_lib.cmo : solver.cmi common.cmi cudf_lib.cmi
+cudf_lib.cmx : solver.cmx common.cmx cudf_lib.cmi
+cudf_lib.cmi : api.cmi
+deb_lib.cmo : util.cmi solver.cmi debug.cmi common.cmi deb_lib.cmi
+deb_lib.cmx : util.cmx solver.cmx debug.cmx common.cmx deb_lib.cmi
+deb_lib.cmi : util.cmi solver.cmi api.cmi
+debug.cmo : debug.cmi
+debug.cmx : debug.cmi
+debug.cmi :
+dgraph.cmo : dgraph.cmi
+dgraph.cmx : dgraph.cmi
+dgraph.cmi :
+file.cmo : file.cmi
+file.cmx : file.cmi
+file.cmi :
+formula.cmo : util.cmi
+formula.cmx : util.cmx
+formula_sets.cmo : util.cmi
+formula_sets.cmx : util.cmx
+graph.cmo : repository.cmi quotient.cmi formula.cmo conflicts.cmo graph.cmi
+graph.cmx : repository.cmx quotient.cmx formula.cmx conflicts.cmx graph.cmi
+graph.cmi : repository.cmi quotient.cmi formula.cmo
+horn.cmo : util.cmi debug.cmi horn.cmi
+horn.cmx : util.cmx debug.cmx horn.cmi
+horn.cmi : util.cmi
+layout.cmo : layout.cmi
+layout.cmx : layout.cmi
+layout.cmi :
+parallel.cmo : task.cmi file.cmi deb_lib.cmi
+parallel.cmx : task.cmx file.cmx deb_lib.cmx
+quotient.cmo : util.cmi repository.cmi formula.cmo quotient.cmi
+quotient.cmx : util.cmx repository.cmx formula.cmx quotient.cmi
+quotient.cmi : repository.cmi formula.cmo
+repodata_lib.cmo : util.cmi solver.cmi file.cmi common.cmi repodata_lib.cmi
+repodata_lib.cmx : util.cmx solver.cmx file.cmx common.cmx repodata_lib.cmi
+repodata_lib.cmi : solver.cmi
+repository.cmo : util.cmi api.cmi repository.cmi
+repository.cmx : util.cmx api.cmx repository.cmi
+repository.cmi : util.cmi api.cmi
+rpm_lib.cmo : util.cmi solver.cmi common.cmi rpm_lib.cmi
+rpm_lib.cmx : util.cmx solver.cmx common.cmx rpm_lib.cmi
+rpm_lib.cmi : api.cmi
+solver.cmo : solver.cmi
+solver.cmx : solver.cmi
+solver.cmi :
+task.cmo : util.cmi debug.cmi bytearray.cmi task.cmi
+task.cmx : util.cmx debug.cmx bytearray.cmx task.cmi
+task.cmi :
+transition.cmo : util.cmi upgrade_common.cmi update_data.cmi task.cmi \
     viewer/scene_svg.cmi viewer/scene.cmi repository.cmi layout.cmi horn.cmi \
     file.cmi viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi deb_lib.cmi \
     cache.cmi
-transition.cmx: util.cmx upgrade_common.cmx update_data.cmx task.cmx \
+transition.cmx : util.cmx upgrade_common.cmx update_data.cmx task.cmx \
     viewer/scene_svg.cmx viewer/scene.cmx repository.cmx layout.cmx horn.cmx \
     file.cmx viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx deb_lib.cmx \
     cache.cmx
-update_data.cmo: update_data.cmi
-update_data.cmx: update_data.cmi
-update_data.cmi:
-upgrade_common.cmo: util.cmi graph.cmi viewer/dot_file.cmi debug.cmi \
-    deb_lib.cmi coinst_common.cmi upgrade_common.cmi
-upgrade_common.cmx: util.cmx graph.cmx viewer/dot_file.cmx debug.cmx \
-    deb_lib.cmx coinst_common.cmx upgrade_common.cmi
-upgrade_common.cmi: util.cmi repository.cmi deb_lib.cmi
-upgrade.cmo: util.cmi upgrade_common.cmi task.cmi viewer/scene_svg.cmi \
+update_data.cmo : task.cmi update_data.cmi
+update_data.cmx : task.cmx update_data.cmi
+update_data.cmi :
+upgrade_common.cmo : util.cmi graph.cmi formula.cmo viewer/dot_file.cmi \
+    debug.cmi deb_lib.cmi coinst_common.cmi upgrade_common.cmi
+upgrade_common.cmx : util.cmx graph.cmx formula.cmx viewer/dot_file.cmx \
+    debug.cmx deb_lib.cmx coinst_common.cmx upgrade_common.cmi
+upgrade_common.cmi : util.cmi repository.cmi formula.cmo deb_lib.cmi
+upgrade.cmo : util.cmi upgrade_common.cmi task.cmi viewer/scene_svg.cmi \
     viewer/scene.cmi quotient.cmi graph.cmi file.cmi viewer/dot_render.cmi \
     viewer/dot_graph.cmi debug.cmi deb_lib.cmi
-upgrade.cmx: util.cmx upgrade_common.cmx task.cmx viewer/scene_svg.cmx \
+upgrade.cmx : util.cmx upgrade_common.cmx task.cmx viewer/scene_svg.cmx \
     viewer/scene.cmx quotient.cmx graph.cmx file.cmx viewer/dot_render.cmx \
     viewer/dot_graph.cmx debug.cmx deb_lib.cmx
-util.cmo: util.cmi
-util.cmx: util.cmi
-util.cmi:
-viewer/converter.cmo: viewer/scene_json.cmi viewer/scene_extents.cmi \
+util.cmo : util.cmi
+util.cmx : util.cmi
+util.cmi :
+version.cmo :
+version.cmx :
+viewer/converter.cmo : viewer/scene_json.cmi viewer/scene_extents.cmi \
     viewer/scene.cmi viewer/dot_render.cmi viewer/dot_graph.cmi
-viewer/converter.cmx: viewer/scene_json.cmx viewer/scene_extents.cmx \
+viewer/converter.cmx : viewer/scene_json.cmx viewer/scene_extents.cmx \
     viewer/scene.cmx viewer/dot_render.cmx viewer/dot_graph.cmx
-viewer/dot_file.cmo: viewer/dot_file.cmi
-viewer/dot_file.cmx: viewer/dot_file.cmi
-viewer/dot_file.cmi:
-viewer/dot_graph.cmo: viewer/dot_parser.cmi viewer/dot_lexer.cmi \
+viewer/dot_file.cmo : viewer/dot_file.cmi
+viewer/dot_file.cmx : viewer/dot_file.cmi
+viewer/dot_file.cmi :
+viewer/dot_graph.cmo : viewer/dot_parser.cmi viewer/dot_lexer.cmi \
     viewer/dot_file.cmi viewer/dot_graph.cmi
-viewer/dot_graph.cmx: viewer/dot_parser.cmx viewer/dot_lexer.cmx \
+viewer/dot_graph.cmx : viewer/dot_parser.cmx viewer/dot_lexer.cmx \
     viewer/dot_file.cmx viewer/dot_graph.cmi
-viewer/dot_graph.cmi: viewer/dot_file.cmi
-viewer/dot_lexer.cmo: viewer/dot_parser.cmi viewer/dot_lexer.cmi
-viewer/dot_lexer.cmx: viewer/dot_parser.cmx viewer/dot_lexer.cmi
-viewer/dot_lexer.cmi: viewer/dot_parser.cmi
-viewer/dot_parser.cmo: viewer/dot_file.cmi viewer/dot_parser.cmi
-viewer/dot_parser.cmx: viewer/dot_file.cmx viewer/dot_parser.cmi
-viewer/dot_parser.cmi: viewer/dot_file.cmi
-viewer/dot_render.cmo: viewer/scene.cmi viewer/dot_graph.cmi \
+viewer/dot_graph.cmi : viewer/dot_file.cmi
+viewer/dot_lexer.cmo : viewer/dot_parser.cmi viewer/dot_lexer.cmi
+viewer/dot_lexer.cmx : viewer/dot_parser.cmx viewer/dot_lexer.cmi
+viewer/dot_lexer.cmi : viewer/dot_parser.cmi
+viewer/dot_parser.cmo : viewer/dot_file.cmi viewer/dot_parser.cmi
+viewer/dot_parser.cmx : viewer/dot_file.cmx viewer/dot_parser.cmi
+viewer/dot_parser.cmi : viewer/dot_file.cmi
+viewer/dot_render.cmo : viewer/scene.cmi viewer/dot_graph.cmi \
     viewer/dot_render.cmi
-viewer/dot_render.cmx: viewer/scene.cmx viewer/dot_graph.cmx \
+viewer/dot_render.cmx : viewer/scene.cmx viewer/dot_graph.cmx \
     viewer/dot_render.cmi
-viewer/dot_render.cmi: viewer/scene.cmi viewer/dot_graph.cmi
-viewer/main.cmo: viewer/viewer.cmi viewer/dot_render.cmi viewer/dot_graph.cmi
-viewer/main.cmx: viewer/viewer.cmx viewer/dot_render.cmx viewer/dot_graph.cmx
-viewer/scene_extents.cmo: viewer/scene.cmi viewer/scene_extents.cmi
-viewer/scene_extents.cmx: viewer/scene.cmx viewer/scene_extents.cmi
-viewer/scene_extents.cmi: viewer/scene.cmi
-viewer/scene_json.cmo: viewer/scene.cmi viewer/scene_json.cmi
-viewer/scene_json.cmx: viewer/scene.cmx viewer/scene_json.cmi
-viewer/scene_json.cmi: viewer/scene.cmi
-viewer/scene.cmo: viewer/scene.cmi
-viewer/scene.cmx: viewer/scene.cmi
-viewer/scene.cmi:
-viewer/scene_svg.cmo: viewer/scene.cmi viewer/scene_svg.cmi
-viewer/scene_svg.cmx: viewer/scene.cmx viewer/scene_svg.cmi
-viewer/scene_svg.cmi: viewer/scene.cmi
-viewer/svg.cmo:
-viewer/svg.cmx:
-viewer/viewer_common.cmo: viewer/scene.cmi viewer/viewer_common.cmi
-viewer/viewer_common.cmx: viewer/scene.cmx viewer/viewer_common.cmi
-viewer/viewer_common.cmi: viewer/scene.cmi
-viewer/viewer_js.cmo: viewer/viewer_common.cmi
-viewer/viewer_js.cmx: viewer/viewer_common.cmx
-viewer/viewer.cmo: viewer/viewer_common.cmi viewer/scene_extents.cmi \
+viewer/dot_render.cmi : viewer/scene.cmi viewer/dot_graph.cmi
+viewer/main.cmo : viewer/viewer.cmi viewer/dot_render.cmi \
+    viewer/dot_graph.cmi
+viewer/main.cmx : viewer/viewer.cmx viewer/dot_render.cmx \
+    viewer/dot_graph.cmx
+viewer/scene_extents.cmo : viewer/scene.cmi viewer/scene_extents.cmi
+viewer/scene_extents.cmx : viewer/scene.cmx viewer/scene_extents.cmi
+viewer/scene_extents.cmi : viewer/scene.cmi
+viewer/scene_json.cmo : viewer/scene.cmi viewer/scene_json.cmi
+viewer/scene_json.cmx : viewer/scene.cmx viewer/scene_json.cmi
+viewer/scene_json.cmi : viewer/scene.cmi
+viewer/scene.cmo : viewer/scene.cmi
+viewer/scene.cmx : viewer/scene.cmi
+viewer/scene.cmi :
+viewer/scene_svg.cmo : viewer/scene.cmi viewer/scene_svg.cmi
+viewer/scene_svg.cmx : viewer/scene.cmx viewer/scene_svg.cmi
+viewer/scene_svg.cmi : viewer/scene.cmi
+viewer/svg.cmo :
+viewer/svg.cmx :
+viewer/viewer_common.cmo : viewer/scene.cmi viewer/viewer_common.cmi
+viewer/viewer_common.cmx : viewer/scene.cmx viewer/viewer_common.cmi
+viewer/viewer_common.cmi : viewer/scene.cmi
+viewer/viewer_js.cmo : viewer/viewer_common.cmi
+viewer/viewer_js.cmx : viewer/viewer_common.cmx
+viewer/viewer.cmo : viewer/viewer_common.cmi viewer/scene_extents.cmi \
     viewer/scene.cmi viewer/viewer.cmi
-viewer/viewer.cmx: viewer/viewer_common.cmx viewer/scene_extents.cmx \
+viewer/viewer.cmx : viewer/viewer_common.cmx viewer/scene_extents.cmx \
     viewer/scene.cmx viewer/viewer.cmi
-viewer/viewer.cmi: viewer/scene.cmi
+viewer/viewer.cmi : viewer/scene.cmi

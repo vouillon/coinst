@@ -55,7 +55,6 @@ module type S = sig
     val lit_disj : Package.t list -> t
     val _false : t
     val disj : t -> t -> t
-    val disjl : t list -> t
   end
 
   module Disj : sig
@@ -71,6 +70,11 @@ module type S = sig
     val to_lit : t -> Package.t option
     val to_lits : t -> PSet.t
     val of_lits : PSet.t -> t
+
+    val diff : t -> t -> t
+    val disj1 : Package.t -> t -> t
+    val cardinal : t -> int
+    module Set : Set.S with type elt = t
   end
 
   module Formula : sig
@@ -84,7 +88,6 @@ module type S = sig
     val fold : (Disj.t -> 'a -> 'a) -> t -> 'a -> 'a
     val filter : (Disj.t -> bool) -> t -> t
     val exists : (Disj.t -> bool) -> t -> bool
-    val map : (Disj.t -> Disj.t) -> t -> t
     val normalize : t -> t
   end
 
@@ -152,7 +155,6 @@ module F (M : Api.S) = struct
     val lit_disj : Package.t list -> t
     val _false : t
     val disj : t -> t -> t
-    val disjl : t list -> t
   end
 
   module Disj  = struct
@@ -170,7 +172,6 @@ module F (M : Api.S) = struct
     let lit_disj l = List.fold_right PSet.add l PSet.empty
     let _false = PSet.empty
     let disj = PSet.union
-    let disjl l = List.fold_left disj _false l
     let iter s f = PSet.iter f s
     let cut d p d' = assert (PSet.mem p d); PSet.union (PSet.remove p d) d'
     let fold = PSet.fold
@@ -184,6 +185,11 @@ module F (M : Api.S) = struct
 
     let normalize d =  pset_map (fun i -> i) d
     let compare = PSet.compare
+
+    let diff = PSet.diff
+    let cardinal = PSet.cardinal
+    let disj1 = PSet.add
+    module Set = Set.Make (struct type t = PSet.t let compare = compare end)
   end
 
   module Formula  = struct
@@ -215,12 +221,10 @@ module F (M : Api.S) = struct
       List.fold_left
         (fun l x -> List.fold_left (fun l y -> conj1 l (Disj.disj x y)) l l2)
         _true l1
-    let disjl l = List.fold_left disj _false l
     let iter l f = List.iter f l
     let fold f l = List.fold_right f l
     let filter = List.filter
     let exists = List.exists
-    let map = List.map
 
     let normalize f =
       let f = List.map Disj.normalize f in

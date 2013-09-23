@@ -55,7 +55,6 @@ module type S = sig
     val lit_disj : Package.t list -> t
     val _false : t
     val disj : t -> t -> t
-    val disjl : t list -> t
   end
 
   module Disj : sig
@@ -71,6 +70,11 @@ module type S = sig
     val to_lit : t -> Package.t option
     val to_lits : t -> PSet.t
     val of_lits : PSet.t -> t
+
+    val diff : t -> t -> t
+    val disj1 : Package.t -> t -> t
+    val cardinal : t -> int
+    module Set : Set.S with type elt = t
   end
 
   module Formula : sig
@@ -84,7 +88,6 @@ module type S = sig
     val fold : (Disj.t -> 'a -> 'a) -> t -> 'a -> 'a
     val filter : (Disj.t -> bool) -> t -> t
     val exists : (Disj.t -> bool) -> t -> bool
-    val map : (Disj.t -> Disj.t) -> t -> t
     val normalize : t -> t
   end
 
