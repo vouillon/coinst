@@ -1462,8 +1462,8 @@ let remove_sources central remove_hints t u =
   let l = ref [] in
   M.PkgTbl.iter
     (fun nm v ->
-       if should_remove t u nm v then begin
-         if central && debug_remove () && M.has_source u nm then
+       if should_remove t u nm v && M.has_source u nm then begin
+         if central && debug_remove () then
            Format.eprintf "Trying to remove source package %s@."
              (M.name_of_id nm);
          M.remove_source u nm;
