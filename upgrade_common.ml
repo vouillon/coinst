@@ -1884,3 +1884,5 @@ let allow_broken_sets broken_sets s =
       [] l
   in
   broken_sets := (l, ext) :: !broken_sets
+
+let copy_ignored_sets l = ref !l

@@ -623,11 +623,18 @@ let switch_to_installability solver =
   List.iter (fun r -> HornSolver.retract_rule solver r) !coinst_rules;
   check_coinstallability := false
 
+let broken_arch_all_packages = ref StringSet.empty
+
+let learn_broken_arch_all_packages s =
+  broken_arch_all_packages := StringSet.union !broken_arch_all_packages s
+
 let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  let (rules, _) =
-    Cache.cached [] cache ("version 7\n" ^ uids) (fun () -> []) in
+  let ((rules, broken_packages), _) =
+    Cache.cached [] cache ("version 7\n" ^ uids)
+      (fun () -> ([], StringSet.empty))
+  in
   List.iter
     (fun (r, neg, s, problem) ->
        let n = IntSet.cardinal s in
@@ -641,13 +648,14 @@ let load_rules solver uids =
          if n > 1 then coinst_rules := r :: !coinst_rules
        end)
     rules;
-  learnt_rules := List.rev rules
+  learnt_rules := List.rev rules;
+  broken_arch_all_packages := broken_packages
 
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
   ignore (Cache.cached ~force:true [] cache ("version 7\n" ^ uids)
-            (fun () -> List.rev !learnt_rules))
+            (fun () -> (List.rev !learnt_rules, !broken_arch_all_packages)))
 
 (**** Global state for per-architecture processes ****)
 
@@ -665,7 +673,8 @@ type st =
     mutable upgrade_state :
       (Upgrade_common.state * Upgrade_common.state) option;
     uid : string;
-    mutable break_arch_all : bool }
+    mutable break_arch_all : bool;
+    broken_sets : Upgrade_common.ignored_sets }
 
 (**** Misc. useful functions ****)
 
@@ -1215,7 +1224,7 @@ let reduce_for_coinstallability st unchanged =
   (* Packages unchanged but with stronger dependencies, or that may
      depend on a package for which we ignore some co-installability
      issues, should be kept as well. *)
-  let break_candidates = Upgrade_common.ignored_set_domain broken_sets in
+  let break_candidates = Upgrade_common.ignored_set_domain st.broken_sets in
   let stronger_deps l =
     (* Check whether there is a package that satisfied the dependency,
        that might not satisfy the dependency anymore. *)
@@ -1305,6 +1314,16 @@ let clear_upgrade_state =
 let clear_upgrade_states l =
   Task.iter l (fun (arch, st) -> clear_upgrade_state st ()) (fun () -> ())
 
+let initialize_broken_sets_local st s =
+  if st.break_arch_all then
+    StringSet.iter
+      (fun nm -> Upgrade_common.allow_broken_sets st.broken_sets nm) s
+
+let initialize_broken_sets = Task.funct initialize_broken_sets_local
+
+let initialize_broken_sets l s =
+  Task.iter l (fun (arch, st) -> initialize_broken_sets st s) (fun () -> ())
+
 (**** Loading ****)
 
 let compute_bin_ids first_id t u =
@@ -1382,7 +1401,8 @@ let load_arch arch
     first_bin_id = first_id; id_of_bin = id_of_bin; bin_of_id = bin_of_id;
     id_of_source = id_of_source;
     upgrade_state = None; uid = uid;
-    break_arch_all = false (* dummy value *) }
+    break_arch_all = false; (* dummy value *)
+    broken_sets = Upgrade_common.copy_ignored_sets broken_sets }
 
 let load_all_files () =
   let load_t = Timer.start () in
@@ -1982,6 +2002,8 @@ let initial_constraints
               [|M.PkgDenseTbl.find id_of_source nm|] No_binary))
     u;
   load_rules solver uids;
+  initialize_broken_sets l !broken_arch_all_packages;
+
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
@@ -2022,7 +2044,8 @@ let involved_arch_all_packages st unchanged problems =
 
 (**** Find constraints due to co-installability issues ****)
 
-let rec find_coinst_constraints st (unchanged, check_coinstallability) =
+let rec find_coinst_constraints
+          st unchanged check_coinstallability broken_arch_all_packages =
   Gc.set { (Gc.get ()) with Gc.space_overhead = 80 };
   if debug_gc () then begin
     Gc.full_major (); Gc.print_stat stderr; flush stderr
@@ -2035,11 +2058,11 @@ let rec find_coinst_constraints st (unchanged, check_coinstallability) =
   let problems =
     if check_coinstallability then
       Upgrade_common.find_problematic_packages
-        ~check_new_packages:true broken_sets t' u'
+        ~check_new_packages:true st.broken_sets t' u'
         (fun nm -> is_unchanged st unchanged nm)
     else
       Upgrade_common.find_non_inst_packages st.break_arch_all
-        broken_sets t' u' (fun nm -> is_unchanged st unchanged nm)
+        st.broken_sets t' u' (fun nm -> is_unchanged st unchanged nm)
   in
   let t = Timer.start () in
   let (problems, arch_all_issues) =
@@ -2113,14 +2136,17 @@ end;
       StringSet.iter (fun nm -> Format.eprintf " %s" nm) s;
       Format.eprintf "@."
     end;
-    StringSet.iter
-      (fun nm -> Upgrade_common.allow_broken_sets broken_sets nm) s;
+    initialize_broken_sets_local st s;
     clear_upgrade_state_local st;
-    find_coinst_constraints st (unchanged, check_coinstallability)
+    find_coinst_constraints st unchanged check_coinstallability
+      (StringSet.union broken_arch_all_packages s)
   end else
-    List.rev !changes
+    (List.rev !changes, broken_arch_all_packages)
 
-let find_coinst_constraints = Task.funct find_coinst_constraints
+let find_coinst_constraints =
+  Task.funct (fun st (unchanged, check_coinstallability) ->
+                find_coinst_constraints st unchanged check_coinstallability
+                  StringSet.empty)
 
 let find_all_coinst_constraints solver id_offsets l =
   let t = Timer.start () in
@@ -2150,7 +2176,8 @@ let find_all_coinst_constraints solver id_offsets l =
         start c 0 0
       end
     end
-  and stop c i changes =
+  and stop c i (changes, broken_arch_all_packages) =
+    learn_broken_arch_all_packages broken_arch_all_packages;
     if changes <> [] then begin
       Array.fill changed 0 c true;
       let (_, offset, _) = StringTbl.find id_offsets (fst a.(i)) in

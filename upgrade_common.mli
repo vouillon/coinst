@@ -73,3 +73,4 @@ val reversed_conj_dependencies : pool -> Formula.t PTbl.t -> PSet.t PTbl.t
 
 val empty_break_set : unit -> ignored_sets
 val allow_broken_sets : ignored_sets -> string -> unit
+val copy_ignored_sets : ignored_sets -> ignored_sets
