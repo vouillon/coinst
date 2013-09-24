@@ -58,6 +58,16 @@ val set_dict : dict -> unit
 val current_dict : unit -> dict
 
 module PkgTbl : Hashtbl.S with type key = package_name
+module PkgDenseTbl : sig
+  type 'a t
+  val create : 'a -> 'a t
+  val add : 'a t -> package_name -> 'a -> unit
+  val replace : 'a t -> package_name -> 'a -> unit
+  val find : 'a t -> package_name -> 'a
+  val mem : 'a t -> package_name -> bool
+  val remove : 'a t -> package_name -> unit
+  val iteri : (package_name -> 'a -> unit) -> 'a t -> unit
+end
 module PkgSet : Set.S with type elt = package_name
 
 val find_package_by_num : pool -> int -> p

@@ -659,8 +659,9 @@ type st =
     testing_bugs : StringSet.t StringTbl.t;
     mutable outdated_binaries : M.p list;
     first_bin_id : int;
-    id_of_bin : HornSolver.var M.PkgTbl.t; bin_of_id : M.package_name array;
-    id_of_source : HornSolver.var M.PkgTbl.t;
+    id_of_bin : HornSolver.var M.PkgDenseTbl.t;
+    bin_of_id : M.package_name array;
+    id_of_source : HornSolver.var M.PkgDenseTbl.t;
     mutable upgrade_state :
       (Upgrade_common.state * Upgrade_common.state) option;
     uid : string;
@@ -1038,7 +1039,7 @@ let extract_unchanged_bin solver id_offsets arch unch =
   BitVect.sub unch (first + offset) len
 
 let is_unchanged st unch nm =
-  BitVect.test unch (M.PkgTbl.find st.id_of_bin nm - st.first_bin_id)
+  BitVect.test unch (M.PkgDenseTbl.find st.id_of_bin nm - st.first_bin_id)
 
 (**** Prepare repositories before looking for (co-)installability issues ****)
 
@@ -1088,20 +1089,21 @@ let reduce_for_installability st unchanged =
   let u = st.unstable in
   let d = M.new_pool () in
   M.merge d (fun _ -> true) t;
-  M.merge d (fun p -> true) u;
+  M.merge d (fun _ -> true) u;
   let id_tbl = PTbl.create d 0 in
   M.iter_packages d
     (fun p ->
        PTbl.set id_tbl
-         (Package.of_index p.M.num) (M.PkgTbl.find st.id_of_bin p.M.package));
+         (Package.of_index p.M.num)
+         (M.PkgDenseTbl.find st.id_of_bin p.M.package));
 
   let rdeps = compute_reverse_dependencies st d id_tbl in
 
-  let predecessors = M.PkgTbl.create 1024 in
+  let predecessors = M.PkgDenseTbl.create () in
   let rec add_preds nm =
-    if not (M.PkgTbl.mem predecessors nm) then begin
-      M.PkgTbl.add predecessors nm ();
-      let id = M.PkgTbl.find st.id_of_bin nm in
+    if not (M.PkgDenseTbl.mem predecessors nm) then begin
+      M.PkgDenseTbl.add predecessors nm ();
+      let id = M.PkgDenseTbl.find st.id_of_bin nm in
       List.iter (fun id -> add_preds st.bin_of_id.(id - st.first_bin_id))
         rdeps.(id - st.first_bin_id)
     end
@@ -1110,10 +1112,10 @@ let reduce_for_installability st unchanged =
     (fun nm -> if not (is_unchanged st unchanged nm) then add_preds nm)
     st.bin_of_id;
 
-  let pkgs = M.PkgTbl.create 1024 in
+  let pkgs = M.PkgDenseTbl.create () in
   let rec add_package nm =
-    if not (M.PkgTbl.mem pkgs nm) then begin
-      M.PkgTbl.add pkgs nm ();
+    if not (M.PkgDenseTbl.mem pkgs nm) then begin
+      M.PkgDenseTbl.add pkgs nm ();
       List.iter follow_deps (M.find_packages_by_name d nm);
     end
   and follow_deps p =
@@ -1137,7 +1139,7 @@ let reduce_for_installability st unchanged =
   in
   let arch_all_package nm =
     arch_all_package_2 t nm && arch_all_package_2 u nm in
-  M.PkgTbl.iter
+  M.PkgDenseTbl.iteri
     (fun nm _ ->
        if not (st.break_arch_all && arch_all_package nm) then add_package nm)
     predecessors;
@@ -1174,19 +1176,19 @@ let reduce_for_coinstallability st unchanged =
 
   let conflicts = compute_conflicts t u in
 
-  let changed_packages = M.PkgTbl.create 101 in
+  let changed_packages = M.PkgDenseTbl.create () in
   let consider_package p =
     let nm = p.M.package in
     if not (is_unchanged st unchanged nm) then
-      M.PkgTbl.replace changed_packages nm ()
+      M.PkgDenseTbl.replace changed_packages nm ()
   in
   M.iter_packages t consider_package;
   M.iter_packages u consider_package;
 
-  let pkgs = M.PkgTbl.create 1024 in
+  let pkgs = M.PkgDenseTbl.create () in
   let rec add_package p =
-    if not (M.PkgTbl.mem pkgs p) then begin
-      M.PkgTbl.add pkgs p ();
+    if not (M.PkgDenseTbl.mem pkgs p) then begin
+      M.PkgDenseTbl.add pkgs p ();
       List.iter add_package (ListTbl.find conflicts p);
       List.iter follow_deps (M.find_packages_by_name t p);
       List.iter follow_deps (M.find_packages_by_name u p)
@@ -1208,7 +1210,7 @@ let reduce_for_coinstallability st unchanged =
   in
 
   (* Changed packages should be kept. *)
-  M.PkgTbl.iter (fun p _ -> add_package p) changed_packages;
+  M.PkgDenseTbl.iteri (fun p _ -> add_package p) changed_packages;
 
   (* Packages unchanged but with stronger dependencies, or that may
      depend on a package for which we ignore some co-installability
@@ -1225,7 +1227,7 @@ let reduce_for_coinstallability st unchanged =
                 (fun p ->
                    (* If the package is left unchanged, the dependency
                       will remain satisfied *)
-                   (M.PkgTbl.mem changed_packages p.M.package &&
+                   (M.PkgDenseTbl.mem changed_packages p.M.package &&
                     (* Otherwise, we check whether a replacement exists,
                        that still satisfies the dependency *)
                     List.for_all
@@ -1252,7 +1254,7 @@ let reduce_for_coinstallability st unchanged =
      look in testing. *)
   M.iter_packages t
     (fun p ->
-       if not (M.PkgTbl.mem pkgs p.M.package) then
+       if not (M.PkgDenseTbl.mem pkgs p.M.package) then
          if stronger_deps p.M.depends || stronger_deps p.M.pre_depends then
            add_package p.M.package);
   pkgs
@@ -1275,7 +1277,7 @@ let prepare_repository st unchanged check_coinstallability =
   let filter p =
     incr m;
     let nm = p.M.package in
-    let keep = M.PkgTbl.mem pkgs nm in
+    let keep = M.PkgDenseTbl.mem pkgs nm in
     if keep then incr n;
     keep
   in
@@ -1307,29 +1309,29 @@ let clear_upgrade_states l =
 
 let compute_bin_ids first_id t u =
   let id = ref first_id in
-  let id_of_bin = M.PkgTbl.create 16384 in
+  let id_of_bin = M.PkgDenseTbl.create (-1) in
   let bin_of_id = ref [] in
   let insert nm =
-    M.PkgTbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
+    M.PkgDenseTbl.add id_of_bin nm !id; bin_of_id := nm :: !bin_of_id; incr id
   in
   M.iter_packages_by_name t (fun nm _ -> insert nm);
   M.iter_packages_by_name u
-    (fun nm _ -> if not (M.PkgTbl.mem id_of_bin nm) then insert nm);
+    (fun nm _ -> if not (M.PkgDenseTbl.mem id_of_bin nm) then insert nm);
   let bin_of_id = Array.of_list (List.rev !bin_of_id) in
   (id_of_bin, bin_of_id)
 
 let compute_source_ids t u =
   let id = ref 0 in
-  let id_of_source = M.PkgTbl.create 16384 in
+  let id_of_source = M.PkgDenseTbl.create 16384 in
   let source_of_id = ref [] in
   let insert nm =
-    M.PkgTbl.add id_of_source nm !id; source_of_id := nm :: !source_of_id;
+    M.PkgDenseTbl.add id_of_source nm !id; source_of_id := nm :: !source_of_id;
     incr id
   in
   M.iter_sources (fun s -> insert s.M.s_name) t;
   M.iter_sources
     (fun {M.s_name = nm} ->
-       if not (M.PkgTbl.mem id_of_source nm) then insert nm)
+       if not (M.PkgDenseTbl.mem id_of_source nm) then insert nm)
     u;
   let source_of_id = Array.of_list (List.rev !source_of_id) in
   (id_of_source, source_of_id)
@@ -1511,8 +1513,8 @@ let arch_constraints
         (get_bugs t st.testing_bugs p)
   in
   let bin_nmus = ListTbl.create 101 in
-  let source_id p = M.PkgTbl.find st.id_of_source (fst p.M.source) in
-  let bin_id p = M.PkgTbl.find st.id_of_bin p.M.package in
+  let source_id p = M.PkgDenseTbl.find st.id_of_source (fst p.M.source) in
+  let bin_id p = M.PkgDenseTbl.find st.id_of_bin p.M.package in
   let bin_id_count = Array.length st.bin_of_id in
   let last_id = ref (st.first_bin_id + bin_id_count) in
   M.iter_packages u'
@@ -1526,7 +1528,7 @@ let arch_constraints
              s_extra_source = false };
          fake_srcs := (nm, v) :: !fake_srcs;
          M.PkgTbl.add is_fake nm ();
-         M.PkgTbl.add st.id_of_source nm !last_id;
+         M.PkgDenseTbl.add st.id_of_source nm !last_id;
          incr last_id;
          assume (source_id p) Unchanged
        end;
@@ -1604,7 +1606,7 @@ let arch_constraints
              s_extra_source = false };
          fake_srcs := (nm, v) :: !fake_srcs;
          M.PkgTbl.add is_fake nm ();
-         M.PkgTbl.add st.id_of_source nm !last_id;
+         M.PkgDenseTbl.add st.id_of_source nm !last_id;
          incr last_id;
          assume (source_id p) Unchanged
        end;
@@ -1666,7 +1668,7 @@ let arch_constraints
     (fun (nm, _) ->
        M.remove_source t nm;
        M.remove_source u nm;
-       M.PkgTbl.remove st.id_of_source nm)
+       M.PkgDenseTbl.remove st.id_of_source nm)
     !fake_srcs;
   (List.rev !l, st.uid, !sources_with_binaries, !fake_srcs, bin_id_count,
    Array.map M.name_of_id st.bin_of_id)
@@ -1841,7 +1843,7 @@ let initial_constraints
     (fun s ->
        let nm = s.M.s_name in
        let v = s.M.s_version in
-       let id = M.PkgTbl.find id_of_source nm in
+       let id = M.PkgDenseTbl.find id_of_source nm in
        (* We only propagate source packages with a larger version *)
        if no_new_source t u nm then
          ignore (HornSolver.add_rule solver [|id|] Unchanged)
@@ -1875,7 +1877,10 @@ let initial_constraints
          try
            let who = StringTbl.find hints.h_block ("-" ^ M.name_of_id nm) in
            let id =
-             try M.PkgTbl.find id_of_source nm with Not_found -> assert false
+             try
+               M.PkgDenseTbl.find id_of_source nm
+             with Not_found ->
+               assert false
            in
            assume_deferred block_constraints id (Blocked ("blocked", who))
          with Not_found ->
@@ -1925,7 +1930,7 @@ let initial_constraints
               if not (M.PkgTbl.mem is_fake nm) then begin
                 fake_lst := nm :: !fake_lst;
                 M.PkgTbl.add is_fake nm !last_id;
-                M.PkgTbl.add id_of_source nm !last_id;
+                M.PkgDenseTbl.add id_of_source nm !last_id;
                 incr last_id;
                 M.add_source t
                   { M.s_name = nm; s_version = v; s_section = "";
@@ -1974,7 +1979,7 @@ let initial_constraints
        if not (M.PkgTbl.mem source_has_binaries nm) then
          ignore
            (HornSolver.add_rule solver
-              [|M.PkgTbl.find id_of_source nm|] No_binary))
+              [|M.PkgDenseTbl.find id_of_source nm|] No_binary))
     u;
   load_rules solver uids;
   if debug_time () then
@@ -2078,13 +2083,15 @@ StringSet.iter
          let to_ids s =
            StringSet.fold
              (fun nm s ->
-                IntSet.add (M.PkgTbl.find st.id_of_bin (M.id_of_name nm)) s)
+                IntSet.add
+                  (M.PkgDenseTbl.find st.id_of_bin (M.id_of_name nm)) s)
              s IntSet.empty
          in
          let neg = to_ids neg in
          let s' = to_ids s in
          let id =
-           M.PkgTbl.find st.id_of_bin (M.id_of_name (StringSet.choose pos)) in
+           M.PkgDenseTbl.find
+             st.id_of_bin (M.id_of_name (StringSet.choose pos)) in
          let r = Array.of_list (id :: IntSet.elements neg) in
 if not singleton && debug_choice () then begin
 Format.eprintf "Warning: cannot migrate all of";
@@ -2206,7 +2213,7 @@ let output_arch_changes = Task.funct output_arch_changes
 
 let output_outcome solver id_of_source id_offsets t u l unchanged =
   let is_unchanged src =
-    BitVect.test unchanged (M.PkgTbl.find id_of_source src) in
+    BitVect.test unchanged (M.PkgDenseTbl.find id_of_source src) in
   M.iter_sources
     (fun s ->
        let nm = s.M.s_name in
@@ -2330,7 +2337,7 @@ let collect_changes st (unchanged, subset, src_unchanged) =
             is_unchanged st subset nm) :: !changes
        end);
   let src_is_unchanged src =
-    BitVect.test src_unchanged (M.PkgTbl.find st.id_of_source src) in
+    BitVect.test src_unchanged (M.PkgDenseTbl.find st.id_of_source src) in
   M.iter_packages t'
     (fun p ->
        let nm = p.M.package in
@@ -2386,7 +2393,8 @@ let generate_hints
          lst);
   let buckets = ListTbl.create 101 in
   let is_unchanged src =
-    BitVect.test unchanged (M.PkgTbl.find id_of_source (M.id_of_name src)) in
+    BitVect.test unchanged (M.PkgDenseTbl.find id_of_source (M.id_of_name src))
+  in
   ListTbl.iter
     (fun src l ->
        if src.[0] <> '-' && not (is_unchanged src) then
@@ -2534,7 +2542,7 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
          sources_with_binaries);
   let unchanged = HornSolver.assignment solver in
   let is_unchanged src =
-    BitVect.test unchanged (M.PkgTbl.find id_of_source src) in
+    BitVect.test unchanged (M.PkgDenseTbl.find id_of_source src) in
   let source_sect nm s =
     if M.PkgTbl.mem fake_src nm then "faux"
     else if s.M.s_section = "" then "unknown"
@@ -2598,7 +2606,7 @@ let rec collect_assumptions solver id =
 
 let analyze_migration
       uids solver id_of_source id_offsets t u l get_name_arch nm =
-  let id = M.PkgTbl.find id_of_source (M.id_of_name nm) in
+  let id = M.PkgDenseTbl.find id_of_source (M.id_of_name nm) in
                   (* Name already checked *)
   let assign = HornSolver.assignment solver in
   if debug_migration () then
@@ -2761,7 +2769,7 @@ let f () =
 
   begin match !to_migrate with
     Some p ->
-      if not (M.PkgTbl.mem id_of_source (M.add_name p)) then begin
+      if not (M.PkgDenseTbl.mem id_of_source (M.add_name p)) then begin
         Format.eprintf "Unknown package %s@." p;
         exit 1
       end

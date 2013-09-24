@@ -26,16 +26,22 @@ module Extarray = struct
   type 'a t =
     { def : 'a; mutable a : 'a array; mutable b : bool array }
 
-  let create len def =
+  let create def =
     { def = def;
-      a = Array.create (max 1000 len) def;
-      b = Array.create (max 1000 len) false }
+      a = Array.create 16000 def;
+      b = Array.create 16000 false }
 
   let get a i =
     a.a.(i)
 
   let get_list a i =
     if i >= Array.length a.a then [] else a.a.(i)
+
+  let find a i =
+    if i >= Array.length a.a || not a.b.(i) then
+      raise Not_found
+    else
+      a.a.(i)
 
   let iter f a =
     for i = 0 to Array.length a.a - 1 do
@@ -67,6 +73,11 @@ module Extarray = struct
     a.a.(i) <- v :: a.a.(i);
     a.b.(i) <- true
 
+  let replace a i v =
+    while i >= Array.length a.a do resize a i done;
+    a.a.(i) <- v;
+    a.b.(i) <- true
+
   let remove a i =
     assert (a.b.(i));
     a.a.(i) <- a.def;
@@ -79,7 +90,7 @@ module Extarray = struct
 
   let copy a = {a with a = Array.copy a.a; b = Array.copy a.b}
 
-  let mem a i = a.b.(i)
+  let mem a i = i < Array.length a.a && a.b.(i)
 
   let is_prefix eq a a' =
     let l = Array.length a.a in
@@ -92,15 +103,16 @@ module Extarray = struct
       if a.b.(i) then res := false
     done;
     !res
-
 end
+
+module PkgDenseTbl = Extarray
 
 module Dict = struct
   type t =
     { mutable next : int; to_id : int StringTbl.t; of_id : string Extarray.t }
   let create () =
     { next = 0;
-      to_id = StringTbl.create 32768; of_id = Extarray.create 32768 "" }
+      to_id = StringTbl.create 32768; of_id = Extarray.create "" }
   let to_id d s = StringTbl.find d.to_id s
   let add d s =
     try
@@ -655,9 +667,9 @@ type pool = deb_pool
 
 let new_pool () =
   { size = 0;
-    packages_by_name = Extarray.create 32768 [];
-    packages_by_num = Extarray.create 32768 dummy_package;
-    provided_packages = Extarray.create 32768 [] }
+    packages_by_name = Extarray.create [];
+    packages_by_num = Extarray.create dummy_package;
+    provided_packages = Extarray.create [] }
 
 let find_package_by_num pool n = Extarray.get pool.packages_by_num n
 let find_packages_by_name pool nm = Extarray.get_list pool.packages_by_name nm
@@ -774,7 +786,7 @@ type s_pool =
   { mutable s_size : int;
     s_packages : s list Extarray.t }
 
-let new_src_pool () = { s_size = 0; s_packages = Extarray.create 16384 [] }
+let new_src_pool () = { s_size = 0; s_packages = Extarray.create [] }
 
 let find_source_by_name pool nm =
   match Extarray.get_list pool.s_packages nm with
