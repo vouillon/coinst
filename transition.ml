@@ -1347,6 +1347,7 @@ let load_arch arch
   let cache = bin_package_file cache_dir arch in
   let ((dict, (t, u)), uid) =
     Cache.cached files cache "version 2"
+      ~is_valid:(fun (dict, _) -> M.valid_directory dict)
       (fun () ->
          let packages =
            share_packages

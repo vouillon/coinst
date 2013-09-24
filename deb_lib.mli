@@ -51,6 +51,8 @@ module Dict : sig type t end
 val name_of_id : package_name -> string
 val id_of_name : string -> package_name
 val add_name : string -> package_name
+val valid_directory : Dict.t -> bool
+  (* Check whether the given dictionary is an extension of the current one *)
 val set_dict : Dict.t -> unit
 val current_dict : unit -> Dict.t
 

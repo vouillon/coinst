@@ -81,6 +81,19 @@ module Extarray = struct
   let copy a = {a with a = Array.copy a.a; b = Array.copy a.b}
 
   let mem a i = a.b.(i)
+
+  let is_prefix eq a a' =
+    let l = Array.length a.a in
+    let l' = Array.length a'.a in
+    let res = ref true in
+    for i = 0 to min l l' - 1 do
+      if a.b.(i) && not (a'.b.(i) && eq a.a.(i) a'.a.(i)) then res := false
+    done;
+    for i = l' to l - 1 do
+      if a.b.(i) then res := false
+    done;
+    !res
+
 end
 
 module Dict = struct
@@ -313,7 +326,11 @@ let dummy_package =
 
 let dict = ref (Dict.create ())
 let current_dict () = !dict
-let set_dict d = dict := d
+let valid_directory d =
+  Extarray.is_prefix (fun x y -> x = y) !dict.Dict.of_id d.Dict.of_id
+let set_dict d =
+ assert (valid_directory d);
+ dict := d
 let name_of_id id = Dict.of_id !dict id
 let id_of_name nm = Dict.to_id !dict nm
 let add_name nm = Dict.add !dict nm

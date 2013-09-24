@@ -18,7 +18,8 @@
  *)
 
 val cached :
-  ?force:bool -> string list -> string -> string -> (unit -> 'a) -> 'a * string
+  ?force:bool -> string list -> string -> string ->
+  ?is_valid:('a -> bool) -> (unit -> 'a) -> 'a * string
 
 val set_disabled : bool -> unit
 
