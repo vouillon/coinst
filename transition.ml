@@ -201,12 +201,12 @@ let read_package_info file f =
 
 let read_dates src_uid file =
   let cache = Filename.concat cache_dir "Dates" in
-  fst (Cache.cached [file] cache ("version 1\n" ^ src_uid)
+  fst (Cache.cached [file] cache ("version 2\n" ^ src_uid)
          (fun () -> read_package_info file int_of_string))
 
 let read_urgencies src_uid file =
   let cache = Filename.concat cache_dir "Urgencies" in
-  fst (Cache.cached [file] cache ("version 1\n" ^ src_uid)
+  fst (Cache.cached [file] cache ("version 2\n" ^ src_uid)
          (fun () -> read_package_info file urgency_delay))
 
 let read_bugs file =
@@ -632,7 +632,7 @@ let load_rules solver uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
   let ((rules, broken_packages), _) =
-    Cache.cached [] cache ("version 7\n" ^ uids)
+    Cache.cached [] cache ("version 8\n" ^ uids)
       (fun () -> ([], StringSet.empty))
   in
   List.iter
@@ -654,7 +654,7 @@ let load_rules solver uids =
 let save_rules uids =
   let cache = Filename.concat cache_dir "Rules" in
   let uids = String.concat "\n" uids in
-  ignore (Cache.cached ~force:true [] cache ("version 7\n" ^ uids)
+  ignore (Cache.cached ~force:true [] cache ("version 8\n" ^ uids)
             (fun () -> (List.rev !learnt_rules, !broken_arch_all_packages)))
 
 (**** Global state for per-architecture processes ****)
@@ -1380,7 +1380,7 @@ let load_arch arch
   in
   let cache = bin_package_file cache_dir arch in
   let ((dict, (t, u)), uid) =
-    Cache.cached files cache "version 2"
+    Cache.cached files cache "version 3"
       ~is_valid:(fun (dict, _) -> M.valid_directory dict)
       (fun () ->
          let packages =
@@ -1411,7 +1411,7 @@ let load_all_files () =
     [src_package_file (testing ()); src_package_file (unstable ())] in
   let cache = Filename.concat cache_dir "Sources" in
   let ((dict, t, u), src_uid) =
-    Cache.cached files cache "version 3" (fun () ->
+    Cache.cached files cache "version 4" (fun () ->
       (M.current_dict (),
        load_src_packages (testing ()), load_src_packages (unstable ())))
   in
