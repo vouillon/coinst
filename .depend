@@ -7,17 +7,15 @@ bytearray.cmi :
 cache.cmo : util.cmi cache.cmi
 cache.cmx : util.cmx cache.cmi
 cache.cmi :
-check_recent.cmo :
-check_recent.cmx :
-coinst_common.cmo : repository.cmi quotient.cmi formula.cmo debug.cmi \
-    api.cmi coinst_common.cmi
-coinst_common.cmx : repository.cmx quotient.cmx formula.cmx debug.cmx \
-    api.cmx coinst_common.cmi
-coinst_common.cmi : repository.cmi quotient.cmi formula.cmo api.cmi
+coinst_common.cmo : repository.cmi quotient.cmi debug.cmi api.cmi \
+    coinst_common.cmi
+coinst_common.cmx : repository.cmx quotient.cmx debug.cmx api.cmx \
+    coinst_common.cmi
+coinst_common.cmi : repository.cmi quotient.cmi api.cmi
 coinst.cmo : util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi \
-    formula.cmo file.cmi deb_lib.cmi cudf_lib.cmi api.cmi
+    file.cmi deb_lib.cmi cudf_lib.cmi api.cmi
 coinst.cmx : util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
-    formula.cmx file.cmx deb_lib.cmx cudf_lib.cmx api.cmx
+    file.cmx deb_lib.cmx cudf_lib.cmx api.cmx
 common.cmo : util.cmi common.cmi
 common.cmx : util.cmx common.cmi
 common.cmi :
@@ -32,33 +30,24 @@ deb_lib.cmi : util.cmi solver.cmi api.cmi
 debug.cmo : debug.cmi
 debug.cmx : debug.cmi
 debug.cmi :
-dgraph.cmo : dgraph.cmi
-dgraph.cmx : dgraph.cmi
-dgraph.cmi :
 file.cmo : file.cmi
 file.cmx : file.cmi
 file.cmi :
-formula.cmo : util.cmi
-formula.cmx : util.cmx
-formula_sets.cmo : util.cmi
-formula_sets.cmx : util.cmx
-graph.cmo : repository.cmi quotient.cmi formula.cmo conflicts.cmo graph.cmi
-graph.cmx : repository.cmx quotient.cmx formula.cmx conflicts.cmx graph.cmi
-graph.cmi : repository.cmi quotient.cmi formula.cmo
+graph.cmo : repository.cmi quotient.cmi conflicts.cmo graph.cmi
+graph.cmx : repository.cmx quotient.cmx conflicts.cmx graph.cmi
+graph.cmi : repository.cmi quotient.cmi
 horn.cmo : util.cmi debug.cmi horn.cmi
 horn.cmx : util.cmx debug.cmx horn.cmi
 horn.cmi : util.cmi
 layout.cmo : layout.cmi
 layout.cmx : layout.cmi
 layout.cmi :
-parallel.cmo : task.cmi file.cmi deb_lib.cmi
-parallel.cmx : task.cmx file.cmx deb_lib.cmx
 ptset.cmo : ptset.cmi
 ptset.cmx : ptset.cmi
 ptset.cmi :
-quotient.cmo : util.cmi repository.cmi formula.cmo quotient.cmi
-quotient.cmx : util.cmx repository.cmx formula.cmx quotient.cmi
-quotient.cmi : repository.cmi formula.cmo
+quotient.cmo : util.cmi repository.cmi quotient.cmi
+quotient.cmx : util.cmx repository.cmx quotient.cmi
+quotient.cmi : repository.cmi
 repodata_lib.cmo : util.cmi solver.cmi file.cmi common.cmi repodata_lib.cmi
 repodata_lib.cmx : util.cmx solver.cmx file.cmx common.cmx repodata_lib.cmi
 repodata_lib.cmi : solver.cmi
@@ -85,19 +74,19 @@ transition.cmx : util.cmx upgrade_common.cmx update_data.cmx task.cmx \
 update_data.cmo : task.cmi update_data.cmi
 update_data.cmx : task.cmx update_data.cmi
 update_data.cmi :
-upgrade_common.cmo : util.cmi graph.cmi formula.cmo viewer/dot_file.cmi \
-    debug.cmi deb_lib.cmi coinst_common.cmi upgrade_common.cmi
-upgrade_common.cmx : util.cmx graph.cmx formula.cmx viewer/dot_file.cmx \
-    debug.cmx deb_lib.cmx coinst_common.cmx upgrade_common.cmi
-upgrade_common.cmi : util.cmi repository.cmi formula.cmo deb_lib.cmi
+upgrade_common.cmo : util.cmi graph.cmi viewer/dot_file.cmi debug.cmi \
+    deb_lib.cmi coinst_common.cmi upgrade_common.cmi
+upgrade_common.cmx : util.cmx graph.cmx viewer/dot_file.cmx debug.cmx \
+    deb_lib.cmx coinst_common.cmx upgrade_common.cmi
+upgrade_common.cmi : util.cmi repository.cmi deb_lib.cmi
 upgrade.cmo : util.cmi upgrade_common.cmi task.cmi viewer/scene_svg.cmi \
     viewer/scene.cmi quotient.cmi graph.cmi file.cmi viewer/dot_render.cmi \
     viewer/dot_graph.cmi debug.cmi deb_lib.cmi
 upgrade.cmx : util.cmx upgrade_common.cmx task.cmx viewer/scene_svg.cmx \
     viewer/scene.cmx quotient.cmx graph.cmx file.cmx viewer/dot_render.cmx \
     viewer/dot_graph.cmx debug.cmx deb_lib.cmx
-util.cmo : util.cmi
-util.cmx : util.cmi
+util.cmo : ptset.cmi util.cmi
+util.cmx : ptset.cmx util.cmi
 util.cmi :
 version.cmo :
 version.cmx :

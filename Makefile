@@ -73,7 +73,7 @@ clean::
 
 depend:
 	ls *.ml *.mli viewer/*.ml viewer/*.mli | \
-        grep -v download.ml | xargs $(OCAMLDEP) $(DEPFLAGS) > .depend
+        xargs $(OCAMLDEP) $(DEPFLAGS) > .depend
 
 include .depend
 

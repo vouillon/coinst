@@ -19,7 +19,6 @@
 
 module ListTbl = Util.ListTbl
 module StringTbl = Util.StringTbl
-module IntTbl = Util.IntTbl
 module PkgTbl = Util.IntTbl
 module PkgSet = Util.IntSet
 
@@ -113,6 +112,8 @@ module Dict = struct
       Extarray.add d.of_id n s;
       n
   let of_id d n = Extarray.get d.of_id n
+  let exists d s = StringTbl.mem d.to_id s
+  let is_extended d d' = Extarray.is_prefix (fun x y -> x = y) d.of_id d'.of_id
 end
 
 (****)
@@ -305,7 +306,7 @@ type p =
   { mutable num : int;
     mutable package : package_name;
     mutable version : version;
-    mutable source : string * version;
+    mutable source : package_name * version;
     mutable section : string;
     mutable architecture : string;
     mutable depends : deps;
@@ -319,21 +320,22 @@ type p =
     mutable replaces : deps }
 
 let dummy_package =
-  { num = -1; package = -1; version = ""; source = ("", ""); section = "";
+  { num = -1; package = -1; version = ""; source = (-1, ""); section = "";
     architecture = ""; depends = []; recommends = []; suggests = [];
     enhances = []; pre_depends = []; provides = []; conflicts = [];
     breaks = []; replaces = [] }
 
+type dict = Dict.t
 let dict = ref (Dict.create ())
 let current_dict () = !dict
-let valid_directory d =
-  Extarray.is_prefix (fun x y -> x = y) !dict.Dict.of_id d.Dict.of_id
+let valid_directory d = Dict.is_extended !dict d
 let set_dict d =
  assert (valid_directory d);
  dict := d
 let name_of_id id = Dict.of_id !dict id
 let id_of_name nm = Dict.to_id !dict nm
 let add_name nm = Dict.add !dict nm
+let name_exists nm = Dict.exists !dict nm
 
 (****)
 
@@ -436,6 +438,14 @@ module Version = struct
     done;
     Format.fprintf ch "%s" s
 
+  let to_string v =
+    let len = String.length v - 2 in
+    let s = String.sub v 0 len in
+    for i = 0 to len - 1 do
+      if s.[i] = ' ' then s.[i] <- '-'
+    done;
+    s
+
   let dummy = ""
 
   let get st =
@@ -451,6 +461,7 @@ end
 let print_version = Version.print
 let compare_version = Version.compare
 let dummy_version = Version.dummy
+let string_of_version = Version.to_string
 
 (****)
 
@@ -617,7 +628,7 @@ let rec parse_package_conj f vers disj st =
 let parse_rel f vers disj st = parse_package_conj f vers disj st
 
 let parse_package_source st =
-  let name = parse_package st in
+  let name = Dict.add !dict (parse_package st) in
   skip_whitespaces st;
   if accept st '(' then begin
     skip_whitespaces st;
@@ -713,15 +724,14 @@ let parse_packages pool ignored_packages ch =
   let start () =
     Common.parsing_tick info;
     { num = 0; package = -1; version = dummy_version;
-      source = ("", dummy_version); section = ""; architecture = "";
+      source = (-1, dummy_version); section = ""; architecture = "";
       depends = []; recommends = []; suggests = []; enhances = [];
       pre_depends = []; provides = []; conflicts = []; breaks = [];
       replaces = [] }
   in
   let finish q =
     assert (q.package <> -1); assert (q.version <> dummy_version);
-    if fst q.source = "" then
-      q.source <- (Dict.of_id !dict q.package, q.version);
+    if fst q.source = -1 then q.source <- (q.package, q.version);
     if snd q.source = dummy_version then q.source <- (fst q.source, q.version);
 
     if not (List.mem q.package ignored_packages) then insert_package pool q
@@ -755,28 +765,46 @@ let parse_packages pool ignored_packages ch =
 (****)
 
 type s =
-  { mutable s_name : string;
+  { mutable s_name : package_name;
     mutable s_version : version;
     mutable s_section : string;
     mutable s_extra_source : bool }
 
 type s_pool =
   { mutable s_size : int;
-    s_packages : s StringTbl.t }
+    s_packages : s list Extarray.t }
 
-let new_src_pool () = { s_size = 0; s_packages = StringTbl.create 16384 }
+let new_src_pool () = { s_size = 0; s_packages = Extarray.create 16384 [] }
+
+let find_source_by_name pool nm =
+  match Extarray.get_list pool.s_packages nm with
+    []  -> raise Not_found
+  | [s] -> s
+  | _   -> assert false
+
+let has_source pool nm = Extarray.get_list pool.s_packages nm <> []
+
+let remove_source pool nm = Extarray.remove pool.s_packages nm
+
+let add_source pool s = Extarray.add_to_list pool.s_packages s.s_name s
+
+let iter_sources f pool =
+  Extarray.iter
+    (fun l -> match l with [] -> () | [s] -> f s | _ -> List.iter f l)
+    pool.s_packages
 
 let parse_src_packages pool ch =
   let info = Common.start_parsing true ch in
   let st = from_channel ch in
   let start () =
     Common.parsing_tick info;
-    { s_name = ""; s_version = dummy_version; s_section = "unknown";
+    { s_name = -1; s_version = dummy_version; s_section = "unknown";
       s_extra_source = false }
   in
   let field q f st =
     match f with
-      "Package" -> q.s_name <- parse_package st; parse_field_end st; true
+      "Package" -> q.s_name <- Dict.add !dict (parse_package st);
+                   parse_field_end st; true
     | "Version" -> q.s_version <- parse_version st; parse_field_end st; true
     | "Section" -> q.s_section <-
                      common_string (parse_simple_field_content st);
@@ -787,8 +815,8 @@ let parse_src_packages pool ch =
     | _         -> false
   in
   let finish q =
-    assert (q.s_name <> ""); assert (q.s_version <> dummy_version);
-    StringTbl.add pool.s_packages q.s_name q;
+    assert (q.s_name <> -1); assert (q.s_version <> dummy_version);
+    Extarray.add_to_list pool.s_packages q.s_name q;
     pool.s_size <- pool.s_size + 1
   in
   parse_stanzas ~start ~field ~finish st;
@@ -1251,16 +1279,12 @@ let add_package pool p =
 
 let src_only_latest h =
   let h' = new_src_pool () in
-  StringTbl.iter
-    (fun nm s ->
-       try
-         if not s.s_extra_source then begin
-           let s' = StringTbl.find h'.s_packages nm in
-           if compare_version s.s_version s'.s_version > 0 then
-             StringTbl.replace h'.s_packages nm s
-         end
-       with Not_found ->
-         StringTbl.add h'.s_packages nm s;
-         h'.s_size <- h'.s_size + 1)
+  Extarray.iter
+    (fun l ->
+      let l = 
+        List.sort (fun s1 s2 -> - compare_version s1.s_version s2.s_version) l
+      in
+      let s = List.hd l in
+      Extarray.add_to_list h'.s_packages s.s_name s)
     h.s_packages;
   h'

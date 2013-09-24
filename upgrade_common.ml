@@ -1278,7 +1278,7 @@ let find_clusters dist1_state dist2_state is_preserved groups merge =
          let provides = M.add_name ("<" ^ q ^ ">") in
          let v = M.parse_version "0" in
          { M.num = 0; package = M.add_name pseudo;
-           version = v; source = (pseudo, v);
+           version = v; source = (M.add_name pseudo, v);
            section = ""; architecture = "";
            depends = []; recommends = []; suggests = []; enhances = [];
            pre_depends = []; provides = [[provides, None]];

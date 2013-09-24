@@ -30,7 +30,7 @@ type p =
   { mutable num : int;
     mutable package : package_name;
     mutable version : version;
-    mutable source : string * version;
+    mutable source : package_name * version;
     mutable section : string;
     mutable architecture : string;
     mutable depends : deps;
@@ -47,14 +47,15 @@ type deb_pool
 
 include Api.S with type reason = deb_reason and type pool = deb_pool
 
-module Dict : sig type t end
+type dict
 val name_of_id : package_name -> string
 val id_of_name : string -> package_name
 val add_name : string -> package_name
-val valid_directory : Dict.t -> bool
+val name_exists : string -> bool
+val valid_directory : dict -> bool
   (* Check whether the given dictionary is an extension of the current one *)
-val set_dict : Dict.t -> unit
-val current_dict : unit -> Dict.t
+val set_dict : dict -> unit
+val current_dict : unit -> dict
 
 module PkgTbl : Hashtbl.S with type key = package_name
 module PkgSet : Set.S with type elt = package_name
@@ -86,16 +87,21 @@ val replace_package : pool -> p -> p -> unit
 val parse_version : string -> version
 val print_version : Format.formatter -> version -> unit
 val compare_version : version -> version -> int
+val string_of_version : version -> string
 
 type s =
-  { mutable s_name : string;
+  { mutable s_name : package_name;
     mutable s_version : version;
     mutable s_section : string;
     mutable s_extra_source : bool }
 
-type s_pool =
-  { mutable s_size : int;
-    s_packages : s Util.StringTbl.t }
+type s_pool
+
+val find_source_by_name : s_pool -> package_name -> s
+val has_source : s_pool -> package_name -> bool
+val iter_sources : (s -> unit) -> s_pool -> unit
+val remove_source : s_pool -> package_name -> unit
+val add_source : s_pool -> s -> unit
 
 val new_src_pool : unit -> s_pool
 val parse_src_packages : s_pool -> in_channel -> unit
