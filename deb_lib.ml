@@ -1313,7 +1313,8 @@ let src_only_latest h =
        let l =
          List.sort (fun s1 s2 -> - compare_version s1.s_version s2.s_version) l
        in
-       let s = List.hd l in
-       Extarray.add_to_list h'.s_packages s.s_name s)
+       match l with
+         []     -> ()
+       | s :: _ -> Extarray.add_to_list h'.s_packages s.s_name s)
     h.s_packages;
   h'
