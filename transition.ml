@@ -2635,9 +2635,9 @@ let analyze_migration
       uids solver id_of_source id_offsets t u l get_name_arch nm =
   let id = M.PkgDenseTbl.find id_of_source (M.id_of_name nm) in
                   (* Name already checked *)
-  let assign = HornSolver.assignment solver in
   if debug_migration () then
-    Format.eprintf "%s (%d) : %b@." nm id (BitVect.test assign id);
+    Format.eprintf "%s (%d) : %b@."
+      nm id (BitVect.test (HornSolver.assignment solver) id);
   let lst = ref [] in
   let print_package f id =
     let (name, arch) = get_name_arch id in
@@ -2715,7 +2715,7 @@ let analyze_migration
     generate_hints solver id_of_source id_offsets t u l lst (Some nm) None
   in
   let rec migrate () =
-    if BitVect.test assign id then begin
+    if BitVect.test (HornSolver.assignment solver) id then begin
       let s = collect_assumptions solver id in
       if IntSet.is_empty s then begin
         L.print (new L.format_printer Format.std_formatter)
@@ -2749,7 +2749,7 @@ let analyze_migration
          packages. *)
       clear_upgrade_states l;
       find_all_coinst_constraints solver id_offsets l;
-      if BitVect.test assign id then
+      if BitVect.test (HornSolver.assignment solver) id then
         migrate ()
       else begin
         if !lst = [] then
@@ -2760,10 +2760,8 @@ let analyze_migration
       end
     end
   in
-  if id >= 0 then begin
-    migrate ();
-    save_rules uids
-  end
+  migrate ();
+  save_rules uids
 
 (**** Main part of the program ****)
 
