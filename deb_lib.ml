@@ -247,6 +247,21 @@ let at_eof st =
   if st.pos = st.last then refill st;
   st.eof
 
+let print_location st =
+  let i = ref (max (st.pos - 2) 0) in
+  while !i > 0 && (st.buf.[!i] <> '\n' || st.buf.[!i + 1] <> '\n') do
+    decr i
+  done;
+  if st.buf.[!i] = '\n' && st.buf.[!i + 1] = '\n' then i := !i + 2;
+  Format.eprintf "%s<HERE>%s@."
+    (String.sub st.buf !i (st.pos - !i))
+    (String.sub st.buf st.pos (st.last - st.pos))
+
+let fail st s =
+  print_location st;
+  Format.eprintf "Parsing error: %s@." s;
+  exit 1
+
 (****)
 
 let rec skip_blank_lines st = if accept st '\n' then skip_blank_lines st
@@ -257,7 +272,7 @@ let skip_whitespaces st = while accept_whitespace st do () done
 
 let parse_field ~field s st =
   start_token st;
-  if not (find st ':') then failwith "Incorrect field: missing ':'";
+  if not (find st ':') then fail st "incorrect field (missing ':')";
   let name = get_token st 1 in
   skip_whitespaces st;
   if not (field s name st) then begin
@@ -287,7 +302,8 @@ let parse_stanzas ~start ~field ~finish st =
 
 let parse_field_end st =
   skip_whitespaces st;
-  if not (accept st '\n' || at_eof st) then failwith "Garbage at end of field"
+  if not (accept st '\n' || at_eof st) then
+    fail st "garbage at end of field"
 
 let parse_simple_field_content st =
   start_token st;
@@ -485,7 +501,7 @@ let parse_package st =
   | 'A'..'Z' ->
       bad := true
   | _ ->
-      failwith "Missing package name"
+      fail st "missing package name"
   end;
   while
     match next st with
@@ -517,7 +533,7 @@ let debug_versions = Debug.make "versions" "Print bad version warnings" []
 let parse_version_end st n bad hyphen =
   unread st;
   if n = 0 then
-    failwith (Format.sprintf "Bad version %s" (get_token st 0));
+    fail st (Format.sprintf "bad version %s" (get_token st 0));
   let s = Version.get st in
   if bad && debug_versions () then
     Util.print_warning (Format.sprintf "bad version '%s'" s);
@@ -582,7 +598,7 @@ let parse_relation st =
       ignore_token st;
       rel
   | c ->
-      failwith (Format.sprintf "Bad relation '%c'" c)
+      fail st (Format.sprintf "bad relation '%c'" c)
 
 let parse_package_dep f vers st =
   let name = parse_package st in
@@ -598,7 +614,7 @@ let parse_package_dep f vers st =
   let name = Dict.add !dict name in
   if accept st '(' then begin
     if not vers then
-      failwith (Format.sprintf "Package version not allowed in '%s'" f);
+      fail st (Format.sprintf "package version not allowed in '%s'" f);
     skip_whitespaces st;
     let comp = parse_relation st in
     skip_whitespaces st;
@@ -621,7 +637,7 @@ let rec parse_package_disj f vers disj st =
         Util.print_warning
           (Format.sprintf "package disjunction not allowed in field '%s'" f)
       else
-        failwith (Format.sprintf "Package disjunction not allowed in '%s'" f)
+        fail st (Format.sprintf "package disjunction not allowed in '%s'" f)
     end;
     skip_whitespaces st;
     nm :: parse_package_disj f vers disj st
@@ -635,7 +651,7 @@ let rec parse_package_conj f vers disj st =
     skip_whitespaces st;
     nm :: parse_package_conj f vers disj st
   end else
-    failwith (Format.sprintf "Bad character '%c'" (next st))
+    fail st (Format.sprintf "bad character '%c'" (next st))
 
 let parse_rel f vers disj st = parse_package_conj f vers disj st
 
@@ -1053,7 +1069,7 @@ let parse_package_dependency pool s =
   let st = from_string s in
   let d = parse_package_dep "" true st in
   if not (at_eof st) then
-    failwith (Format.sprintf "Bad character '%c'" (next st));
+    fail st (Format.sprintf "bad character '%c'" (next st));
   resolve_package_dep pool d
 
 let parse_package_name pool s =
@@ -1066,7 +1082,7 @@ let parse_version s =
   let v = parse_version st in
   skip_whitespaces st;
   if not (at_eof st) then
-    failwith (Format.sprintf "Bad character '%c'" (next st));
+    fail st (Format.sprintf "bad character '%c'" (next st));
   v
 
 (****)
