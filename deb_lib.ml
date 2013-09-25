@@ -605,8 +605,8 @@ let parse_package_dep f vers st =
   skip_whitespaces st;
   let name =
     if accept st ':' then begin
-      skip_whitespaces st;
       let arch = parse_arch st in
+      skip_whitespaces st;
       if arch = "any" then name else name ^ ":" ^ arch
     end else
       name
