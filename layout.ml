@@ -15,6 +15,8 @@ class type printer = object
   method dt : string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
+  method start_div : ?clss:string -> unit -> unit
+  method end_div : unit -> unit
   method raw_html : (unit -> string) -> unit
 end
 
@@ -52,6 +54,8 @@ type outside_anchor
 let anchor link contents p = p#start_a link; contents p; p#end_a ()
 
 let p pr = pr#change_p ()
+
+let div ?clss contents p = p#start_div ?clss (); contents p; p#end_div ()
 
 let raw_html f pr = pr#raw_html f
 
@@ -178,6 +182,15 @@ class html_printer ch title : printer = object (self)
       in_p <- false
     end;
     at_list_start <- false
+  method start_div ?clss () =
+    self#break ();
+    begin match clss with
+      Some clss -> output_string ch ("<div class='" ^ html_escape clss ^ "'>")
+    | None      -> output_string ch "<div>"
+    end;
+    need_break <- true; in_p <- false
+  method end_div () =
+    self#break (); output_string ch "</div>"; need_break <- true; in_p <- false
   method raw_html f =
     if not in_p then begin
       self#break (); output_string ch "<p>"; in_p <- true
@@ -253,5 +266,7 @@ class format_printer f : printer = object
   method dd () = Format.fprintf f "@]@ @["
   method end_dl () =
     if not at_list_start then Format.fprintf f "@]"
+  method start_div ?clss () = ()
+  method end_div () = ()
   method raw_html f = ()
 end

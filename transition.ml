@@ -20,9 +20,6 @@
 (*
 - incremental (re)computations (of repositories, flattened repositories, ...)
 - repeat the remove commands from the input to the hint ouput?
-- what should we do about arch: all packages?
-  ==> ignore them, in a by need fashion (if we find a conflict involving
-      one of them, add the package to the 'can break' list
 - cache reverse dependencies: then, either we have a lot of work to do and
   we can afford to compute them, or we can get them rapidly
 - better report issues preventing migration:
@@ -113,6 +110,7 @@ let update_data = ref false
 let hint_file = ref ""
 let heidi_file = ref ""
 let excuse_file = ref ""
+let explain_dir = ref ""
 let offset = ref 0
 let all_hints = ref false
 let to_migrate = ref None
@@ -291,7 +289,8 @@ let read_hints dir =
       (fun who ->
          Sys.file_exists (Filename.concat dir who)
            ||
-         (Format.eprintf "Hint file '%s' does not exists.@." who; false))
+         (Format.eprintf "Warning: hint file '%s' does not exists.@." who;
+          false))
       (hint_files ())
   in
   List.iter
@@ -577,7 +576,7 @@ let print_reason capitalize print_binary print_source lits reason =
           L.emp
       end
         &
-      L.s ":" & print_explanation problem
+      L.s ":" & L.div ~clss:"problem" (print_explanation problem)
   | Not_yet_built (src, v1, v2) ->
       L.s (c "Not yet rebuilt (source ") &
       L.s src & L.s " version " & L.format M.print_version v1 &
@@ -1804,7 +1803,7 @@ let initial_constraints
   let age_constraints = ref [] in
   let bug_constraints = ref [] in
   let outdated_constraints = ref [] in
-  let produce_excuses = !excuse_file <> "" in
+  let produce_excuses = !excuse_file <> "" || !explain_dir <> "" in
   let implies id1 id2 reason =
     ignore (HornSolver.add_rule solver [|id2; id1|] reason) in
   let assume_deferred lst id reason =
@@ -2763,6 +2762,345 @@ let analyze_migration
   migrate ();
   save_rules uids
 
+(**** Detailed explanations ****)
+
+
+(* source is interesting if not unchanged or one binary is not unchanged
+let rec interesting_reason solver (lits, reason) =
+  match reason with
+    Unchanged ->
+      false
+  | Binary_not_added | Binary_not_removed ->
+      List.exists (interesting_reason solver)
+        (HornSolver.direct_reasons solver lits.(1))
+  | Source_not_propagated ->
+      false
+  | Atomic ->
+      false
+  | _ ->
+      true
+*)
+
+let package_changed solver id =
+  let reasons = HornSolver.direct_reasons solver id in
+  not (List.exists (fun (_, r) -> r = Unchanged) reasons)
+
+let source_is_interesting solver id =
+  package_changed solver id
+    ||
+  List.exists 
+    (fun (lits, reason) ->
+       match reason with
+       | Binary_not_added | Binary_not_removed ->
+           package_changed solver lits.(1)
+       | _ ->
+           false)
+    (HornSolver.direct_reasons solver id)
+
+(*
+XXX
+* Improve constraint computation
+* Fix links
+* Package coloring
+
+.problem {
+  border-width: thin;
+  border-style: solid;
+}
+.problem svg {
+  display:block;
+  margin:auto;
+}
+
+*)
+
+let generate_explanations
+      dates urgencies hints solver id_of_source source_of_id id_offsets t u l
+      deferred_constraints =
+  Util.make_directories (Filename.concat !explain_dir "foo");
+
+  svg := true;
+
+  find_all_coinst_constraints solver id_offsets l;
+  List.iter
+    (fun f ->
+       if f () then
+         find_all_coinst_constraints solver id_offsets l)
+         deferred_constraints;
+  check_coinstallability := true;
+  (*XXX We should restart from scratch... *)
+  find_all_coinst_constraints solver id_offsets l;
+  
+  let interesting_source = M.PkgTbl.create 1024 in
+  let sources = ref [] in
+  let binaries = ref IntSet.empty in
+  Array.iteri
+    (fun id nm ->
+       let reasons = HornSolver.direct_reasons solver id in
+       if List.exists (interesting_reason solver) reasons then begin
+         sources := (M.name_of_id nm, nm, (id, reasons)) :: !sources;
+         M.PkgTbl.add interesting_source nm ();
+         List.iter
+           (fun (lits, reason) ->
+              match reason with
+                Binary_not_added | Binary_not_removed ->
+                  let id = lits.(1) in
+                  binaries := IntSet.add id !binaries;
+                  List.iter
+                    (fun (lits, reason) ->
+                       match reason with
+                         Conflict (s, s', _) ->
+                           binaries :=
+                             IntSet.union (IntSet.union s s') !binaries
+                       | _ ->
+                           ())
+                    (HornSolver.direct_reasons solver id)
+              | _ ->
+                  ())
+           reasons
+       end)
+    source_of_id;
+
+  let name_of_binary = IntTbl.create 1024 in
+  Task.iteri l
+    (fun (arch, st) ->
+       let (first, offset, len) = StringTbl.find id_offsets arch in
+       let pos = first + offset in
+       let l =
+         IntSet.elements
+           (IntSet.filter (fun id -> id >= pos && id < pos + len) !binaries)
+       in
+       (arch, binary_names st (pos, l)))
+    (fun arch l ->
+       List.iter
+         (fun (id, nm, src) ->
+            IntTbl.add name_of_binary id (nm, arch, src))
+         l);
+
+  let print_binary _ id =
+    let (nm, arch, source) = IntTbl.find name_of_binary id in
+    let source_name = M.name_of_id source in
+    let txt =
+      if nm = source_name then
+        L.code (L.s nm)
+      else
+        (L.code (L.s nm) & L.s " (from " & L.code (L.s source_name) & L.s ")")
+    in
+    if not (M.PkgTbl.mem interesting_source source) then (nm, txt) else
+    (nm, L.anchor (source_name ^ ".html") txt)
+  in
+  let print_source id = assert false in
+
+  let package_list = open_out (Filename.concat !explain_dir "packages.js") in
+  Printf.fprintf package_list "set_package_list([";
+  List.iter
+    (fun (source_name, nm, (id, reasons)) ->
+       let binaries = ref StringSet.empty in
+       List.iter
+         (fun (lits, reason) ->
+            match reason with
+              Binary_not_added | Binary_not_removed ->
+                let id = lits.(1) in
+                let (nm, arch, source) = IntTbl.find name_of_binary id in
+                binaries := StringSet.add nm !binaries
+            | _ ->
+                ())
+         reasons;
+       Printf.fprintf package_list "[\"%s\"" source_name;
+       StringSet.iter
+         (fun nm -> Printf.fprintf package_list ",\"%s\"" nm)
+         (StringSet.remove source_name !binaries);
+       Printf.fprintf package_list "],";
+
+       let about_bin (_, r) =
+         match r with
+           Binary_not_added | Binary_not_removed -> true
+         | _                                     -> false
+       in
+       let src_reasons =
+         begin try
+           let p = M.find_source_by_name u nm in
+           if same_source_version t u nm then L.emp else
+           let (cur_ag, req_ag) =
+             compute_ages dates urgencies hints
+               nm p.M.s_version (source_version t nm)
+           in
+           if cur_ag < req_ag then L.emp else
+           L.li (L.s "Package is " & L.i cur_ag &
+                 L.s " days old (needed " & L.i req_ag & L.s " days).")
+         with Not_found ->
+           L.emp
+         end
+           &
+         L.list
+           (fun r ->
+              if interesting_reason solver r && not (about_bin r) then
+                L.li (print_reason true print_binary print_source
+                        (fst r) (snd r))
+              else
+                L.emp)
+           reasons
+       in
+       let binaries =
+         reasons
+         >> List.filter
+              (fun r -> interesting_reason solver r && about_bin r)
+         >> List.map (fun (lits, r) -> (lits.(1), r))
+         >> List.sort (Util.compare_pair compare compare)
+         >> Util.group compare
+         >> List.map
+              (fun (id, l) ->
+                 let (name, arch, _) = IntTbl.find name_of_binary id in
+                 let is_removal =
+                   List.for_all (fun r -> r = Binary_not_removed) l in
+                 (name, (arch, (id, is_removal))))
+         >> List.sort
+              (Util.compare_pair compare (Util.compare_pair compare compare))
+       in
+       let not_yet_built =
+         binaries
+         >>
+         List.filter
+           (fun (_, (_, (id, _))) ->
+              List.exists
+                (fun (_, r) ->
+                   match r with Not_yet_built _ -> true | _ -> false)
+                (HornSolver.direct_reasons solver id))
+         >> List.map (fun (name, (arch, _)) -> (name, arch))
+         >> List.sort (Util.compare_pair compare compare)
+         >> Util.group compare
+         >> List.map (fun (name, l) -> (l, name))
+         >> List.sort (Util.compare_pair (Util.compare_list compare) compare)
+         >> Util.group (Util.compare_list compare)
+       in
+       let build_reasons =
+         L.list
+           (fun (al, bl) ->
+              L.li (L.s (if List.length bl = 1 then "Binary package "
+                         else "Binary packages ") &
+                    L.seq ", " (fun nm -> L.code (L.s nm)) bl &
+                    L.s " not yet rebuilt on " &
+                    L.seq ", "
+                      (fun arch ->
+                         L.anchor (build_log_url source_name arch)
+                           (L.s arch)) al &
+                    L.s "."))
+           not_yet_built
+       in
+       let with_new_bugs =
+         Util.group compare
+           (List.flatten
+              (List.map
+                 (fun (nm, (_, (id, _))) ->
+                    List.flatten
+                      (List.map
+                         (fun (_, reason) ->
+                            match reason with
+                              More_bugs s -> [(nm, s)]
+                            | _           -> [])
+                         (HornSolver.direct_reasons solver id)))
+                 binaries))
+       in
+       let bug_reasons =
+         L.list
+           (fun (nm', s) ->
+              let s = List.hd s in (* Same bugs on all archs. *)
+              if nm' <> source_name then
+                L.li (L.s "Binary package " & L.code (L.s nm') &
+                      L.s " has new bugs: " &
+                      L.seq ", "
+                        (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
+                        (StringSet.elements s) &
+                      L.s ".")
+              else
+                L.emp)
+         with_new_bugs
+       in
+       let compare_conflict r r' =
+         match r, r' with
+           Conflict (s1, s1', p1), Conflict (s2, s2', p2) ->
+             compare p1.Upgrade_common.p_explain p2.Upgrade_common.p_explain
+         | _ ->
+             assert false
+       in
+       let compare_reason =
+         Util.compare_pair (fun x y -> 0) compare_conflict in
+       let binaries =
+         binaries >> Util.group compare >>
+         List.map
+           (fun (nm, l) ->
+              l >>
+              List.map
+                (fun (arch, (id, is_removal)) ->
+                   (HornSolver.direct_reasons solver id
+                      >>
+                    List.filter
+                      (fun r ->
+                         interesting_reason solver r &&
+                         match snd r with
+                           Not_yet_built _ | More_bugs _ -> false
+                         | Conflict _                    -> true
+                         | _                             -> assert false)
+                       >>
+                    List.sort compare_reason,
+                    (arch, is_removal))) >>
+              List.sort (Util.compare_pair
+                           (Util.compare_list compare_reason) compare) >>
+              Util.group (Util.compare_list compare_reason) >>
+              List.map (fun (archs, l) -> (nm, (archs, l)))) >>
+         List.flatten
+       in
+       let bin_reasons =
+         L.list
+           (fun (nm, (reasons, archs_and_removals)) ->
+              if reasons =  [] then L.emp else
+              let is_removal = List.for_all snd archs_and_removals in
+              let archs = List.map fst archs_and_removals in
+              let reasons =
+                L.list
+                  (fun (lits, r) ->
+                     L.li (print_reason true print_binary print_source
+                             lits r))
+                  reasons
+              in
+              L.li (L.s "Binary package " & L.code (L.s nm) &
+                    L.s " cannot " &
+                    L.s (if is_removal then "be removed" else "migrate") &
+                    L.s " (" & L.seq ", " L.s archs & L.s "):" &
+                    L.ul reasons))
+           binaries
+       in
+       let version dist nm =
+         try
+           let p = M.find_source_by_name dist nm in
+           L.format M.print_version p.M.s_version
+         with Not_found ->
+           L.s "-"
+       in
+       let versions nm =
+         if
+           List.exists (fun (_, r) -> r = Unchanged)
+             (HornSolver.direct_reasons solver id)
+         then
+           version t nm
+         else
+           (version t nm & L.s " to " & version u nm)
+       in
+       let file =
+         Filename.concat (Filename.concat !explain_dir "p")
+           (source_name ^ ".html") in
+       Util.make_directories file;
+       let ch = open_out file in
+       L.print (new L.html_printer ch ("Package " ^ source_name))
+         (L.anchor (pts_url source_name) (L.code (L.s source_name)) &
+            L.s " (" & versions nm & L.s ")"
+            &
+          L.ul (src_reasons & build_reasons & bug_reasons & bin_reasons));
+       close_out ch)
+    !sources;
+  Printf.fprintf package_list "]);";
+  close_out package_list
+
 (**** Main part of the program ****)
 
 let print_equivocal_packages uids solver id_of_source id_offsets t u l =
@@ -2791,6 +3129,7 @@ let f () =
     load_all_files () in
 
   if !equivocal then check_coinstallability := true;
+  if !explain_dir <> "" then check_coinstallability := false;
 
   begin match !to_migrate with
     Some p ->
@@ -2807,6 +3146,10 @@ let f () =
 
   if !equivocal then
     print_equivocal_packages uids solver id_of_source id_offsets t u l
+  else if !explain_dir <> "" then
+    generate_explanations
+      dates urgencies hints solver id_of_source source_of_id id_offsets
+      t u l deferred_constraints
   else begin match !to_migrate with
     Some p ->
       analyze_migration
@@ -2886,6 +3229,9 @@ let spec =
    "--excuses",
    Arg.String (fun f -> excuse_file := f),
    "FILE Output excuses to FILE";
+   "--explain",
+   Arg.String (fun d -> explain_dir := d),
+   "DIR Output detailed explanations to DIR";
    "--svg",
    Arg.Unit (fun () -> svg := true),
    " Include conflict graphs (in SVG) in excuse output";
@@ -2951,6 +3297,7 @@ end;
 let opts =
   [!to_migrate <> None, "--migrate";
    !excuse_file <> "", "--excuse";
+   !explain_dir <> "", "--explain";
    !equivocal, "--equivocal";
    !update_data, "--update"]
 in
@@ -2963,7 +3310,7 @@ begin match List.filter (fun (b, _) -> b) opts with
 end;
 if
   !heidi_file = "" && !hint_file = "" && !excuse_file = "" &&
-  !to_migrate = None && not !equivocal && not !update_data
+  !explain_dir = "" && !to_migrate = None && not !equivocal && not !update_data
 then begin
   heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
   if !heidi_file = "" && not (debug_hints () || debug_outcome ()) then

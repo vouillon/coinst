@@ -24,6 +24,8 @@ val anchor : string -> in_anchor phrasing t -> outside_anchor phrasing t
 
 val p : _ flow t
 
+val div : ?clss:string -> _ flow t -> _ flow t
+
 (****)
 
 type +'a lst
@@ -55,6 +57,8 @@ class type printer = object
   method dt : string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
+  method start_div : ?clss:string -> unit -> unit
+  method end_div : unit -> unit
   method raw_html : (unit -> string) -> unit
 end
 

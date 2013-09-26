@@ -48,17 +48,3 @@
 
 ====
 - what can we say about updates: desemphasize edges that are unchanged
-
-================
-
-Nice design:
-    JavaScript InfoVis Toolkit   http://thejit.org/
-
-Conferences
-===========
-http://www.graphdrawing.org/gd2010/accepted.html
-Infovis
-
-http://eagereyes.org/service/acceptance-rates
-===> Vis, EuroVis, VAST, UIST, CHI
-
