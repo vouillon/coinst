@@ -796,7 +796,8 @@ type s =
   { mutable s_name : package_name;
     mutable s_version : version;
     mutable s_section : string;
-    mutable s_extra_source : bool }
+    mutable s_binary : package_name list;
+    mutable s_extra_source : bool}
 
 type s_pool =
   { mutable s_size : int;
@@ -827,7 +828,7 @@ let parse_src_packages pool ch =
   let start () =
     Common.parsing_tick info;
     { s_name = -1; s_version = dummy_version; s_section = "unknown";
-      s_extra_source = false }
+      s_binary = []; s_extra_source = false }
   in
   let field q f st =
     match f with
@@ -836,6 +837,12 @@ let parse_src_packages pool ch =
     | "Version" -> q.s_version <- parse_version st; parse_field_end st; true
     | "Section" -> q.s_section <-
                      common_string (parse_simple_field_content st);
+                   true
+    | "Binary"  -> q.s_binary <-
+                     List.map
+                       (function d ->
+                          match d with [(nm, None)] -> nm | _ -> assert false)
+                       (parse_rel f false false st);
                    true
     | "Extra-Source-Only" ->
                    q.s_extra_source <- parse_simple_field_content st = "yes";

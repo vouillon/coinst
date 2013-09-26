@@ -103,6 +103,7 @@ type s =
   { mutable s_name : package_name;
     mutable s_version : version;
     mutable s_section : string;
+    mutable s_binary : package_name list;
     mutable s_extra_source : bool }
 
 type s_pool

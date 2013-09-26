@@ -478,7 +478,7 @@ type reason =
   | More_bugs of StringSet.t
   (* Binaries *)
   | Conflict of IntSet.t * IntSet.t * Upgrade_common.problem
-  | Not_yet_built of string * M.version * M.version
+  | Not_yet_built of string * M.version * M.version * bool
   | Source_not_propagated
   | Atomic
 
@@ -577,8 +577,12 @@ let print_reason capitalize print_binary print_source lits reason =
       end
         &
       L.s ":" & L.div ~clss:"problem" (print_explanation problem)
-  | Not_yet_built (src, v1, v2) ->
-      L.s (c "Not yet rebuilt (source ") &
+  | Not_yet_built (src, v1, v2, outdated) ->
+      (if outdated then
+        L.s (c "Not yet rebuilt (source ")
+       else
+        L.s (c "Obsolete (source "))
+        &
       L.s src & L.s " version " & L.format M.print_version v1 &
       L.s " rather than " & L.format M.print_version v2 & L.s ")."
   | Source_not_propagated ->
@@ -1544,7 +1548,7 @@ let arch_constraints
        if not (M.has_source u nm) then begin
          M.add_source u
            { M.s_name = nm; s_version = v; s_section = "";
-             s_extra_source = false };
+             s_binary = []; s_extra_source = false };
          fake_srcs := (nm, v) :: !fake_srcs;
          M.PkgTbl.add is_fake nm ();
          M.PkgDenseTbl.add st.id_of_source nm !last_id;
@@ -1558,7 +1562,9 @@ let arch_constraints
        let outdated = M.compare_version v v' <> 0 in
        if outdated then begin
          st.outdated_binaries <- p :: st.outdated_binaries;
-         assume id (Not_yet_built (M.name_of_id nm, v, v'))
+         let still_built = 
+           List.memq p.M.package (M.find_source_by_name u nm).M.s_binary in
+         assume id (Not_yet_built (M.name_of_id nm, v, v', still_built))
        end else begin
          if not (M.PkgTbl.mem source_has_binaries nm) then begin
            sources_with_binaries := nm :: !sources_with_binaries;
@@ -1622,7 +1628,7 @@ let arch_constraints
            (not (M.has_source u nm) || M.PkgTbl.mem is_fake nm);
          M.add_source t
            { M.s_name = nm; s_version = v; s_section = "";
-             s_extra_source = false };
+             s_binary = []; s_extra_source = false };
          fake_srcs := (nm, v) :: !fake_srcs;
          M.PkgTbl.add is_fake nm ();
          M.PkgDenseTbl.add st.id_of_source nm !last_id;
@@ -1953,7 +1959,7 @@ let initial_constraints
                 incr last_id;
                 M.add_source t
                   { M.s_name = nm; s_version = v; s_section = "";
-                    s_extra_source = false };
+                    s_binary = []; s_extra_source = false };
               end;
               IntTbl.add id_of_fake !cur_id (M.PkgTbl.find is_fake nm);
               incr cur_id)
@@ -2662,9 +2668,13 @@ let analyze_migration
         (fun (p, reason) ->
            Buffer.clear b;
            begin match reason with
-             Not_yet_built (nm, _, _) ->
-               Format.bprintf b "# remove outdated binary package %a"
-                 print_package p
+             Not_yet_built (nm, _, _, outdated) ->
+               if outdated then
+                 Format.bprintf b "# remove outdated binary package %a"
+                   print_package p
+               else
+                 Format.bprintf b "# remove obsolete binary package %a"
+                   print_package p
            | Blocked (kind, _) ->
                let (src, _) = get_name_arch p in
                let vers =
