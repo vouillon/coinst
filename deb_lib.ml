@@ -649,6 +649,8 @@ let rec parse_package_conj f vers disj st =
     [nm]
   else if accept st ',' then begin
     skip_whitespaces st;
+    (* Hack to parse multiline Binary fields... *)
+    if accept st '\n' then skip_whitespaces st;
     nm :: parse_package_conj f vers disj st
   end else
     fail st (Format.sprintf "bad character '%c'" (next st))
