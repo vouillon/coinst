@@ -83,6 +83,8 @@ module IntSet = Ptset
 (*
   Set.Make (struct type t = int let compare x (y : int) = compare x y end)
 *)
+module IntMap =
+  Map.Make (struct type t = int let compare x (y : int) = compare x y end)
 module StringSet = Set.Make (String)
 
 (****)
@@ -302,3 +304,15 @@ let trailing_whitespaces_re = Str.regexp "[ \t\n]+$"
 let trim s =
   s >> Str.replace_first leading_whitespaces_re ""
     >> Str.replace_first trailing_whitespaces_re ""
+
+(****)
+
+let days = [|"Mon"; "Tue"; "Wed"; "Thu"; "Fri"; "Sat"; "Sun"|]
+let months = [|"Jan"; "Feb"; "Mar"; "Apr"; "May"; "Jun";
+               "Jul"; "Aug"; "Sep"; "Oct"; "Nov"; "Dec"|]
+
+let date () =
+  let t = Unix.gmtime (Unix.gettimeofday ()) in
+  Format.sprintf "%s, %d %s %d %02d:%02d:%02d UTC"
+    days.(t.Unix.tm_wday - 1) t.Unix.tm_mday months.(t.Unix.tm_mon - 1)
+    (t.Unix.tm_year + 1900)  t.Unix.tm_hour t.Unix.tm_min t.Unix.tm_sec

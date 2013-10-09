@@ -99,3 +99,5 @@ module Union_find : sig
 end
 
 val trim : string -> string
+
+val date : unit -> string

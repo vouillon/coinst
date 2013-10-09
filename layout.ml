@@ -12,11 +12,17 @@ class type printer = object
   method start_a : string -> unit
   method end_a : unit -> unit
   method start_dl : unit -> unit
-  method dt : string option -> unit
+  method dt : ?clss:string -> string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
   method start_div : ?clss:string -> unit -> unit
   method end_div : unit -> unit
+  method start_span : ?clss:string -> unit -> unit
+  method end_span : unit -> unit
+  method start_heading : unit -> unit
+  method end_heading : unit -> unit
+  method start_footer : unit -> unit
+  method end_footer : unit -> unit
   method raw_html : (unit -> string) -> unit
 end
 
@@ -57,6 +63,12 @@ let p pr = pr#change_p ()
 
 let div ?clss contents p = p#start_div ?clss (); contents p; p#end_div ()
 
+let span ?clss contents p = p#start_span ?clss (); contents p; p#end_span ()
+
+let heading contents p = p#start_heading (); contents p; p#end_heading ()
+
+let footer contents p = p#start_footer (); contents p; p#end_footer ()
+
 let raw_html f pr = pr#raw_html f
 
 (****)
@@ -70,7 +82,9 @@ let li contents p = p#li (); contents p
 
 type d
 let dl lst p = p#start_dl (); lst p; p#end_dl ()
-let dli ?id key desc p = p#dt id; key p; p#dd (); desc p
+let dli ?id key desc (p : #printer) = p#dt id; key p; p#dd (); desc p
+let dt ?clss key p = p#dt ?clss None; key p
+let dd desc p = p#dd (); desc p
 
 (****)
 
@@ -119,7 +133,7 @@ let html_escape s =
   done;
   s'
 
-class html_printer ch title : printer = object (self)
+class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
   val mutable in_p = false
   val mutable need_break = false
   val mutable at_list_start = false
@@ -128,7 +142,21 @@ class html_printer ch title : printer = object (self)
     output_string ch
       "<!DOCTYPE html>\n<meta charset='utf-8'>\n<title>";
     output_string ch (html_escape title);
-    output_string ch "</title>\n"
+    output_string ch "</title>\n";
+    begin match stylesheet with
+      Some url ->
+        output_string ch "<link rel='stylesheet' href='";
+        output_string ch (html_escape url);
+        output_string ch "'>\n";
+    | None ->
+        ()
+    end;
+    List.iter
+      (fun url ->
+         output_string ch "<script src='";
+         output_string ch (html_escape url);
+         output_string ch "'></script>\n")
+      scripts
   method end_doc () = ()
   method text s =
     if not in_p then begin
@@ -163,18 +191,30 @@ class html_printer ch title : printer = object (self)
     output_string ch ("<code>")
   method end_code () = output_string ch "</code>"
   method start_dl () = at_list_start <- true
-  method dt id =
+  method dt ?clss id =
     if at_list_start then begin
       self#break (); output_string ch "<dl>";
       self#break (); need_break <- false;
       at_list_start <- false
     end;
-    begin match id with
-      None    -> self#break (); output_string ch "<dt>"
-    | Some id -> self#break (); output_string ch ("<dt id='" ^ id ^ "'>")
+    self#break (); output_string ch "<dt";
+    begin match clss with
+      None      -> ()
+    | Some clss -> output_string ch (" class='" ^ clss ^ "'")
     end;
+    begin match id with
+      None    -> ()
+    | Some id -> output_string ch (" id='" ^ id ^ "'>")
+    end;
+    output_string ch ">";
     in_p <- true
-  method dd () = self#break (); output_string ch "<dd>"; in_p <- false
+  method dd () =
+    if at_list_start then begin
+      self#break (); output_string ch "<dl>";
+      self#break (); need_break <- false;
+      at_list_start <- false
+    end;
+    self#break (); output_string ch "<dd>"; in_p <- false
   method end_dl () =
     if not at_list_start then begin
       self#break (); output_string ch "</dl>";
@@ -191,6 +231,28 @@ class html_printer ch title : printer = object (self)
     need_break <- true; in_p <- false
   method end_div () =
     self#break (); output_string ch "</div>"; need_break <- true; in_p <- false
+  method start_span ?clss () =
+    if not in_p then begin
+      self#break (); output_string ch "<p>"; in_p <- true
+    end;
+    begin match clss with
+      Some clss -> output_string ch ("<span class='" ^ html_escape clss ^ "'>")
+    | None      -> output_string ch "<span>"
+    end
+  method end_span () = output_string ch "</span>";
+  method start_heading () =
+    self#break ();
+    output_string ch "<h1>";
+    need_break <- true; in_p <- true
+  method end_heading () =
+    self#break (); output_string ch "</h1>"; need_break <- true; in_p <- false
+  method start_footer () =
+    self#break ();
+    output_string ch "<footer>";
+    need_break <- true; in_p <- false
+  method end_footer () =
+    self#break (); output_string ch "</footer>";
+    need_break <- true; in_p <- false
   method raw_html f =
     if not in_p then begin
       self#break (); output_string ch "<p>"; in_p <- true
@@ -257,7 +319,7 @@ class format_printer f : printer = object
   method start_code l = ()
   method end_code l = ()
   method start_dl () = at_list_start <- true; assert false
-  method dt id =
+  method dt ?clss id =
     if at_list_start then begin
       Format.fprintf f "@[<v>"; at_list_start <- false
     end else
@@ -268,5 +330,11 @@ class format_printer f : printer = object
     if not at_list_start then Format.fprintf f "@]"
   method start_div ?clss () = ()
   method end_div () = ()
+  method start_span ?clss () = ()
+  method end_span () = ()
+  method start_heading () = ()
+  method end_heading () = ()
+  method start_footer () = ()
+  method end_footer () = ()
   method raw_html f = ()
 end

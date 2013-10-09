@@ -1438,6 +1438,23 @@ let load_all_files () =
   (dates, urgencies, hints, t, u, testing_bugs, unstable_bugs, l,
    id_of_source, source_of_id, src_uid)
 
+(**** Deferred constraints ****)
+
+let retract_deferred_constraints solver constraints =
+  List.iter
+    (fun (_, l) ->
+       List.iter (fun (id, _) -> HornSolver.retract_assumptions solver id) l)
+    constraints
+
+let perform_deferred
+        solver ?(before=fun _ _ -> ()) ?(after=fun _ _ -> ()) (kind, lst) =
+  before (lst <> []) kind;
+  List.iter (fun (id, reason) -> HornSolver.assume solver id reason) lst;
+  after (lst <> []) kind
+
+let assert_deferred_constraints solver ?before ?after constraints =
+  List.iter (fun lst -> perform_deferred solver ?before ?after lst) constraints
+
 (**** Constraint computation ****)
 
 type cstr =
@@ -1818,20 +1835,9 @@ let initial_constraints
     else
       HornSolver.assume solver id reason
   in
-  let perform_deferred lst =
-    if !lst <> [] then begin
-      List.iter (fun (id, reason) -> HornSolver.assume solver id reason)
-        !lst;
-      lst := [];
-      true
-    end else
-      false
-  in
-  let deferred_constraints =
-    List.map
-      (fun lst () -> perform_deferred lst)
-      [bug_constraints; outdated_constraints;
-       age_constraints; block_constraints]
+  let deferred_constraints () =
+    [(`Bugs, !bug_constraints); (`Outdated, !outdated_constraints);
+     (`Age, !age_constraints); (`Blocked, !block_constraints)]
   in
   let all_or_none ids reason =
     match ids with
@@ -2006,13 +2012,13 @@ let initial_constraints
            (HornSolver.add_rule solver
               [|M.PkgDenseTbl.find id_of_source nm|] No_binary))
     u;
-  load_rules solver uids;
+  if !explain_dir <> "" then load_rules solver uids;
   initialize_broken_sets l !broken_arch_all_packages;
 
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
-  (uids, solver, deferred_constraints, is_fake, id_offsets, get_name_arch)
+  (uids, solver, deferred_constraints (), is_fake, id_offsets, get_name_arch)
 
 (**** Dealing with arch:all packages ****)
 
@@ -2808,22 +2814,13 @@ let source_is_interesting solver id =
     (HornSolver.direct_reasons solver id)
 
 (*
-XXX
-* Improve constraint computation
-* Fix links
-* Package coloring
-
-.problem {
-  border-width: thin;
-  border-style: solid;
-}
-.problem svg {
-  display:block;
-  margin:auto;
-}
-
+Levels
+======
+  0 - yellow: co-installability issues only
+  1 - green:  age/blocked issue; will eventually migrate
+  2 - orange: obsolete packages and bugs
+  3 - red:    would make packages non-installable
 *)
-
 let generate_explanations
       dates urgencies hints solver id_of_source source_of_id id_offsets t u l
       deferred_constraints =
@@ -2832,15 +2829,41 @@ let generate_explanations
   svg := true;
 
   find_all_coinst_constraints solver id_offsets l;
-  List.iter
-    (fun f ->
-       if f () then
-         find_all_coinst_constraints solver id_offsets l)
-         deferred_constraints;
+
+  let red = BitVect.copy (HornSolver.assignment solver) in
+
+  let orange = ref None in
+  assert_deferred_constraints solver
+    ~before:(fun _ k ->
+               if k = `Age then
+                 orange := Some (BitVect.copy (HornSolver.assignment solver)))
+    ~after:(fun p _ ->
+              if p then find_all_coinst_constraints solver id_offsets l)
+    deferred_constraints;
   check_coinstallability := true;
-  (*XXX We should restart from scratch... *)
-  find_all_coinst_constraints solver id_offsets l;
-  
+  let orange = match !orange with Some a -> a | None -> assert false in
+  let green = HornSolver.assignment solver in
+
+  retract_deferred_constraints solver deferred_constraints;
+
+  assert_deferred_constraints solver
+    ~after:(fun p _ ->
+              if p then find_all_coinst_constraints solver id_offsets l)
+    deferred_constraints;
+
+  let level id =
+    if BitVect.test red id then 3 else
+    if BitVect.test orange id then 2 else
+    if BitVect.test green id then 1 else
+    0
+  in
+  let level_class l =
+    match l with
+      3 -> "unsat"
+    | 2 -> "issues"
+    | 1 -> "age"
+    | _ -> "coinst"
+  in  
   let interesting_source = M.PkgTbl.create 1024 in
   let sources = ref [] in
   let binaries = ref IntSet.empty in
@@ -2887,6 +2910,7 @@ let generate_explanations
             IntTbl.add name_of_binary id (nm, arch, src))
          l);
 
+  let print_source nm = L.anchor (nm ^ ".html") (L.code (L.s nm)) in
   let print_binary _ id =
     let (nm, arch, source) = IntTbl.find name_of_binary id in
     let source_name = M.name_of_id source in
@@ -2899,7 +2923,6 @@ let generate_explanations
     if not (M.PkgTbl.mem interesting_source source) then (nm, txt) else
     (nm, L.anchor (source_name ^ ".html") txt)
   in
-  let print_source id = assert false in
 
   let package_list = open_out (Filename.concat !explain_dir "packages.js") in
   Printf.fprintf package_list "set_package_list([";
@@ -2936,19 +2959,36 @@ let generate_explanations
                nm p.M.s_version (source_version t nm)
            in
            if cur_ag < req_ag then L.emp else
-           L.li (L.s "Package is " & L.i cur_ag &
+           L.dt (L.s "The package is " & L.i cur_ag &
                  L.s " days old (needed " & L.i req_ag & L.s " days).")
          with Not_found ->
            L.emp
          end
            &
          L.list
-           (fun r ->
-              if interesting_reason solver r && not (about_bin r) then
-                L.li (print_reason true print_binary print_source
-                        (fst r) (snd r))
-              else
-                L.emp)
+           (fun (_, r) ->
+              match r with
+              | Blocked (kind, who) ->
+                  L.dt
+                    (L.span ~clss:"blocked"
+                       (L.s "Left unchanged due to " & L.s kind &
+                        L.s " request") &
+                     L.s " by " & L.s who & L.s ".")
+              | Too_young (cur_ag, req_ag) ->
+                  L.dt
+                    (L.span ~clss:"age"
+                       (L.s "Only " & L.i cur_ag & L.s " days old") &
+                     L.s "; must be " & L.i req_ag & L.s " days old to go in.")
+              | More_bugs s ->
+                  L.dt
+                    (L.span ~clss:"bugs" (L.s "The package has new bugs") &
+                     L.s ": " &
+                     L.seq ", "
+                       (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
+                       (StringSet.elements s) &
+                     L.s ".")
+              | _ ->
+                  L.emp)
            reasons
        in
        let binaries =
@@ -2967,14 +3007,31 @@ let generate_explanations
          >> List.sort
               (Util.compare_pair compare (Util.compare_pair compare compare))
        in
-       let not_yet_built =
+       let involved_archs =
+         List.fold_left
+           (fun archs (_, (arch, _)) -> StringSet.add arch archs)
+           StringSet.empty binaries
+       in
+       let binnmu_message =
+         if List.exists (fun (_, r) -> r = Unchanged) reasons then begin
+           L.s "BinNMUs on " &
+           L.seq ", " L.s (StringSet.elements involved_archs) &
+           L.s "."
+         end else
+           L.emp
+       in
+       let not_yet_built outdated =
          binaries
          >>
          List.filter
            (fun (_, (_, (id, _))) ->
               List.exists
                 (fun (_, r) ->
-                   match r with Not_yet_built _ -> true | _ -> false)
+                   match r with
+                     Not_yet_built (_, _, _, outdated') ->
+                       outdated = outdated'
+                   | _ ->
+                       false)
                 (HornSolver.direct_reasons solver id))
          >> List.map (fun (name, (arch, _)) -> (name, arch))
          >> List.sort (Util.compare_pair compare compare)
@@ -2983,19 +3040,27 @@ let generate_explanations
          >> List.sort (Util.compare_pair (Util.compare_list compare) compare)
          >> Util.group (Util.compare_list compare)
        in
-       let build_reasons =
+       let build_reasons outdated =
          L.list
            (fun (al, bl) ->
-              L.li (L.s (if List.length bl = 1 then "Binary package "
-                         else "Binary packages ") &
-                    L.seq ", " (fun nm -> L.code (L.s nm)) bl &
-                    L.s " not yet rebuilt on " &
+              let heading =
+                match outdated, List.length bl with                  
+                  false, 1 -> "A binary package is obsolete"
+                | false, _ -> "Some binary packages are obsolete"
+                | true,  1 -> "A binary package has not yet been rebuilt"
+                | true,  _ -> "Some binary packages have not yet been rebuilt"
+              in
+              L.dt ~clss:"collapsible"
+                (L.span ~clss:(if outdated then "outdated" else "obsolete")
+                      (L.s heading) &
+                    L.s " on " &
                     L.seq ", "
                       (fun arch ->
                          L.anchor (build_log_url source_name arch)
                            (L.s arch)) al &
-                    L.s "."))
-           not_yet_built
+                    L.s ".") &
+              L.dd (L.seq ", " (fun nm -> L.code (L.s nm)) bl & L.s "."))
+           (not_yet_built outdated)
        in
        let with_new_bugs =
          Util.group compare
@@ -3016,8 +3081,10 @@ let generate_explanations
            (fun (nm', s) ->
               let s = List.hd s in (* Same bugs on all archs. *)
               if nm' <> source_name then
-                L.li (L.s "Binary package " & L.code (L.s nm') &
-                      L.s " has new bugs: " &
+                L.dt (L.span ~clss:"bugs"
+                        (L.s "Binary package " & L.code (L.s nm') &
+                         L.s " has new bugs") &
+                      L.s ": " &
                       L.seq ", "
                         (fun s -> L.anchor (bug_url s) (L.s "#" & L.s s))
                         (StringSet.elements s) &
@@ -3026,86 +3093,201 @@ let generate_explanations
                 L.emp)
          with_new_bugs
        in
-       let compare_conflict r r' =
-         match r, r' with
-           Conflict (s1, s1', p1), Conflict (s2, s2', p2) ->
-             compare p1.Upgrade_common.p_explain p2.Upgrade_common.p_explain
-         | _ ->
-             assert false
+       let compare_conflicts (_, _, p1) (_, _, p2) =
+         compare p1.Upgrade_common.p_explain p2.Upgrade_common.p_explain
        in
-       let compare_reason =
-         Util.compare_pair (fun x y -> 0) compare_conflict in
        let binaries =
-         binaries >> Util.group compare >>
+         binaries >>
          List.map
-           (fun (nm, l) ->
-              l >>
+           (fun (nm, (arch, (id, is_removal))) ->
+              HornSolver.direct_reasons solver id >>
               List.map
-                (fun (arch, (id, is_removal)) ->
-                   (HornSolver.direct_reasons solver id
-                      >>
-                    List.filter
-                      (fun r ->
-                         interesting_reason solver r &&
-                         match snd r with
-                           Not_yet_built _ | More_bugs _ -> false
-                         | Conflict _                    -> true
-                         | _                             -> assert false)
-                       >>
-                    List.sort compare_reason,
-                    (arch, is_removal))) >>
-              List.sort (Util.compare_pair
-                           (Util.compare_list compare_reason) compare) >>
-              Util.group (Util.compare_list compare_reason) >>
-              List.map (fun (archs, l) -> (nm, (archs, l)))) >>
-         List.flatten
+                (fun (_, r) ->
+                   match r with
+                     Conflict (s, s', problem) ->
+                       let srcs =
+                         IntSet.fold
+                           (fun id' srcs ->
+                              let (_, _, source) =
+                                IntTbl.find name_of_binary id' in
+                              StringSet.add (M.name_of_id source) srcs)
+                           s StringSet.empty
+                       in
+                       [(srcs, (s, s', problem))]
+                   | _ ->
+                       []) >>
+              List.flatten >>
+              List.sort (Util.compare_pair StringSet.compare
+                           (fun _ _ -> 0)) >>
+              Util.group StringSet.compare >>
+              List.map
+                (fun (srcs, reasons) ->
+                   (srcs, (nm, (reasons, (arch, is_removal)))))) >>
+         List.flatten >>
+         List.sort (Util.compare_pair StringSet.compare
+                      (fun _ _ -> 0)) >>
+         Util.group StringSet.compare >>
+         List.map
+           (fun (srcs, l) ->
+              (srcs,
+               l >>
+               List.sort
+                 (Util.compare_pair compare
+                    (Util.compare_pair
+                       (Util.compare_list compare_conflicts)
+                       (Util.compare_pair compare (fun _ _ -> 0)))) >>
+               Util.group compare >>
+               List.map
+                 (fun (nm, l) ->
+                    l >>
+                    Util.group (Util.compare_list compare_conflicts) >>
+                    List.map (fun (reasons, l) -> (nm, l, reasons))) >>
+               List.flatten))
        in
        let bin_reasons =
+         let format_reason collapsible (s, s', problem) =
+           let lvl =
+             if IntSet.cardinal s' > 1 then 0 else
+             IntSet.fold (fun id l -> min l (level id)) s 3
+           in
+           L.dt ?clss:(if collapsible then Some "collapsible" else None)
+             (begin match IntSet.cardinal s with
+                0 -> L.emp
+              | 1 -> L.span ~clss:(level_class lvl)
+                       (L.s "Needs migration of binary package " &
+                        snd (print_binary false (IntSet.choose s))) &
+                     L.s ". "
+              | _ -> L.span ~clss:(level_class lvl)
+                       (L.s "Needs migration of one of the binary packages " &
+                        print_binaries "or" (print_binary false) s) &
+                     L.s ". "
+              end
+                &
+              L.s "Would " &
+              (if IntSet.cardinal s > 0 then L.s "otherwise " else L.emp)
+                &
+              L.s "break " &
+              if IntSet.cardinal s' = 1 then begin
+                L.s "package " &
+                snd (print_binary false (IntSet.choose s')) & L.s "."
+              end else begin
+                L.s "co-installability of packages " &
+                print_binaries "and" (print_binary false) s' & L.s "."
+              end)
+             &
+           L.dd (L.div ~clss:"problem" (print_explanation problem))
+         in
          L.list
-           (fun (nm, (reasons, archs_and_removals)) ->
-              if reasons =  [] then L.emp else
-              let is_removal = List.for_all snd archs_and_removals in
-              let archs = List.map fst archs_and_removals in
-              let reasons =
-                L.list
-                  (fun (lits, r) ->
-                     L.li (print_reason true print_binary print_source
-                             lits r))
-                  reasons
+           (fun (srcs, l) ->
+              let lvl =
+                List.fold_left
+                  (fun l (_, _, reasons) ->
+                     max l
+                       (List.fold_left
+                          (fun l (s, s', _) ->
+                             max l (if IntSet.cardinal s' > 1 then 0 else
+                                    IntSet.fold
+                                      (fun id l -> min l (level id)) s 3))
+                          0 reasons))
+                    0 l
               in
-              L.li (L.s "Binary package " & L.code (L.s nm) &
-                    L.s " cannot " &
-                    L.s (if is_removal then "be removed" else "migrate") &
-                    L.s " (" & L.seq ", " L.s archs & L.s "):" &
-                    L.ul reasons))
+              L.dt ~clss:"collapsible"
+                (match StringSet.elements srcs with
+                   [] ->
+                     L.span ~clss:(level_class lvl)
+                        (L.s "Some dependencies would become unsatisfiable") &
+                     L.s "."
+                 | [nm] ->
+                     L.span ~clss:(level_class lvl)
+                       (L.s "Needs migration of source package " &
+                        print_source nm) &
+                     L.s "."
+                 | srcs ->
+                     L.span ~clss:(level_class lvl)
+                       (L.s "Needs migration of one of the source packages " &
+                        L.seq ", " print_source srcs) &
+                     L.s ".")
+                 &
+              L.dd (L.dl
+                (L.list
+                   (fun (nm, archs_and_removals, reasons) ->
+                      let is_removal =
+                        List.for_all snd archs_and_removals in
+                      let archs = List.map fst archs_and_removals in
+                      let level =
+                        List.fold_left
+                          (fun l (s, s', _) ->
+                             max l (if IntSet.cardinal s' > 1 then 0 else
+                                    IntSet.fold
+                                      (fun id l -> min l (level id)) s 3))
+                          0 reasons
+                      in
+                      let reasons =
+                        L.list (format_reason (List.length reasons > 1))
+                          reasons in
+                      L.dt ?clss:(if List.length l = 1 then None else
+                                  Some "collapsible")
+                        (L.span ~clss:(level_class level)
+                           (if is_removal then
+                              L.s "Out of date binary package " &
+                              L.code (L.s nm) &
+                              L.s " cannot be removed"
+                            else
+                              L.s "Binary package " & L.code (L.s nm) &
+                              L.s " cannot migrate" &
+                           (if StringSet.is_empty srcs then L.emp else
+                            L.s " in isolation"))
+                            &
+                        (if
+                           List.length archs > 4 &&
+                           List.sort compare archs =
+                           StringSet.elements involved_archs
+                         then
+                            L.s " (on any architecture)."
+                         else
+                            L.s
+                              " (on " & L.seq ", " L.s archs & L.s ").")) &
+                      L.dd (L.dl reasons))
+                   l)))
            binaries
        in
-       let version dist nm =
-         try
-           let p = M.find_source_by_name dist nm in
-           L.format M.print_version p.M.s_version
-         with Not_found ->
-           L.s "-"
-       in
        let versions nm =
+         let version dist nm =
+           try
+             let p = M.find_source_by_name dist nm in
+             L.format M.print_version p.M.s_version
+           with Not_found ->
+             L.s "-"
+         in
          if
            List.exists (fun (_, r) -> r = Unchanged)
              (HornSolver.direct_reasons solver id)
          then
-           version t nm
+           (L.s "version " & version t nm)
          else
-           (version t nm & L.s " to " & version u nm)
+           (L.s "from " & version t nm & L.s " to " & version u nm)
        in
        let file =
          Filename.concat (Filename.concat !explain_dir "p")
            (source_name ^ ".html") in
        Util.make_directories file;
        let ch = open_out file in
-       L.print (new L.html_printer ch ("Package " ^ source_name))
-         (L.anchor (pts_url source_name) (L.code (L.s source_name)) &
-            L.s " (" & versions nm & L.s ")"
+       L.print (new L.html_printer ch ~stylesheet:"../style.css"
+                  ~scripts:["../jquery.js"; "../script.js"]
+                  ("Source package " ^ source_name))
+         (L.heading
+            (L.s "Source package " &
+             L.anchor (pts_url source_name) (L.s source_name) &
+             L.s " (" & versions nm & L.s ")")
             &
-          L.ul (src_reasons & build_reasons & bug_reasons & bin_reasons));
+          binnmu_message &
+          L.dl (src_reasons & build_reasons false & build_reasons true &
+                bug_reasons & bin_reasons)
+            &
+          L.footer (L.s "Page generated by " &
+                    L.anchor "http://coinst.irill.org/comigrate"
+                      (L.s "comigrate") &
+                    L.s (" on " ^ Util.date () ^ ".")));
        close_out ch)
     !sources;
   Printf.fprintf package_list "]);";
@@ -3166,10 +3348,9 @@ let f () =
         uids solver id_of_source id_offsets t u l get_name_arch p
   | None ->
       find_all_coinst_constraints solver id_offsets l;
-      List.iter
-        (fun f ->
-           if f () then
-             find_all_coinst_constraints solver id_offsets l)
+      assert_deferred_constraints solver
+        ~after:(fun p _ ->
+                  if p then find_all_coinst_constraints solver id_offsets l)
         deferred_constraints;
       save_rules uids;
 

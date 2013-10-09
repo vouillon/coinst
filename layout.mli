@@ -25,6 +25,11 @@ val anchor : string -> in_anchor phrasing t -> outside_anchor phrasing t
 val p : _ flow t
 
 val div : ?clss:string -> _ flow t -> _ flow t
+val span : ?clss:string -> _ flow t -> _ flow t
+
+val heading : _ phrasing t -> _ flow t
+
+val footer : _ flow t -> _ flow t
 
 (****)
 
@@ -37,6 +42,8 @@ val li : _ flow t -> u lst t
 
 type d
 val dl : d lst t -> _ flow t
+val dt : ?clss:string -> _ phrasing t -> d lst t
+val dd : _ flow t -> d lst t
 val dli : ?id:string -> _ phrasing t -> _ flow t -> d lst t
 
 (****)
@@ -54,15 +61,23 @@ class type printer = object
   method start_a : string -> unit
   method end_a : unit -> unit
   method start_dl : unit -> unit
-  method dt : string option -> unit
+  method dt : ?clss:string -> string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
   method start_div : ?clss:string -> unit -> unit
   method end_div : unit -> unit
+  method start_span : ?clss:string -> unit -> unit
+  method end_span : unit -> unit
+  method start_heading : unit -> unit
+  method end_heading : unit -> unit
+  method start_footer : unit -> unit
+  method end_footer : unit -> unit
   method raw_html : (unit -> string) -> unit
 end
 
-class html_printer : out_channel -> string -> printer
+class html_printer :
+  out_channel -> ?stylesheet:string -> ?scripts:(string list) ->
+  string -> printer
 class format_printer : Format.formatter -> printer
 
 val print : printer -> _ flow t -> unit

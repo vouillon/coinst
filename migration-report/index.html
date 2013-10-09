@@ -1,0 +1,233 @@
+<!doctype html> <meta charset="UTF-8">
+<title>Testing migration status</title>
+ <link rel="stylesheet" href="jquery-ui.css" />
+<script src="jquery-1.10.2.min.js"></script>
+<script src="jquery-ui.js"></script>
+<script>
+var package_names = [];
+var packages = [];
+$(function() {
+var max_resp = 100;
+function source (request, response) {
+  var re = $.ui.autocomplete.escapeRegex(request.term);
+  var r1 = new RegExp("^" + re, "i" );
+  var r2 = new RegExp(re, "i" );
+  var l1 = [];
+  var l2 = [];
+  for (var i = 0; i < package_names.length; i++) {
+    var p = package_names[i];
+    if (l1.length < max_resp) {
+      if (r1.test(p)) {
+        l1.push(p);
+      } else if (l2.length < max_resp) {
+        if (r2.test(p)) l2.push(p);
+      }
+    } else
+      break;
+  }
+  response (l1.concat(l2).slice(0, max_resp));
+}
+$("#package").autocomplete({ delay: 0, source: source});
+function resolve (p) {
+  for (var i = 0; i < packages.length; i++) {
+    var l = packages[i];
+    for (var j = 0; j < l.length; j++) {
+      if (l[j] == p) return l[0];
+    }
+  }
+  return p;
+}
+$("#form").submit( function(form) {
+  var package = $("#package").val().trim();
+  location.href = "/tmp/expl/p/" + resolve(package) + ".html";
+  return false;
+});
+});
+function set_package_list (l) {
+  packages = l;
+  package_names = [].concat.apply([],l).sort();
+}
+</script>
+<script async src="packages.js"></script>
+<style type="text/css">
+.ui-autocomplete {
+    max-height: 20em;
+    overflow-y: auto;
+    /* prevent horizontal scrollbar */
+    overflow-x: hidden;
+    /* add padding to account for vertical scrollbar */
+    padding-right: 20px;
+}
+
+.scheduled {
+   height:12em;
+   overflow-y: auto;
+list-style: none outside none;
+float:left;
+padding:0;
+border-style: solid;
+border-width:thin;
+border-color: black;
+}
+.scheduled li {
+  background-color: #AAFFAA;
+}
+.scheduled .coinst {
+  background-color: #FFFF88
+}
+section {
+ overflow:auto;
+}
+</style>
+<h1>Testing migration status</h1>
+<section>
+<h1>Per package information</h1>
+<form id="form" action="index.html">
+<label for="package">Package: </label>
+<input id="package" name="src">
+<input type="submit" value="Go">
+</form>
+</section>
+
+<section>
+<h1>Possibly problematic packages migrating soon</h1>
+</section>
+
+<section>
+<h1>Package incompatibilities recently introduced</h1>
+<ul>
+<li><a href="foo">since last week</a>
+<li><a href="foo">since last month</a>
+<li><a href="foo">compared to latest stable</a>
+</ul>
+</section>
+
+<section>
+<h1>Scheduled soon</h1>
+<section>
+<h1>Today</h1>
+<ul class="scheduled">
+<li class="coinst"><code>greasemonkey/1.12-1</code>
+<li><code>catch</code>
+<li><code>clonezilla</code>
+<li><code>commons-daemon</code>
+<li><code>dds</code>
+<li><code>deal</code>
+<li><code>debian-edu-artwork</code>
+<li><code>debianbuttons</code>
+<li><code>duplicity</code>
+<li><code>dwm</code>
+<li><code>exmh</code>
+<li><code>fheroes2-pkg</code>
+<li><code>freespace2</code>
+<li><code>gcin</code>
+<li><code>greasemonkey</code>
+<li><code>haproxy</code>
+<li><code>httrack</code>
+<li><code>i18nspector</code>
+<li><code>igal2</code>
+<li><code>input-pad</code>
+<li><code>intel-microcode</code>
+<li><code>jesred</code>
+<li><code>kytea</code>
+<li><code>laptop-mode-tools</code>
+<li><code>launchy</code>
+<li><code>libgedcom-perl</code>
+<li><code>libio-socket-ssl-perl</code>
+<li><code>libnb-javaparser-java</code>
+<li><code>libosl</code>
+<li><code>libp11</code>
+<li><code>libplist</code>
+<li><code>meld</code>
+<li><code>mmm-mode</code>
+<li><code>mobile-broadband-provider-info</code>
+<li><code>nagios-plugins</code>
+<li><code>nexus</code>
+<li><code>nmh</code>
+<li><code>nvidia-graphics-drivers-legacy-96xx</code>
+<li><code>openclonk</code>
+<li><code>palp</code>
+<li><code>perspectives-extension</code>
+<li><code>puppet</code>
+<li><code>pydoctor</code>
+<li><code>python-biopython</code>
+<li><code>python-gnupg</code>
+<li><code>qemuctl</code>
+<li><code>sciscipy</code>
+<li><code>sendmail</code>
+<li><code>systemd</code>
+<li><code>tiff</code>
+<li><code>vdr</code>
+<li><code>vdr-plugin-remoteosd</code>
+<li><code>vdr-plugin-svdrposd</code>
+<li><code>vdr-plugin-svdrpservice</code>
+<li><code>windowlab</code>
+<li><code>x11-xserver-utils</code>
+<li><code>xterm</code>
+</ul>
+</section>
+<section>
+<h1>Tomorrow</h1>
+<ul class="scheduled">
+<li><code>adequate</code>
+<li><code>avis-client-c</code>
+<li><code>btrfs-tools</code>
+<li><code>cluster3</code>
+<li><code>dictionaries-common</code>
+<li><code>fonts-gfs-baskerville</code>
+<li><code>gcl</code>
+<li><code>gf2x</code>
+<li><code>ghc-mod</code>
+<li><code>gnome-chemistry-utils</code>
+<li><code>gnome-themes-standard</code>
+<li><code>gnuserv</code>
+<li><code>golang-text</code>
+<li><code>ispell-fo</code>
+<li><code>ispell.pt</code>
+<li><code>jssip</code>
+<li><code>libconfig-any-perl</code>
+<li><code>libdata-ical-perl</code>
+<li><code>libdata-password-perl</code>
+<li><code>libdata-section-perl</code>
+<li><code>libdata-showtable-perl</code>
+<li><code>libdecentxml-java</code>
+<li><code>libdir-self-perl</code>
+<li><code>libemail-thread-perl</code>
+<li><code>libextutils-cbuilder-perl</code>
+<li><code>libextutils-depends-perl</code>
+<li><code>libnet-telnet-perl</code>
+<li><code>libsereal-decoder-perl</code>
+<li><code>libsereal-encoder-perl</code>
+<li><code>mgdiff</code>
+<li><code>pgmemcache</code>
+<li><code>plan</code>
+<li><code>plexus-containers1.5</code>
+<li><code>postgresql-pllua</code>
+<li><code>python-wstools</code>
+<li><code>pyudev</code>
+<li><code>routes</code>
+<li><code>scim-pinyin</code>
+<li><code>simpleid-ldap</code>
+<li><code>smlnj</code>
+<li><code>snake4</code>
+<li><code>synaptiks</code>
+<li><code>system-config-printer</code>
+<li><code>telepathy-spec</code>
+<li><code>vobcopy</code>
+<li><code>x42-plugins</code>
+<li><code>xorg-docs</code>
+<li><code>xorg-sgml-doctools</code>
+<li><code>xserver-xorg-video-ark</code>
+<li><code>yatm</code>
+<li><code>yubikey-personalization</code>
+<li><code>libm4ri</code>
+<li><code>libm4rie</code>
+<li><code>bobcat</code>
+<li><code>flexc++</code>
+<li><code>natlog</code>
+<li><code>stealth</code>
+<li><code>xd</code>
+<li><code>klavaro</code>
+</ul>
+</section>
+</section>
