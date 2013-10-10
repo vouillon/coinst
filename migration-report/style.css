@@ -1,4 +1,6 @@
 h1 { font-size: x-large; }
+section > h1 { font-size: medium; }
+pre { margin-left: 40px; white-space: pre-wrap; }
 dl {
   padding-left: 40px;
   list-style-type: disc;

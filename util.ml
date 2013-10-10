@@ -41,6 +41,14 @@ let set_msg s =
     hide_msg (); cur_msg := s; show_msg ()
   end
 
+let progress_bar f =
+  let s = "[                                       ]" in
+  let p = truncate (f *. 38.99) + 1 in
+  for i = 1 to p - 1 do s.[i] <- '=' done;
+  s.[p] <- '>';
+  for i = p + 1 to 39 do s.[i] <- ' ' done;
+  s
+
 (****)
 
 let warn_loc = ref None

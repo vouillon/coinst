@@ -19,8 +19,12 @@ class type printer = object
   method end_div : unit -> unit
   method start_span : ?clss:string -> unit -> unit
   method end_span : unit -> unit
+  method start_pre : ?clss:string -> unit -> unit
+  method end_pre : unit -> unit
   method start_heading : unit -> unit
   method end_heading : unit -> unit
+  method start_section : unit -> unit
+  method end_section : unit -> unit
   method start_footer : unit -> unit
   method end_footer : unit -> unit
   method raw_html : (unit -> string) -> unit
@@ -65,7 +69,11 @@ let div ?clss contents p = p#start_div ?clss (); contents p; p#end_div ()
 
 let span ?clss contents p = p#start_span ?clss (); contents p; p#end_span ()
 
+let pre ?clss contents p = p#start_pre ?clss (); contents p; p#end_pre ()
+
 let heading contents p = p#start_heading (); contents p; p#end_heading ()
+
+let section contents p = p#start_section (); contents p; p#end_section ()
 
 let footer contents p = p#start_footer (); contents p; p#end_footer ()
 
@@ -240,12 +248,28 @@ class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
     | None      -> output_string ch "<span>"
     end
   method end_span () = output_string ch "</span>";
+  method start_pre ?clss () =
+    if not in_p then begin
+      self#break (); output_string ch "<p>"; in_p <- true
+    end;
+    begin match clss with
+      Some clss -> output_string ch ("<pre class='" ^ html_escape clss ^ "'>")
+    | None      -> output_string ch "<pre>"
+    end
+  method end_pre () = output_string ch "</pre>";
   method start_heading () =
     self#break ();
     output_string ch "<h1>";
     need_break <- true; in_p <- true
   method end_heading () =
     self#break (); output_string ch "</h1>"; need_break <- true; in_p <- false
+  method start_section () =
+    self#break ();
+    output_string ch "<section>";
+    need_break <- true; in_p <- false
+  method end_section () =
+    self#break (); output_string ch "</section>";
+    need_break <- true; in_p <- false
   method start_footer () =
     self#break ();
     output_string ch "<footer>";
@@ -332,8 +356,12 @@ class format_printer f : printer = object
   method end_div () = ()
   method start_span ?clss () = ()
   method end_span () = ()
+  method start_pre ?clss () = ()
+  method end_pre () = ()
   method start_heading () = ()
   method end_heading () = ()
+  method start_section () = ()
+  method end_section () = ()
   method start_footer () = ()
   method end_footer () = ()
   method raw_html f = ()

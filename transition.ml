@@ -2012,7 +2012,7 @@ let initial_constraints
            (HornSolver.add_rule solver
               [|M.PkgDenseTbl.find id_of_source nm|] No_binary))
     u;
-  if !explain_dir <> "" then load_rules solver uids;
+  if !explain_dir = "" then load_rules solver uids;
   initialize_broken_sets l !broken_arch_all_packages;
 
   if debug_time () then
@@ -2412,7 +2412,7 @@ let collect_changes st (unchanged, subset, src_unchanged) =
 
 let collect_changes = Task.funct collect_changes
 
-let generate_hints
+let generate_hints ?formatter
       solver id_of_source id_offsets t u l extra_lines pkg_opt subset_opt =
   let hint_t = Timer.start () in
   let unchanged = HornSolver.assignment solver in
@@ -2501,12 +2501,17 @@ let generate_hints
     List.iter (fun l -> Format.fprintf f "%s@." l) extra_lines;
     List.iter (fun names -> print_hint f names) hints
   in
-  if debug_hints () || !hint_file = "-" then print_hints Format.std_formatter;
-  if !hint_file <> "" && !hint_file <> "-" then begin
-    let ch = open_out !hint_file in
-    print_hints (Format.formatter_of_out_channel ch);
-    close_out ch
-  end
+  if debug_hints () || (!hint_file = "-" && formatter = None) then
+    print_hints Format.std_formatter;
+  match formatter with
+    Some f ->
+      print_hints f
+  | None ->
+      if !hint_file <> "" && !hint_file <> "-" then begin
+        let ch = open_out !hint_file in
+        print_hints (Format.formatter_of_out_channel ch);
+        close_out ch
+      end
 
 (**** Heidi file output ****)
 
@@ -2643,7 +2648,7 @@ let rec collect_assumptions solver id =
       !s
 
 let analyze_migration
-      uids solver id_of_source id_offsets t u l get_name_arch nm =
+      ?formatter uids solver id_of_source id_offsets t u l get_name_arch nm =
   let id = M.PkgDenseTbl.find id_of_source (M.id_of_name nm) in
                   (* Name already checked *)
   if debug_migration () then
@@ -2727,7 +2732,8 @@ let analyze_migration
     in
     let lst = List.filter (fun s -> s <> "") lst in
     if !hint_file = "" then hint_file := "-";
-    generate_hints solver id_of_source id_offsets t u l lst (Some nm) None
+    generate_hints ?formatter
+      solver id_of_source id_offsets t u l lst (Some nm) None
   in
   let rec migrate () =
     if BitVect.test (HornSolver.assignment solver) id then begin
@@ -2767,10 +2773,12 @@ let analyze_migration
       if BitVect.test (HornSolver.assignment solver) id then
         migrate ()
       else begin
-        if !lst = [] then
-          Format.printf "The package %s can already migrate.@." nm
-        else
-          Format.printf "Successful:@.";
+        if formatter = None then begin
+          if !lst = [] then
+            Format.printf "The package %s can already migrate.@." nm
+          else
+            Format.printf "Successful:@."
+        end;
         output_hints ()
       end
     end
@@ -2822,11 +2830,12 @@ Levels
   3 - red:    would make packages non-installable
 *)
 let generate_explanations
-      dates urgencies hints solver id_of_source source_of_id id_offsets t u l
-      deferred_constraints =
+      uids dates urgencies hints solver id_of_source source_of_id id_offsets
+      t u l get_name_arch deferred_constraints =
   Util.make_directories (Filename.concat !explain_dir "foo");
 
-  svg := true;
+  svg := true; all_hints := true;
+  ignore (Lazy.force dot_process);
 
   find_all_coinst_constraints solver id_offsets l;
 
@@ -2840,12 +2849,40 @@ let generate_explanations
     ~after:(fun p _ ->
               if p then find_all_coinst_constraints solver id_offsets l)
     deferred_constraints;
-  check_coinstallability := true;
   let orange = match !orange with Some a -> a | None -> assert false in
   let green = HornSolver.assignment solver in
 
-  retract_deferred_constraints solver deferred_constraints;
+  let hint_suggestions = Hashtbl.create 128 in
+  let count = ref 0 in
+  Array.iteri (fun id nm -> if not (BitVect.test red id) then incr count)
+    source_of_id;
+  let n = ref 0 in
+  let t0 = Unix.gettimeofday () in
+  Util.enable_messages true;
+  Array.iteri
+    (fun id nm ->
+       if not (BitVect.test red id) then begin
+         incr n;
+         let p = float !n /. float !count in
+         let t1 = Unix.gettimeofday () in
+         Util.set_msg
+           (Format.sprintf "Generating hints: %s %.0f%% eta %.0fs"
+              (Util.progress_bar p) (p *. 100.)
+              ((1. -. p) *. (t1 -. t0) /. p));
+         let b = Buffer.create 128 in
+         analyze_migration ~formatter:(Format.formatter_of_buffer b)
+           uids solver id_of_source id_offsets t u l get_name_arch
+           (M.name_of_id nm);
+         Hashtbl.add hint_suggestions id (Buffer.contents b);
+         retract_deferred_constraints solver deferred_constraints;
+         assert_deferred_constraints solver deferred_constraints
+       end)
+    source_of_id;
+  Util.set_msg "";
+  Util.enable_messages false;
 
+  check_coinstallability := true;
+  retract_deferred_constraints solver deferred_constraints;
   assert_deferred_constraints solver
     ~after:(fun p _ ->
               if p then find_all_coinst_constraints solver id_offsets l)
@@ -2871,7 +2908,7 @@ let generate_explanations
     (fun id nm ->
        let reasons = HornSolver.direct_reasons solver id in
        if List.exists (interesting_reason solver) reasons then begin
-         sources := (M.name_of_id nm, nm, (id, reasons)) :: !sources;
+         sources := (M.name_of_id nm, nm, id, reasons) :: !sources;
          M.PkgTbl.add interesting_source nm ();
          List.iter
            (fun (lits, reason) ->
@@ -2927,7 +2964,7 @@ let generate_explanations
   let package_list = open_out (Filename.concat !explain_dir "packages.js") in
   Printf.fprintf package_list "set_package_list([";
   List.iter
-    (fun (source_name, nm, (id, reasons)) ->
+    (fun (source_name, nm, id, reasons) ->
        let binaries = ref StringSet.empty in
        List.iter
          (fun (lits, reason) ->
@@ -3284,6 +3321,13 @@ let generate_explanations
           L.dl (src_reasons & build_reasons false & build_reasons true &
                 bug_reasons & bin_reasons)
             &
+          (try
+             let hints = Hashtbl.find hint_suggestions id in
+             L.section
+               (L.heading (L.s "Suggested hints") & L.pre (L.s hints))
+           with Not_found ->
+             L.emp)
+            &
           L.footer (L.s "Page generated by " &
                     L.anchor "http://coinst.irill.org/comigrate"
                       (L.s "comigrate") &
@@ -3340,8 +3384,8 @@ let f () =
     print_equivocal_packages uids solver id_of_source id_offsets t u l
   else if !explain_dir <> "" then
     generate_explanations
-      dates urgencies hints solver id_of_source source_of_id id_offsets
-      t u l deferred_constraints
+      uids dates urgencies hints solver id_of_source source_of_id id_offsets
+      t u l get_name_arch deferred_constraints
   else begin match !to_migrate with
     Some p ->
       analyze_migration

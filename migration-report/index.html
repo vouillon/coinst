@@ -39,7 +39,7 @@ function resolve (p) {
 }
 $("#form").submit( function(form) {
   var package = $("#package").val().trim();
-  location.href = "/tmp/expl/p/" + resolve(package) + ".html";
+  location.href = "p/" + resolve(package) + ".html";
   return false;
 });
 });

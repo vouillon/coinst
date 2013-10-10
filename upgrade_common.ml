@@ -468,9 +468,9 @@ let compute_support dist1 dist2 reasons =
   in
   (support,
    StringSet.filter
-     (fun nm -> M.has_package_of_name dist1 (M.id_of_name nm)) support,
+     (fun nm -> M.has_package_of_name dist1 (M.add_name nm)) support,
    StringSet.filter
-     (fun nm -> M.has_package_of_name dist2 (M.id_of_name nm)) support)
+     (fun nm -> M.has_package_of_name dist2 (M.add_name nm)) support)
 
 let problematic_packages dist1 dist dist2 s reasons =
   let (clause, reasons) = problematic_packages dist1 dist dist2 reasons in
