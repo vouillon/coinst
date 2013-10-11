@@ -31,10 +31,10 @@ $(COINST).byte: $(OBJS:.cmx=.cmo) cudf_lib.cmo coinst.cmo
 	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 
-$(UPGRADE): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx upgrade.cmx
+$(UPGRADE): $(OBJS) $(TASK) $(SVG) upgrade_common.cmx upgrade.cmx upgrade_main.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
-$(TRANS): $(OBJS) $(TASK) $(SVG) update_data.cmx upgrade_common.cmx horn.cmx transition.cmx
+$(TRANS): $(OBJS) $(TASK) $(SVG) update_data.cmx upgrade_common.cmx upgrade.cmx horn.cmx transition.cmx
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^ $(LINKFLAGS)
 
 clean::

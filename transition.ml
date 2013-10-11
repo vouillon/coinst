@@ -626,6 +626,12 @@ let switch_to_installability solver =
   List.iter (fun r -> HornSolver.retract_rule solver r) !coinst_rules;
   check_coinstallability := false
 
+let ambiguous_rules = ref []
+
+let discard_ambiguous_rules solver =
+  List.iter (fun r -> HornSolver.retract_rule solver r) !ambiguous_rules;
+  ambiguous_rules := []
+
 let broken_arch_all_packages = ref StringSet.empty
 
 let learn_broken_arch_all_packages s =
@@ -1447,10 +1453,11 @@ let retract_deferred_constraints solver constraints =
     constraints
 
 let perform_deferred
-        solver ?(before=fun _ _ -> ()) ?(after=fun _ _ -> ()) (kind, lst) =
-  before (lst <> []) kind;
-  List.iter (fun (id, reason) -> HornSolver.assume solver id reason) lst;
-  after (lst <> []) kind
+        solver ?(before=fun _ _ -> true) ?(after=fun _ _ -> ()) (kind, lst) =
+  if before (lst <> []) kind then begin
+    List.iter (fun (id, reason) -> HornSolver.assume solver id reason) lst;
+    after (lst <> []) kind
+  end
 
 let assert_deferred_constraints solver ?before ?after constraints =
   List.iter (fun lst -> perform_deferred solver ?before ?after lst) constraints
@@ -2204,7 +2211,10 @@ let find_all_coinst_constraints solver id_offsets l =
            let r' =
              HornSolver.add_rule solver r (Conflict (neg, s, problem)) in
            if IntSet.cardinal s > 1 then coinst_rules := r' :: !coinst_rules;
-           if can_learn then learn_rule r neg s problem)
+           if can_learn then
+             learn_rule r neg s problem
+           else
+             ambiguous_rules := r' :: !ambiguous_rules)
         changes
     end;
     running.(i) <- false;
@@ -2829,6 +2839,16 @@ Levels
   2 - orange: obsolete packages and bugs
   3 - red:    would make packages non-installable
 *)
+
+let report_future_issues =
+  Task.funct
+    (fun st (unchanged, output) ->
+       let dist = M.new_pool () in
+       let is_preserved nm = is_unchanged st unchanged nm in
+       M.merge dist (fun p -> not (is_preserved p.M.package)) st.unstable;
+       M.merge dist (fun p -> is_preserved p.M.package) st.testing;
+       Upgrade.f st.broken_sets st.testing dist output)
+
 let generate_explanations
       uids dates urgencies hints solver id_of_source source_of_id id_offsets
       t u l get_name_arch deferred_constraints =
@@ -2845,14 +2865,20 @@ let generate_explanations
   assert_deferred_constraints solver
     ~before:(fun _ k ->
                if k = `Age then
-                 orange := Some (BitVect.copy (HornSolver.assignment solver)))
+                 orange := Some (BitVect.copy (HornSolver.assignment solver));
+               true)
     ~after:(fun p _ ->
-              if p then find_all_coinst_constraints solver id_offsets l)
+              if p then begin
+                discard_ambiguous_rules solver;
+                find_all_coinst_constraints solver id_offsets l
+              end)
     deferred_constraints;
   let orange = match !orange with Some a -> a | None -> assert false in
   let green = HornSolver.assignment solver in
 
   let hint_suggestions = Hashtbl.create 128 in
+(*XXX Reenable...
+*)
   let count = ref 0 in
   Array.iteri (fun id nm -> if not (BitVect.test red id) then incr count)
     source_of_id;
@@ -2881,11 +2907,33 @@ let generate_explanations
   Util.set_msg "";
   Util.enable_messages false;
 
+  begin match
+    try Hashtbl.find options "NOBREAKALL_ARCHES" with Not_found -> []
+  with
+    arch :: _ when List.mem_assoc arch l ->
+      retract_deferred_constraints solver deferred_constraints;
+      assert_deferred_constraints solver
+        ~before:(fun _ k -> k <> `Age && k <> `Blocked)
+        deferred_constraints;
+      find_all_coinst_constraints solver id_offsets l;
+      Task.wait
+        (report_future_issues (List.assoc arch l)
+           (extract_unchanged_bin
+              solver id_offsets arch (HornSolver.assignment solver),
+            (Filename.concat !explain_dir "future_issues.html")))
+  | _ ->
+      ()
+  end;
+
   check_coinstallability := true;
   retract_deferred_constraints solver deferred_constraints;
+  find_all_coinst_constraints solver id_offsets l;
   assert_deferred_constraints solver
     ~after:(fun p _ ->
-              if p then find_all_coinst_constraints solver id_offsets l)
+              if p then begin
+                discard_ambiguous_rules solver;
+                find_all_coinst_constraints solver id_offsets l
+              end)
     deferred_constraints;
 
   let level id =
@@ -3394,7 +3442,10 @@ let f () =
       find_all_coinst_constraints solver id_offsets l;
       assert_deferred_constraints solver
         ~after:(fun p _ ->
-                  if p then find_all_coinst_constraints solver id_offsets l)
+                  if p then begin
+                    discard_ambiguous_rules solver;
+                    find_all_coinst_constraints solver id_offsets l
+                  end)
         deferred_constraints;
       save_rules uids;
 

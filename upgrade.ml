@@ -17,29 +17,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
-(*
-- List broken new packages!
-- Does it make sense to consider new packages as previously
-  installable, and report issues for them in a uniform way?
-- Print equivalence classes
-*)
-
-let broken_sets = Upgrade_common.empty_break_set ()
-
-let (file1,file2) =
-("snapshots/updates/stable", "snapshots/updates/testing")
-(*
-("snapshots/updates/oldstable", "snapshots/updates/stable")
-("/tmp/last_month", "/tmp/new")
-*)
-
-(****)
-
 let _ =
 Gc.set {(Gc.get ())
         with Gc.space_overhead = 300; Gc.max_overhead = 1000000}
-
-let debug = false
 
 module M = Deb_lib
 module Repository = Upgrade_common.Repository
@@ -308,19 +288,19 @@ end
 
 module IntSet = Util.IntSet
 
-let read_data ignored_packages ic =
+let read_data file =
+  let ch = File.open_in file in
   let dist = M.new_pool () in
-  M.parse_packages dist ignored_packages ic;
+  M.parse_packages dist [] ch;
+  close_in ch;
   M.only_latest dist
 
-let f file1 file2 popcon_file output_file =
+let f broken_sets ?popcon_file dist1 dist2 output_file =
 let popcon =
   match popcon_file with
     Some file -> load_popcon file
   | None      -> Hashtbl.create 1
 in
-let dist1 = read_data [] (File.open_in file1) in
-let dist2 = read_data [] (File.open_in file2) in
 
 let dist1_state = Upgrade_common.prepare_analyze dist1 in
 let dist2_state = Upgrade_common.prepare_analyze dist2 in
@@ -408,9 +388,9 @@ let f = Format.formatter_of_out_channel ch in
 
 (****)
 Format.fprintf f "\
-<html>@.\
-<head>@.\
+<!DOCTYPE html>@.\
 <meta charset=\"UTF-8\">@.\
+<title>Upgrade issues</title>@.\
 <style type=\"text/css\">@.\
 @@media print {@.\
   svg { max-width:100%% }@.\
@@ -419,8 +399,6 @@ Format.fprintf f "\
 }@.\
 }@.\
 </style>@.\
-</head>@.\
-<body>@.\
 <h1>Upgrade issues</h1>@.\
 <h2>Graph of new conflicts</h2>@.\
 ";
@@ -641,51 +619,6 @@ Format.fprintf f "<p><b>Full list of problematic packages:</b> %a</p>@."
 
 close_out ch;
 Format.printf "Generating explanations... %fs@." (Unix.gettimeofday () -. t)
-
-(****)
-
-let _ =
-let output_file = ref "/tmp/upgrade.html" in
-let l = ref [] in
-let popcon_file = ref None in
-let spec =
-  Arg.align
-  ["-o",
-   Arg.String (fun d -> output_file := d),
-   "FILE       Write output to file FILE";
-   "--break",
-   Arg.String (Upgrade_common.allow_broken_sets broken_sets),
-   "SETS Ignore broken sets of packages of shape SETS";
-   "--popcon",
-   Arg.String (fun s -> popcon_file := Some s),
-   "FILE Use popcon data from FILE";
-   "--debug",
-   Arg.String Debug.set,
-   "NAME Activate debug option NAME"]
-in
-Arg.parse spec (fun f -> l := f :: !l)
-  ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS FILE1 FILE2\n\
-    Takes two Debian binary package control files as input and computes\n\
-    a core set of packages that were co-installable but are not anymore\n\
-    after upgrade.\n\
-    \n\
-    Options:");
-let (file1, file2) =
-  match List.rev !l with
-    [] -> (file1, file2)
-  | [file1; file2] -> (file1, file2)
-  | _ ->
-    Format.eprintf
-      "Exactly two Debian binary package control files \
-       should be provided as input.@.";
-    exit 1
-in
-if Sys.command "dot -V 2> /dev/null" <> 0 then begin
-  Format.eprintf "Could not execute Graphviz 'dot' command.@.";
-  exit 1
-end;
-f file1 file2 !popcon_file !output_file
-
 
 (*
 libjpeg8-dev "replaces" libjpeg62-dev, so why does the tools do not
