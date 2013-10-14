@@ -1,14 +1,14 @@
 h1 { font-size: x-large; }
 section > h1 { font-size: medium; }
 pre { margin-left: 40px; white-space: pre-wrap; }
-dl {
+dl.explanation {
   padding-left: 40px;
   list-style-type: disc;
 }
-dt { display: list-item; }
-dd { margin-left: 0px; }
-dd > p { margin-left: 20px; }
-ul { list-style-type: disc; }
+dl.explanation > dt { display: list-item; }
+dl.explanation > dd { margin-left: 0px; }
+dl.explanation > dd > p { margin-left: 20px; }
+dl.explanation ul { list-style-type: disc; }
 .age { background-color: #aaffaa; }
 .bugs, .obsolete, .outdated, .not-rebuilt, .issues {
   background-color: #ffccaa;
@@ -26,15 +26,15 @@ ul { list-style-type: disc; }
   margin:auto;
   display:block;
 }
-dt.collapsible.active { cursor:pointer; }
-dt.collapsed + dd { display:none; }
-dt {
+dl.explanation > dt.collapsible.active { cursor:pointer; }
+dl.explanation > dt.collapsed + dd { display:none; }
+dl.explanation > dt {
   position:relative;
   list-style-type:none;
   margin-top:1em;
   margin-bottom:1em;
 }
-dt:before {
+dl.explanation > dt:before {
   content: '';
   height:16px;
   width:16px;
@@ -43,8 +43,10 @@ dt:before {
   background-size: cover;
   left:-19px;
 }
-dt.collapsible.active:before { background-position:-32px 0; }
-dt.collapsible.collapsed:before { background-position:-16px 0; }
+dl.explanation > dt.collapsible.active:before { background-position:-32px 0; }
+dl.explanation > dt.collapsible.collapsed:before {
+  background-position:-16px 0;
+}
 footer {
   border-top: 2px solid #000;
   border-bottom: 0;
@@ -53,6 +55,10 @@ footer {
 }
 @media print {
   .expand { display:none; }
-  dt { list-style-type:disc; }
-  dt:before { display:none; }
+  dl.explanation > dt { list-style-type:disc; }
+  dl.explanation > dt:before { display:none; }
+  svg { max-width:100%; }
 }
+dl.coinst-issue dt { font-weight:bold; font-size: large; }
+span.title { font-weight:bold; }
+svg { display: block; margin:auto; }

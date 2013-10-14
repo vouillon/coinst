@@ -14,6 +14,7 @@ val s : string -> _ phrasing t
 val i : int -> _ phrasing t
 val format : (Format.formatter -> 'a -> unit) -> 'a -> _ phrasing t
 val seq : string -> ('a -> _ phrasing t) -> 'a list -> _ phrasing t
+val seq2 : string -> string -> ('a -> _ phrasing t) -> 'a list -> _ phrasing t
 val code : _ phrasing t -> _ phrasing t
 
 val raw_html : (unit -> string) -> _ phrasing t
@@ -44,7 +45,7 @@ val ul : ?prefix:string -> u lst t -> _ flow t
 val li : _ flow t -> u lst t
 
 type d
-val dl : d lst t -> _ flow t
+val dl : ?clss:string -> d lst t -> _ flow t
 val dt : ?clss:string -> _ phrasing t -> d lst t
 val dd : _ flow t -> d lst t
 val dli : ?id:string -> _ phrasing t -> _ flow t -> d lst t
@@ -63,7 +64,7 @@ class type printer = object
   method end_ul : unit -> unit
   method start_a : string -> unit
   method end_a : unit -> unit
-  method start_dl : unit -> unit
+  method start_dl : ?clss:string -> unit -> unit
   method dt : ?clss:string -> string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
@@ -83,8 +84,8 @@ class type printer = object
 end
 
 class html_printer :
-  out_channel -> ?stylesheet:string -> ?scripts:(string list) ->
-  string -> printer
+  out_channel -> ?stylesheet:string -> ?style:string ->
+  ?scripts:(string list) -> string -> printer
 class format_printer : Format.formatter -> printer
 
 val print : printer -> _ flow t -> unit

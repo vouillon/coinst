@@ -63,14 +63,14 @@ solver.cmi :
 task.cmo : util.cmi debug.cmi bytearray.cmi task.cmi
 task.cmx : util.cmx debug.cmx bytearray.cmx task.cmi
 task.cmi :
-transition.cmo : util.cmi upgrade_common.cmi update_data.cmi task.cmi \
-    viewer/scene_svg.cmi viewer/scene.cmi repository.cmi layout.cmi horn.cmi \
-    file.cmi viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi deb_lib.cmi \
-    cache.cmi
-transition.cmx : util.cmx upgrade_common.cmx update_data.cmx task.cmx \
-    viewer/scene_svg.cmx viewer/scene.cmx repository.cmx layout.cmx horn.cmx \
-    file.cmx viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx deb_lib.cmx \
-    cache.cmx
+transition.cmo : util.cmi upgrade_common.cmi upgrade.cmi update_data.cmi \
+    task.cmi viewer/scene_svg.cmi viewer/scene.cmi repository.cmi layout.cmi \
+    horn.cmi file.cmi viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi \
+    deb_lib.cmi cache.cmi
+transition.cmx : util.cmx upgrade_common.cmx upgrade.cmx update_data.cmx \
+    task.cmx viewer/scene_svg.cmx viewer/scene.cmx repository.cmx layout.cmx \
+    horn.cmx file.cmx viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx \
+    deb_lib.cmx cache.cmx
 update_data.cmo : task.cmi update_data.cmi
 update_data.cmx : task.cmx update_data.cmi
 update_data.cmi :
@@ -82,12 +82,12 @@ upgrade_common.cmi : util.cmi repository.cmi deb_lib.cmi
 upgrade_main.cmo : upgrade_common.cmi upgrade.cmi debug.cmi
 upgrade_main.cmx : upgrade_common.cmx upgrade.cmx debug.cmx
 upgrade.cmo : util.cmi upgrade_common.cmi task.cmi viewer/scene_svg.cmi \
-    viewer/scene.cmi quotient.cmi graph.cmi file.cmi viewer/dot_render.cmi \
-    viewer/dot_graph.cmi debug.cmi deb_lib.cmi upgrade.cmi
+    viewer/scene.cmi quotient.cmi layout.cmi graph.cmi file.cmi \
+    viewer/dot_render.cmi viewer/dot_graph.cmi deb_lib.cmi upgrade.cmi
 upgrade.cmx : util.cmx upgrade_common.cmx task.cmx viewer/scene_svg.cmx \
-    viewer/scene.cmx quotient.cmx graph.cmx file.cmx viewer/dot_render.cmx \
-    viewer/dot_graph.cmx debug.cmx deb_lib.cmx upgrade.cmi
-upgrade.cmi : upgrade_common.cmi
+    viewer/scene.cmx quotient.cmx layout.cmx graph.cmx file.cmx \
+    viewer/dot_render.cmx viewer/dot_graph.cmx deb_lib.cmx upgrade.cmi
+upgrade.cmi : upgrade_common.cmi layout.cmi deb_lib.cmi
 util.cmo : ptset.cmi util.cmi
 util.cmx : ptset.cmx util.cmi
 util.cmi :

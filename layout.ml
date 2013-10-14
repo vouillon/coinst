@@ -11,7 +11,7 @@ class type printer = object
   method end_ul : unit -> unit
   method start_a : string -> unit
   method end_a : unit -> unit
-  method start_dl : unit -> unit
+  method start_dl : ?clss:string -> unit -> unit
   method dt : ?clss:string -> string option -> unit
   method dd : unit -> unit
   method end_dl : unit -> unit
@@ -49,6 +49,12 @@ let rec seq sep f l p =
     []     -> ()
   | [v]    -> f v p
   | v :: r -> f v p; s sep p; seq sep f r p
+let rec seq2 sep sep' f l p =
+  match l with
+    []      -> ()
+  | [v]     -> f v p
+  | [v; v'] -> f v p; s sep' p; f v' p
+  | v :: r  -> f v p; s sep p; seq2 sep sep' f r p
 
 let buf = Buffer.create 16
 let formatter = Format.formatter_of_buffer buf
@@ -89,7 +95,7 @@ let ul ?(prefix="* ") lst p = p#start_ul prefix; lst p; p#end_ul ()
 let li contents p = p#li (); contents p
 
 type d
-let dl lst p = p#start_dl (); lst p; p#end_dl ()
+let dl ?clss lst p = p#start_dl ?clss (); lst p; p#end_dl ()
 let dli ?id key desc (p : #printer) = p#dt id; key p; p#dd (); desc p
 let dt ?clss key p = p#dt ?clss None; key p
 let dd desc p = p#dd (); desc p
@@ -141,10 +147,11 @@ let html_escape s =
   done;
   s'
 
-class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
+class html_printer ch ?stylesheet ?(style="") ?(scripts=[]) title : printer =
+object (self)
   val mutable in_p = false
   val mutable need_break = false
-  val mutable at_list_start = false
+  val mutable at_list_start = None
   method private break () = if need_break then output_char ch '\n'
   method start_doc () =
     output_string ch
@@ -159,6 +166,11 @@ class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
     | None ->
         ()
     end;
+    if style <> "" then begin
+      output_string ch "<style type='text/css'>\n";
+      output_string ch (html_escape style);
+      output_string ch "</style>\n"
+    end;
     List.iter
       (fun url ->
          output_string ch "<script src='";
@@ -172,20 +184,26 @@ class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
     end;
     output_string ch (html_escape s); need_break <- true
   method change_p () = in_p <- false
-  method start_ul _ = at_list_start <- true
+  method start_ul _ = at_list_start <- Some ""
   method li () =
-    if at_list_start then begin
-      self#break (); output_string ch "<ul>";
-      at_list_start <- false;
+    begin match at_list_start with
+      Some clss ->
+        self#break (); output_string ch "<ul";
+        if clss <> "" then
+          output_string ch (" class='" ^ html_escape clss ^ "'");
+        output_string ch ">";
+        at_list_start <- None
+    | None ->
+        ()
     end;
     self#break (); output_string ch "<li>"; in_p <- false
   method end_ul () =
-    if not at_list_start then begin
+    if at_list_start = None then begin
       self#break (); output_string ch "</ul>";
       self#break (); need_break <- false;
       in_p <- false
     end;
-    at_list_start <- false
+    at_list_start <- None
   method start_a l =
     if not in_p then begin
       self#break (); output_string ch "<p>"; in_p <- true
@@ -198,12 +216,18 @@ class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
     end;
     output_string ch ("<code>")
   method end_code () = output_string ch "</code>"
-  method start_dl () = at_list_start <- true
+  method start_dl ?(clss = "") () = at_list_start <- Some clss
   method dt ?clss id =
-    if at_list_start then begin
-      self#break (); output_string ch "<dl>";
-      self#break (); need_break <- false;
-      at_list_start <- false
+    begin match at_list_start with
+      Some clss ->
+        self#break (); output_string ch "<dl";
+        if clss <> "" then
+          output_string ch (" class='" ^ html_escape clss ^ "'");
+        output_string ch ">";
+        self#break (); need_break <- false;
+        at_list_start <- None
+    | None ->
+        ()
     end;
     self#break (); output_string ch "<dt";
     begin match clss with
@@ -217,19 +241,25 @@ class html_printer ch ?stylesheet ?(scripts=[]) title : printer = object (self)
     output_string ch ">";
     in_p <- true
   method dd () =
-    if at_list_start then begin
-      self#break (); output_string ch "<dl>";
-      self#break (); need_break <- false;
-      at_list_start <- false
+    begin match at_list_start with
+      Some clss ->
+        self#break (); output_string ch "<dl";
+        if clss <> "" then
+          output_string ch (" class='" ^ html_escape clss ^ "'");
+        output_string ch ">";
+        self#break (); need_break <- false;
+        at_list_start <- None
+    | None ->
+        ()
     end;
     self#break (); output_string ch "<dd>"; in_p <- false
   method end_dl () =
-    if not at_list_start then begin
+    if at_list_start = None then begin
       self#break (); output_string ch "</dl>";
       self#break (); need_break <- false;
       in_p <- false
     end;
-    at_list_start <- false
+    at_list_start <- None
   method start_div ?clss () =
     self#break ();
     begin match clss with
@@ -342,7 +372,7 @@ class format_printer f : printer = object
   method end_a l = ()
   method start_code l = ()
   method end_code l = ()
-  method start_dl () = at_list_start <- true; assert false
+  method start_dl ?clss () = at_list_start <- true; assert false
   method dt ?clss id =
     if at_list_start then begin
       Format.fprintf f "@[<v>"; at_list_start <- false
