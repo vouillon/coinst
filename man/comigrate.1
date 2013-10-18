@@ -1,0 +1,259 @@
+.TH COMIGRATE 1
+
+.SH NAME
+comigrate \- managing package migrations from Debian
+.IR sid " to " testing
+
+.SH SYNOPSIS
+.B comigrate
+.RI [\| options \|]
+.RB [\| \-\^\-heidi
+.IR file \]
+.RB [\| \-\^\-hints
+.IR file \]
+.br
+.B comigrate
+.RI [\| options \|]
+.B \-\^\-update
+.br
+.B comigrate
+.RI [\| options \|]
+.BI \-\^\-migrate " package"
+.br
+.B comigrate
+.RI [\| options \|]
+.B \-\^\-equivocal
+.br
+.B comigrate
+.RI [\| options \|]
+.BI \-\^\-excuses " file"
+.RB [\| \-\^\-svg \|]
+.br
+.B comigrate
+.RI [\| options \|]
+.BI \-\^\-explain " dir"
+
+.SH DESCRIPTION
+.B comigrate
+is a tool designed to manage the migration of packages
+from Debian
+.IR sid " to " testing .
+It can be used in different ways. First,
+it can compute which packages can migrate into testing; it can output
+either an
+.I HeidiResult
+file listing the updated contents of
+testing, or a set of hints that can be fed to
+.I Britney
+to help it perform the migration. Second, it can output detailed
+reports of what prevents packages from migrating. Last, it can be used
+to interactively troubleshoot the migration of a given package.
+
+Unless an alternative command is given,
+.B comigrate
+will perform package migration and output the corresponding
+.I HeidiResult
+file at the location indicated in the configuration file.
+
+.SH OPTIONS
+.SS Commands
+
+The default behavior of
+.B comigrate
+is to compute which packages can migrate from
+.IR sid " to " testing .
+This behavior can be overriden by the options below.
+
+.TP
+.B \-\^\-equivocal
+Output the set of packages that can migrate without making any package
+non-installable but that will make it impossible to install some set
+of packages together (package co-installability would no be preserved).
+This makes it possible to find the packages that would be allowed to
+migrate when using the
+.B \-\^\-inst
+option (preserving only package installability), but that could
+nonetheless be problematic.
+
+.TP
+.BI \-\^\-excuses " file"
+Write to this HTML file a detailed explanation of why some packages cannot
+migrate. With the
+.B \-\^\-svg
+option, an SVG graph is also included for each installability or
+co-installability issue (set of packages that one would not be able to
+install together anymore) that prevents the migration. The
+.B dot
+tool is required to produce these graphs.
+
+.TP
+.BI \-\^\-explain " dir"
+This command is designed to produce a report that can be published over
+HTTP. An HTML file is created for each package that cannot
+migrate, providing a detailed explanation of why this package cannot
+migrate. A file listing
+co-installability issues (that is, set of
+packages that can no longer be installed together) that would result
+from forthcoming migrations is also created. The
+.B \-\^\-popcon
+option can be used to specify popcon data to use for the report.
+The
+.B dot
+tool is required for this command.
+
+.TP
+.BI \-\^\-migrate " package"
+Compute whether it is possible to migrate this source package. If this
+is indeed possible, a corresponding
+.I Britney
+hint is outputted, by default on the standard output (this can be
+overridden with the
+.B \-\^\-hints
+option).
+
+.TP
+.B \-\^\-update
+Initialize or update the data directory.
+
+.SS Common Options
+
+.TP
+.BI \-\^\-arches " lst"
+Comma-separated list of architectures to consider (default to all).
+
+.TP
+.BI \-c " file" "\fR,\fP \-\^\-config " file
+Use this Britney configuration file.
+
+
+.SS Package Migration Options
+
+.TP
+.B \-\^\-all-hints
+Show all hints.  By default, hints consisting of a single package are
+omitted when outputting hints.
+
+.TP
+.BI \-\^\-break " sets"
+Override the default migration constraint that set of packages that
+could be install together can still be installed together after
+migration (package co-installability).  This option allows to specify
+that some precise set of packages can become non co-installable (or,
+in the case of a single package, that this package can become non
+installable). This is crucial to allow the migration of packages that
+are no longer compatible. The argument
+.I sets
+is a comma-separated list of sets of packages. Each set is either a
+list of binary package names separated by a vertical bar symbol |, or
+a wildcard\~_ standing for any package.
+
+.TP
+.BI \-\^\-heidi " HeidiResult"
+Write the result of package migration to file
+.IR HeidiResult .
+When
+.I HeidiResult
+is
+.BR \- ,
+write to standard output.
+The option only make sense when no specific command is given.
+
+.TP
+.BI \-\^\-hints " file"
+Output hints to this file. When
+.I file
+is
+.BR \- ,
+write to standard output.
+This disable the ouput of the
+.I HeidiResult
+file, unless an explicit
+.B \-\^\-heidi
+option is provided as well.
+
+.TP
+.B \-\^\-inst
+When computing possible migration, only preserves single package
+installability. This is similar to what
+.I Britney
+does. The default is to ensure the stronger requirement that
+set of packages that could be install together can still be installed
+together after migration (that is, package co-installability).
+
+.TP
+.BI \-\^\-offset " n"
+Move
+.I n
+days into the future. This is convenient to see what packages will be
+able to migrate in a few days.
+
+.TP
+.BI \-\^\-remove " pkg"
+Compute package migration as if the source package
+.I pkg
+and its associated binary packages had been removed from
+.IR sid .
+This is a convenient way to migrate an important package when its
+migration is prevented by packages of low importance.
+Together with the
+.B \-\^\-migrate
+command, this option can help finding out all issues preventing the
+migration of a given package.
+
+.SS Command Specific Options
+
+.TP
+.B \-\^\-svg
+Include conflict graphs (in SVG format) in excuse output. This option
+only make sense together with the
+.B \-\^\-excuses
+option.
+
+.TP
+.BI \-\^\-popcon " file"
+Use popcon data from this file. This option only make sense together
+with the
+.B \-\^\-explain
+option.
+
+.SS Miscellaneous Options
+.TP
+.BI \-\^\-debug " name"
+Activate debug option
+.IR name .
+Use
+.B \-\^\-debug help
+to list available debug options.
+.TP
+.BR \-help ", " \-\^\-help
+Print a usage message  briefly  summarizing  the command-line options.
+.TP
+.BI \-\^\-input " dir"
+Select the directory containing Britney data.
+.TP
+.B \-\^\-no\-cache
+Disable on-disk caching.
+.TP
+.BI \-\^\-proc  " n"
+Provide number of processors.  Use 1 to disable concurrency.
+Defaults to use all processors.
+
+.SS Ignored Options
+These two
+.I Britney
+options are currently ignored and are present only for compatibility.
+.TP
+.B \-\^\-control\-files
+Currently ignored.
+.TP
+.B \-v
+Currently ignored.
+
+
+.SH AUTHOR
+Comigrate has been written by Jérôme Vouillon.
+
+.SH SEE ALSO
+.BR dot (1)
+.br
+.RB < http://coinst.irill.org/comigrate >.
