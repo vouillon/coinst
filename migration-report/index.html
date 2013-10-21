@@ -6,6 +6,15 @@
 <script>
 var package_names = [];
 var packages = [];
+function resolve_package (p) {
+  for (var i = 0; i < packages.length; i++) {
+    var l = packages[i];
+    for (var j = 0; j < l.length; j++) {
+      if (l[j] == p) return l[0];
+    }
+  }
+  return p;
+}
 $(function() {
 var max_resp = 100;
 function source (request, response) {
@@ -28,24 +37,20 @@ function source (request, response) {
   response (l1.concat(l2).slice(0, max_resp));
 }
 $("#package").autocomplete({ delay: 0, source: source});
-function resolve (p) {
-  for (var i = 0; i < packages.length; i++) {
-    var l = packages[i];
-    for (var j = 0; j < l.length; j++) {
-      if (l[j] == p) return l[0];
-    }
-  }
-  return p;
-}
 $("#form").submit( function(form) {
   var package = $("#package").val().trim();
-  location.href = "p/" + resolve(package) + ".html";
+  location.href = "p/" + resolve_package(package) + ".html";
   return false;
 });
 });
 function set_package_list (l) {
+  var s = /[&?]package=([^&]*)(&|$)/.exec(location.search);
   packages = l;
   package_names = [].concat.apply([],l).sort();
+  if (s) {
+    var package = s[1];
+    location.href = "p/" + resolve_package(package) + ".html";
+  }
 }
 </script>
 <script async src="packages.js"></script>
@@ -58,25 +63,11 @@ function set_package_list (l) {
     /* add padding to account for vertical scrollbar */
     padding-right: 20px;
 }
-
-.scheduled {
-   height:12em;
-   overflow-y: auto;
-list-style: none outside none;
-float:left;
-padding:0;
-border-style: solid;
-border-width:thin;
-border-color: black;
-}
-.scheduled li {
-  background-color: #AAFFAA;
-}
-.scheduled .coinst {
-  background-color: #FFFF88;
-}
-section {
- overflow:auto;
+footer {
+  border-top: 2px solid #000;
+  border-bottom: 0;
+  font-size: small;
+  margin-top: 2em;
 }
 </style>
 <h1>Testing migration status</h1>
@@ -84,18 +75,16 @@ section {
 <h1>Per package information</h1>
 <form id="form" action="index.html">
 <label for="package">Package: </label>
-<input id="package" name="src">
+<input id="package" name="package">
 <input type="submit" value="Go">
 </form>
 </section>
 
 <section>
-<h1>Possible issues raised by packages migrating soon</h1>
+<h1>Forecasted package incompatibilities</h1>
 
-Following package migration, it might not be possible to install some
-groups of packages simultaneously
-anymore. <a href="future_issues.html">We report such potential future
-issues</a> due to packages scheduled to migrate soon.
+We list <a href="future_issues.html">packages that might become
+incompatible in the near future</a> due to package migration.
 </section>
 
 <section>
@@ -106,3 +95,7 @@ issues</a> due to packages scheduled to migrate soon.
 <li><a href="issues_stable.html">compared to latest stable</a>
 </ul>
 </section>
+
+<footer>
+<p>This information is generated using <a href='http://coinst.irill.org/comigrate/'>comigrate</a> and <a href='http://coinst.irill.org/upgrades/'>coinst-upgrades</a>.
+</footer>
