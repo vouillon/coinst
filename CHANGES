@@ -1,10 +1,12 @@
-===== 1.02 (2011-09-XX) =====
+===== 1.9 (2013-10-21) =====
 
-* Automatically calls gzip or bzip2 to decompress files, when needed
-* Several files can now be provided on the command line
-* File digest fields in hdlist files sometimes contains meaningless
-  data beside the MD5 digest; this could result in spurious conflicts,
-  and this data is not properly ignored.
+* Addition of two new tools: coinst-upgrades and comigrate
+* Improvements to coinst:
+ - Automatically calls gzip or bzip2 to decompress files, when needed
+ - Several files can now be provided on the command line
+ - File digest fields in hdlist files sometimes contains meaningless
+   data beside the MD5 digest; this could result in spurious conflicts,
+   and this data is now properly ignored.
 
 ===== 1.01 (2011-09-19) =====
 
