@@ -1,0 +1,12 @@
+*.o
+*.cm[iox]
+*.byte
+
+*~
+
+coinst
+coinst-upgrades
+comigrate
+viewer/coinst_converter
+viewer/coinst_viewer
+viewer/jsviewer.js
