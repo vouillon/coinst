@@ -146,6 +146,32 @@ are no longer compatible. The argument
 is a comma-separated list of sets of packages. Each set is either a
 list of binary package names separated by a vertical bar symbol |, or
 a wildcard\~_ standing for any package.
+We explain this option through examples.
+You can write
+.BI \-\^\-break " libjpeg62-dev"
+to state that package
+.I libjpeg62-dev
+does not have to remain installable.
+But it is usually better to indicate that the package should remain
+installable but that it is fine if it is no longer installable with
+some other packages:
+.B \-\^\-break
+.IR libjpeg62-dev,_ .
+You can be even more precise and specify that two given packages can
+become incompatible, but no other incompatibility should be
+introduced:
+.B \-\^\-break
+.IR parallel,moreutils .
+Finally, you can use the vertical bar symbol to factorize several sets
+of packages:
+.B \-\^\-break
+.I 'unoconv,python-uno|docvert-libreoffice'
+means that package
+.I unoconv
+does not have to remain installable together with
+.I python-uno
+nor
+.IR docvert-libreoffice .
 
 .TP
 .BI \-\^\-heidi " HeidiResult"
@@ -200,7 +226,7 @@ Together with the
 command, this option can help finding out all issues preventing the
 migration of a given package.
 
-.SS Command Specific Options
+.SS Command-Specific Options
 
 .TP
 .B \-\^\-svg
@@ -249,6 +275,65 @@ Currently ignored.
 .B \-v
 Currently ignored.
 
+.SH EXAMPLES
+
+To get started, you need to use a
+.I Britney
+configuration file
+.IR britney.conf .
+The files specifies is particular the location of migration data
+(control files, hint files, ...). These data can then be downloaded
+(or updated) with the command below.
+
+   comigrate -c britney.conf --update
+
+Running
+.B comigrate
+without option will make it behave like
+.IR Britney :
+it will compute the set of packages that can migrate
+and write a corresponding
+.I HeidiResult
+file at the location indicated in the configuration file.
+
+   comigrate -c britney.conf
+
+By default,
+.B comigrate
+is more picky than
+.IR Britney :
+it will not allow packages to migrate if any set of packages that
+could be installed together can no longer be installed together.
+With the
+.B --inst
+option,
+.B comigrate
+will only check that packages remain installable, just like
+.I Britney
+does.
+
+   comigrate -c britney.conf --inst
+
+Alternatively, you can get the set of
+.I Britney
+easy hints corresponding to the migration.
+
+   comigrate -c britney.conf --hints - --all-hints
+
+The
+.B --migrate
+option will give you an explanation of why a package cannot migrate.
+(If the package can in fact migrate, the corresponding easy hint will
+be printed.)
+
+   comigrate -c britney.conf --migrate ghc
+
+The
+.B --remove
+and
+.B --break
+options can be used together with this option to get a clear
+understand of what needs to be done to migrate the package.
 
 .SH AUTHOR
 Comigrate has been written by Jérôme Vouillon.
@@ -256,4 +341,5 @@ Comigrate has been written by Jérôme Vouillon.
 .SH SEE ALSO
 .BR dot (1)
 .br
+The tool Web page:
 .RB < http://coinst.irill.org/comigrate >.
