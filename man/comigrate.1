@@ -2,7 +2,7 @@
 
 .SH NAME
 comigrate \- managing package migrations from Debian
-.IR sid " to " testing
+.IR unstable " to " testing
 
 .SH SYNOPSIS
 .B comigrate
@@ -37,7 +37,7 @@ comigrate \- managing package migrations from Debian
 .B comigrate
 is a tool designed to manage the migration of packages
 from Debian
-.IR sid " to " testing .
+.IR unstable " to " testing .
 It can be used in different ways. First,
 it can compute which packages can migrate into testing; it can output
 either an
@@ -61,7 +61,7 @@ file at the location indicated in the configuration file.
 The default behavior of
 .B comigrate
 is to compute which packages can migrate from
-.IR sid " to " testing .
+.IR unstable " to " testing .
 This behavior can be overriden by the options below.
 
 .TP
@@ -218,7 +218,7 @@ able to migrate in a few days.
 Compute package migration as if the source package
 .I pkg
 and its associated binary packages had been removed from
-.IR sid .
+.IR unstable .
 This is a convenient way to migrate an important package when its
 migration is prevented by packages of low importance.
 Together with the
@@ -281,7 +281,7 @@ To get started, you need to use a
 .I Britney
 configuration file
 .IR britney.conf .
-The files specifies is particular the location of migration data
+The files specifies in particular the location of migration data
 (control files, hint files, ...). These data can then be downloaded
 (or updated) with the command below.
 
