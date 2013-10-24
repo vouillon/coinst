@@ -2863,7 +2863,8 @@ let report_future_issues =
            nm
        in
        let issues =
-         Upgrade.compute ~popcon_file:!popcon_file
+         Upgrade.compute
+           ?popcon_file:(if !popcon_file = "" then None else Some !popcon_file)
            st.broken_sets st.testing dist format_package in
        let d = Upgrade.explanations issues in
        let ch = open_out output in
