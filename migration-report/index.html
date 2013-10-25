@@ -4,6 +4,7 @@
 <script src="jquery.js"></script>
 <script src="jquery-ui.js"></script>
 <script>
+if (top != self) { top.location.replace(self.location.href); }
 var package_names = [];
 var packages = [];
 function resolve_package (p) {
