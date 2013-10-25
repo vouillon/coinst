@@ -2912,8 +2912,6 @@ let generate_explanations
   let green = HornSolver.assignment solver in
 
   let hint_suggestions = Hashtbl.create 128 in
-(*XXX Reenable...
-*)
   let count = ref 0 in
   Array.iteri (fun id nm -> if not (BitVect.test red id) then incr count)
     source_of_id;
@@ -3424,7 +3422,25 @@ let generate_explanations
        close_out ch)
     !sources;
   Printf.fprintf package_list "]);";
-  close_out package_list
+  close_out package_list;
+
+  let ready = ref [] in
+  Array.iteri
+    (fun id nm ->
+       if not (BitVect.test green id) then ready := M.name_of_id nm :: !ready)
+    source_of_id;
+  let ch = open_out (Filename.concat !explain_dir "ready.html") in
+  L.print (new L.html_printer ch "")
+    (L.section ~clss:"ready"
+       (L.heading
+          (L.s ("Packages ready to migrate (as of " ^ Util.date () ^ ")"))
+          &
+        L.ul
+          (L.list
+             (fun nm ->
+                L.li (L.anchor ("p/" ^ nm ^ ".html") (L.code (L.s nm))))
+             (List.sort compare !ready))));
+  close_out ch
 
 (**** Main part of the program ****)
 

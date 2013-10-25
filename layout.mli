@@ -32,7 +32,7 @@ val pre : ?clss:string -> _ phrasing t -> _ flow t
 
 val heading : _ phrasing t -> _ flow t
 
-val section : _ flow t -> _ flow t
+val section : ?clss:string -> _ flow t -> _ flow t
 val footer : _ flow t -> _ flow t
 
 (****)
@@ -76,7 +76,7 @@ class type printer = object
   method end_pre : unit -> unit
   method start_heading : unit -> unit
   method end_heading : unit -> unit
-  method start_section : unit -> unit
+  method start_section : ?clss:string -> unit -> unit
   method end_section : unit -> unit
   method start_footer : unit -> unit
   method end_footer : unit -> unit

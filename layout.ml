@@ -23,7 +23,7 @@ class type printer = object
   method end_pre : unit -> unit
   method start_heading : unit -> unit
   method end_heading : unit -> unit
-  method start_section : unit -> unit
+  method start_section : ?clss:string -> unit -> unit
   method end_section : unit -> unit
   method start_footer : unit -> unit
   method end_footer : unit -> unit
@@ -79,7 +79,8 @@ let pre ?clss contents p = p#start_pre ?clss (); contents p; p#end_pre ()
 
 let heading contents p = p#start_heading (); contents p; p#end_heading ()
 
-let section contents p = p#start_section (); contents p; p#end_section ()
+let section ?clss contents p =
+  p#start_section ?clss (); contents p; p#end_section ()
 
 let footer contents p = p#start_footer (); contents p; p#end_footer ()
 
@@ -293,9 +294,14 @@ object (self)
     need_break <- true; in_p <- true
   method end_heading () =
     self#break (); output_string ch "</h1>"; need_break <- true; in_p <- false
-  method start_section () =
+  method start_section ?clss  () =
     self#break ();
-    output_string ch "<section>";
+    begin match clss with
+      Some clss ->
+        output_string ch ("<section class='" ^ html_escape clss ^ "'>")
+    | None ->
+        output_string ch "<section>"
+    end;
     need_break <- true; in_p <- false
   method end_section () =
     self#break (); output_string ch "</section>";
@@ -390,7 +396,7 @@ class format_printer f : printer = object
   method end_pre () = ()
   method start_heading () = ()
   method end_heading () = ()
-  method start_section () = ()
+  method start_section ?clss () = ()
   method end_section () = ()
   method start_footer () = ()
   method end_footer () = ()
