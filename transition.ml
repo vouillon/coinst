@@ -1498,8 +1498,9 @@ let remove_sources central remove_hints t u =
          l := nm :: !l
        end)
     remove_hints;
- !l >> List.sort compare
-    >> fun l -> Marshal.to_string l [] >> string_uid
+  (!l,
+   !l >> List.sort compare
+      >> fun l -> Marshal.to_string l [] >> string_uid)
 
 let arch_constraints
       st (produce_excuses, fucked_arch, break_arch,
@@ -1752,7 +1753,7 @@ let initial_constraints
          Format.eprintf "No source package %s.@." (List.hd l);
          exit 1)
     !to_remove;
-  let rem_uid = remove_sources true hints.h_remove t u in
+  let (removed_srcs, rem_uid) = remove_sources true hints.h_remove t u in
 
   let name_of_id =
     ref [("source", 0,
@@ -1925,6 +1926,15 @@ let initial_constraints
          with Not_found ->
            ())
     t;
+  List.iter
+    (fun nm ->
+       if not (M.has_source t nm) then begin
+         (* We cannot migrate a package that exists neither in testing
+            nor in unstable. *)
+         let id = M.PkgDenseTbl.find id_of_source nm in
+         ignore (HornSolver.add_rule solver [|id|] Unchanged)
+       end)
+    removed_srcs;
   let source_has_binaries = M.PkgTbl.create 8192 in
   let is_fake = M.PkgTbl.create 17 in
   let first_bin_id = Array.length source_of_id in
