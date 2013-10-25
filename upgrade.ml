@@ -427,7 +427,7 @@ let explanations (dist2, format_package, graphs, cdeps, popcon, prob_pkgs) =
   let popcon_weight s =
     PSet.fold
       (fun p2 w ->
-         let rev = PTbl.get cdeps p2 in
+         let rev = PSet.add p2 (PTbl.get cdeps p2) in
          min w (PSet.fold
                   (fun p' w' ->
                      max (try
