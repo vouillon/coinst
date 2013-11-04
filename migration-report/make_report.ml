@@ -76,8 +76,8 @@ let pipe_in_line spec =
 (****)
 
 let testing = pipe_in_line "grep TESTING %s | sed 's/.*= *//'" conf
-let last_week = pipe_in_line "date -u +%%Y%%m%%eT%%H%%M%%SZ -d '1 week ago'"
-let last_month = pipe_in_line "date -u +%%Y%%m%%eT%%H%%M%%SZ -d '1 month ago'"
+let last_week = pipe_in_line "date -u +%%Y%%m%%dT%%H%%M%%SZ -d '1 week ago'"
+let last_month = pipe_in_line "date -u +%%Y%%m%%dT%%H%%M%%SZ -d '1 month ago'"
 
 let break_args =
   String.concat " " (List.map (fun p -> "--break " ^ p ^ ",_") break)
