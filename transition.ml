@@ -792,7 +792,9 @@ let binary_names st (offset, l) =
                     | []     -> List.find (fun p -> p.M.package = nm)
                                   st.outdated_binaries
       in
-      (id, M.name_of_id nm, fst p.M.source))
+      (* For faux packages, the source name is not available in the
+         driving processus, so we have to translate here. *)
+      (id, M.name_of_id nm, M.name_of_id (fst p.M.source)))
     l
 let binary_names = Task.funct binary_names
 
@@ -800,7 +802,7 @@ let output_reasons
       l dates urgencies hints solver source_of_id id_offsets filename t u =
   let reason_t = Timer.start () in
 
-  let blocked_source = M.PkgTbl.create 1024 in
+  let blocked_source = Hashtbl.create 1024 in
   let sources = ref [] in
   let binaries = ref IntSet.empty in
   Array.iteri
@@ -808,7 +810,7 @@ let output_reasons
        let reasons = HornSolver.direct_reasons solver id in
        if List.exists (interesting_reason solver) reasons then begin
          sources := (M.name_of_id nm, nm, (id, reasons)) :: !sources;
-         M.PkgTbl.add blocked_source nm ();
+         Hashtbl.add blocked_source (M.name_of_id nm) ();
          List.iter
            (fun (lits, reason) ->
               match reason with
@@ -848,15 +850,14 @@ let output_reasons
          l);
 
   let print_binary _ id =
-    let (nm, arch, source) = IntTbl.find name_of_binary id in
-    let source_name = M.name_of_id source in
+    let (nm, arch, source_name) = IntTbl.find name_of_binary id in
     let txt =
       if nm = source_name then
         L.code (L.s nm)
       else
         (L.code (L.s nm) & L.s " (from " & L.code (L.s source_name) & L.s ")")
     in
-    if not (M.PkgTbl.mem blocked_source source) then (nm, txt) else
+    if not (Hashtbl.mem blocked_source source_name) then (nm, txt) else
     (nm, L.anchor ("#" ^ source_name) txt)
   in
   let print_source id = assert false in
@@ -2868,9 +2869,9 @@ let report_future_issues =
        let format_package i =
          let p = M.find_package_by_num dist (Package.index i) in
          let nm = L.s (M.name_of_id p.M.package) in
-         let (src, _) = p.M.source in
-         if M.PkgTbl.mem interesting_source src then
-           L.anchor ("p/" ^ M.name_of_id src ^ ".html") nm
+         let src = M.name_of_id (fst p.M.source) in
+         if Hashtbl.mem interesting_source src then
+           L.anchor ("p/" ^ src ^ ".html") nm
          else
            nm
        in
@@ -2981,7 +2982,7 @@ let generate_explanations
     | 1 -> "age"
     | _ -> "coinst"
   in  
-  let interesting_source = M.PkgTbl.create 1024 in
+  let interesting_source = Hashtbl.create 1024 in
   let sources = ref [] in
   let binaries = ref IntSet.empty in
   Array.iteri
@@ -2989,7 +2990,7 @@ let generate_explanations
        let reasons = HornSolver.direct_reasons solver id in
        if List.exists (interesting_reason solver) reasons then begin
          sources := (M.name_of_id nm, nm, id, reasons) :: !sources;
-         M.PkgTbl.add interesting_source nm ();
+         Hashtbl.add interesting_source (M.name_of_id nm) ();
          List.iter
            (fun (lits, reason) ->
               match reason with
@@ -3040,15 +3041,14 @@ let generate_explanations
 
   let print_source nm = L.anchor (nm ^ ".html") (L.code (L.s nm)) in
   let print_binary _ id =
-    let (nm, arch, source) = IntTbl.find name_of_binary id in
-    let source_name = M.name_of_id source in
+    let (nm, arch, source_name) = IntTbl.find name_of_binary id in
     let txt =
       if nm = source_name then
         L.code (L.s nm)
       else
         (L.code (L.s nm) & L.s " (from " & L.code (L.s source_name) & L.s ")")
     in
-    if not (M.PkgTbl.mem interesting_source source) then (nm, txt) else
+    if not (Hashtbl.mem interesting_source source_name) then (nm, txt) else
     (nm, L.anchor (source_name ^ ".html") txt)
   in
 
@@ -3238,7 +3238,7 @@ let generate_explanations
                            (fun id' srcs ->
                               let (_, _, source) =
                                 IntTbl.find name_of_binary id' in
-                              StringSet.add (M.name_of_id source) srcs)
+                              StringSet.add source srcs)
                            s StringSet.empty
                        in
                        [(srcs, (s, s', problem))]
