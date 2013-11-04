@@ -1655,11 +1655,13 @@ let arch_constraints
          M.add_source t
            { M.s_name = nm; s_version = v; s_section = "";
              s_binary = []; s_extra_source = false };
-         fake_srcs := (nm, v) :: !fake_srcs;
-         M.PkgTbl.add is_fake nm ();
-         M.PkgDenseTbl.add st.id_of_source nm !last_id;
-         incr last_id;
-         assume (source_id p) Unchanged
+         if not (M.PkgTbl.mem is_fake nm) then begin
+           fake_srcs := (nm, v) :: !fake_srcs;
+           M.PkgTbl.add is_fake nm ();
+           M.PkgDenseTbl.add st.id_of_source nm !last_id;
+           incr last_id;
+           assume (source_id p) Unchanged
+         end;
        end;
        let v' = (M.find_source_by_name t nm).M.s_version in
        let source_changed =
