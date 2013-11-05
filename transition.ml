@@ -2812,23 +2812,6 @@ let analyze_migration
 
 (**** Detailed explanations ****)
 
-
-(* source is interesting if not unchanged or one binary is not unchanged
-let rec interesting_reason solver (lits, reason) =
-  match reason with
-    Unchanged ->
-      false
-  | Binary_not_added | Binary_not_removed ->
-      List.exists (interesting_reason solver)
-        (HornSolver.direct_reasons solver lits.(1))
-  | Source_not_propagated ->
-      false
-  | Atomic ->
-      false
-  | _ ->
-      true
-*)
-
 let package_changed solver id =
   let reasons = HornSolver.direct_reasons solver id in
   not (List.exists (fun (_, r) -> r = Unchanged) reasons)
@@ -2988,7 +2971,7 @@ let generate_explanations
   Array.iteri
     (fun id nm ->
        let reasons = HornSolver.direct_reasons solver id in
-       if List.exists (interesting_reason solver) reasons then begin
+       if source_is_interesting solver id then begin
          sources := (M.name_of_id nm, nm, id, reasons) :: !sources;
          Hashtbl.add interesting_source (M.name_of_id nm) ();
          List.iter
