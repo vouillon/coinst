@@ -684,7 +684,8 @@ type st =
       (Upgrade_common.state * Upgrade_common.state) option;
     uid : string;
     mutable break_arch_all : bool;
-    broken_sets : Upgrade_common.ignored_sets }
+    broken_sets : Upgrade_common.ignored_sets;
+    mutable prev_focus : string option }
 
 (**** Misc. useful functions ****)
 
@@ -1098,7 +1099,7 @@ let compute_reverse_dependencies st d id_tbl =
     Format.eprintf "  Reversing dependencies: %f@." (Timer.stop rdep_t);
   rdeps
 
-let reduce_for_installability st unchanged =
+let reduce_for_installability st unchanged focus =
   (* We only keep:
      1) packages that have changed,
      2) packages that depend on these changed packages
@@ -1128,9 +1129,23 @@ let reduce_for_installability st unchanged =
         rdeps.(id - st.first_bin_id)
     end
   in
-  Array.iter
-    (fun nm -> if not (is_unchanged st unchanged nm) then add_preds nm)
-    st.bin_of_id;
+  begin match focus with
+    Some src ->
+      let src = M.id_of_name src in
+      let source_match d nm =
+        match M.find_packages_by_name d nm with
+          [p] -> fst p.M.source = src
+        | []  -> false
+        | _   -> assert false
+      in
+      Array.iter
+        (fun nm -> if source_match t nm || source_match u nm then add_preds nm)
+        st.bin_of_id
+  | None ->
+      Array.iter
+        (fun nm -> if not (is_unchanged st unchanged nm) then add_preds nm)
+        st.bin_of_id
+  end;
 
   let pkgs = M.PkgDenseTbl.create () in
   let rec add_package nm =
@@ -1279,7 +1294,7 @@ let reduce_for_coinstallability st unchanged =
            add_package p.M.package);
   pkgs
 
-let prepare_repository st unchanged check_coinstallability =
+let prepare_repository st unchanged check_coinstallability focus =
   let t = st.testing in
   let u = st.unstable in
 
@@ -1289,7 +1304,7 @@ let prepare_repository st unchanged check_coinstallability =
     if check_coinstallability then
       reduce_for_coinstallability st unchanged
     else
-      reduce_for_installability st unchanged
+      reduce_for_installability st unchanged focus
   in
 
   let n = ref 0 in
@@ -1309,13 +1324,15 @@ let prepare_repository st unchanged check_coinstallability =
   if debug_time () then
     Format.eprintf "  Reducing repository sizes: %f@." (Timer.stop red_t);
   st.upgrade_state <-
-    Some (Upgrade_common.prepare_analyze t', Upgrade_common.prepare_analyze u')
+    Some (Upgrade_common.prepare_analyze t', Upgrade_common.prepare_analyze u');
+  st.prev_focus <- focus
 
-let rec get_upgrade_state st unchanged check_coinstallability =
+let rec get_upgrade_state st unchanged check_coinstallability focus =
+  if st.prev_focus <> focus then st.upgrade_state <- None;
   match st.upgrade_state with
     Some state -> state
-  | None       -> prepare_repository st unchanged check_coinstallability;
-                  get_upgrade_state st unchanged check_coinstallability
+  | None       -> prepare_repository st unchanged check_coinstallability focus;
+                  get_upgrade_state st unchanged check_coinstallability focus
 
 let clear_upgrade_state_local st = st.upgrade_state <- None
 
@@ -1413,7 +1430,8 @@ let load_arch arch
     id_of_source = id_of_source;
     upgrade_state = None; uid = uid;
     break_arch_all = false; (* dummy value *)
-    broken_sets = Upgrade_common.copy_ignored_sets broken_sets }
+    broken_sets = Upgrade_common.copy_ignored_sets broken_sets;
+    prev_focus = None }
 
 let load_all_files () =
   let load_t = Timer.start () in
@@ -2077,13 +2095,13 @@ let involved_arch_all_packages st unchanged problems =
 (**** Find constraints due to co-installability issues ****)
 
 let rec find_coinst_constraints
-          st unchanged check_coinstallability broken_arch_all_packages =
+          st unchanged check_coinstallability broken_arch_all_packages focus =
   Gc.set { (Gc.get ()) with Gc.space_overhead = 80 };
   if debug_gc () then begin
     Gc.full_major (); Gc.print_stat stderr; flush stderr
   end;
   let arch = st.arch in
-  let (t', u') = get_upgrade_state st unchanged check_coinstallability in
+  let (t', u') = get_upgrade_state st unchanged check_coinstallability focus in
   if debug_coinst () then
     Format.eprintf "==================== %s@." arch;
   let step_t = Timer.start () in
@@ -2171,16 +2189,16 @@ end;
     initialize_broken_sets_local st s;
     clear_upgrade_state_local st;
     find_coinst_constraints st unchanged check_coinstallability
-      (StringSet.union broken_arch_all_packages s)
+      (StringSet.union broken_arch_all_packages s) focus
   end else
     (List.rev !changes, broken_arch_all_packages)
 
 let find_coinst_constraints =
-  Task.funct (fun st (unchanged, check_coinstallability) ->
+  Task.funct (fun st (unchanged, check_coinstallability, focus) ->
                 find_coinst_constraints st unchanged check_coinstallability
-                  StringSet.empty)
+                  StringSet.empty focus)
 
-let find_all_coinst_constraints solver id_offsets l =
+let find_all_coinst_constraints solver id_offsets l focus =
   let t = Timer.start () in
   let a = Array.of_list l in
   let c = Array.length a in
@@ -2202,7 +2220,8 @@ let find_all_coinst_constraints solver id_offsets l =
         (find_coinst_constraints st
            (extract_unchanged_bin
               solver id_offsets arch (HornSolver.assignment solver),
-            !check_coinstallability))
+            !check_coinstallability,
+            focus))
         (fun changes -> stop c i changes);
       if !n < max_proc then begin
         start c 0 0
@@ -2302,12 +2321,12 @@ let output_outcome solver id_of_source id_offsets t u l unchanged =
 
 (**** Hint output ****)
 
-let cluster_packages st (unchanged, clusters, check_coinstallability) =
+let cluster_packages st (unchanged, clusters, check_coinstallability, focus) =
   let clusters =
     List.map (fun (lst, id) -> (lst, (id, Union_find.elt id))) clusters
   in
   let merge (_, e1) (_, e2) = Union_find.merge e1 e2 min in
-  let (t, u) = get_upgrade_state st unchanged check_coinstallability in
+  let (t, u) = get_upgrade_state st unchanged check_coinstallability focus in
   Upgrade_common.find_clusters t u
     (fun nm -> is_unchanged st unchanged nm) clusters merge;
   List.map (fun (_, (id, elt)) -> (id, Union_find.get elt)) clusters
@@ -2320,7 +2339,7 @@ type 'a easy_hint =
     mutable h_live : bool;
     h_id : int }
 
-let generate_small_hints solver id_offsets l buckets subset_opt =
+let generate_small_hints solver id_offsets l buckets subset_opt focus =
   let to_consider = ref [] in
   let buckets_by_id = Hashtbl.create 17 in
   let n = ref 0 in
@@ -2363,7 +2382,8 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
                 (List.map (fun (nm, _) -> nm) l, (Union_find.get elt).h_id)
                 :: !clusters)
          !to_consider;
-       cluster_packages st (unchanged, !clusters, !check_coinstallability))
+       cluster_packages st
+         (unchanged, !clusters, !check_coinstallability, focus))
     (fun lst ->
        List.iter
          (fun (id, id') ->
@@ -2470,7 +2490,7 @@ let generate_hints ?formatter
            l)
     changes;
   let hints =
-    generate_small_hints solver id_offsets l buckets subset_opt in
+    generate_small_hints solver id_offsets l buckets subset_opt pkg_opt in
   if debug_time () then
     Format.eprintf "Generating hints: %f@." (Timer.stop hint_t);
   let is_smooth_update src = src.[0] = '-' in
@@ -2793,7 +2813,7 @@ let analyze_migration
          constraints, so we may have to consider a larger set of
          packages. *)
       clear_upgrade_states l;
-      find_all_coinst_constraints solver id_offsets l;
+      find_all_coinst_constraints solver id_offsets l (Some nm);
       if BitVect.test (HornSolver.assignment solver) id then
         migrate ()
       else begin
@@ -2878,7 +2898,7 @@ let generate_explanations
   svg := true; all_hints := true;
   ignore (Lazy.force dot_process);
 
-  find_all_coinst_constraints solver id_offsets l;
+  find_all_coinst_constraints solver id_offsets l None;
 
   let red = BitVect.copy (HornSolver.assignment solver) in
 
@@ -2891,7 +2911,7 @@ let generate_explanations
     ~after:(fun p _ ->
               if p then begin
                 discard_ambiguous_rules solver;
-                find_all_coinst_constraints solver id_offsets l
+                find_all_coinst_constraints solver id_offsets l None
               end)
     deferred_constraints;
   let orange = match !orange with Some a -> a | None -> assert false in
@@ -2935,7 +2955,7 @@ let generate_explanations
         assert_deferred_constraints solver
           ~before:(fun _ k -> k <> `Age && k <> `Blocked)
           deferred_constraints;
-        find_all_coinst_constraints solver id_offsets l;
+        find_all_coinst_constraints solver id_offsets l None;
         Some (arch, BitVect.copy (HornSolver.assignment solver))
     | _ ->
         None
@@ -2944,12 +2964,12 @@ let generate_explanations
   check_coinstallability := true;
   clear_upgrade_states l;
   retract_deferred_constraints solver deferred_constraints;
-  find_all_coinst_constraints solver id_offsets l;
+  find_all_coinst_constraints solver id_offsets l None;
   assert_deferred_constraints solver
     ~after:(fun p _ ->
               if p then begin
                 discard_ambiguous_rules solver;
-                find_all_coinst_constraints solver id_offsets l
+                find_all_coinst_constraints solver id_offsets l None
               end)
     deferred_constraints;
 
@@ -3432,11 +3452,11 @@ let generate_explanations
 
 let print_equivocal_packages uids solver id_of_source id_offsets t u l =
   assert !check_coinstallability;
-  find_all_coinst_constraints solver id_offsets l;
+  find_all_coinst_constraints solver id_offsets l None;
   let coinst_unchanged = BitVect.copy (HornSolver.assignment solver) in
   switch_to_installability solver;
   clear_upgrade_states l;
-  find_all_coinst_constraints solver id_offsets l;
+  find_all_coinst_constraints solver id_offsets l None;
   save_rules uids;
   let inst_unchanged = HornSolver.assignment solver in
   assert (BitVect.implies inst_unchanged coinst_unchanged);
@@ -3482,12 +3502,12 @@ let f () =
       analyze_migration
         uids solver id_of_source id_offsets t u l get_name_arch p
   | None ->
-      find_all_coinst_constraints solver id_offsets l;
+      find_all_coinst_constraints solver id_offsets l None;
       assert_deferred_constraints solver
         ~after:(fun p _ ->
                   if p then begin
                     discard_ambiguous_rules solver;
-                    find_all_coinst_constraints solver id_offsets l
+                    find_all_coinst_constraints solver id_offsets l None
                   end)
         deferred_constraints;
       save_rules uids;
