@@ -1,6 +1,5 @@
-- The script should remove outdated pages
-- Create also a page for packages that can readily migrate
 - List packages that are ready to migrate
 - Reverse dependencies
 - Improve performance: when generating hints, we should focus on the
   relevant packages
+

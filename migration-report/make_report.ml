@@ -102,6 +102,7 @@ let compare_to_stable output =
 
 let _ =
 cmd "mkdir -p %s" dir;
+cmd "rm -f %s/p/*.html" dir;
 List.iter (fun f -> cmd "cp %s %s/" f dir) files;
 cmd "curl -f -o %s http://popcon.debian.org/by_inst.gz" popcon;
 cmd "../comigrate -c %s --update" conf;
