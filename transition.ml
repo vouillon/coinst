@@ -2942,6 +2942,7 @@ let generate_explanations
   in
 
   check_coinstallability := true;
+  clear_upgrade_states l;
   retract_deferred_constraints solver deferred_constraints;
   find_all_coinst_constraints solver id_offsets l;
   assert_deferred_constraints solver
