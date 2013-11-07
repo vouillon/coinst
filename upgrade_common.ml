@@ -369,9 +369,11 @@ let problematic_packages dist1 dist dist2 reasons =
                    List.exists
                      (fun l' ->
                         let d1' = resolve_dep dist1 l' in
+                        let d2' = resolve_dep dist2 l' in
+                        not (StringSet.is_empty d1' && StringSet.is_empty d2')
+                          &&
                         StringSet.subset d1' d1
                           &&
-                        let d2' = resolve_dep dist2 l' in
                         StringSet.subset d2' d2)
                      (q.M.pre_depends @ q.M.depends)
                | _ ->
