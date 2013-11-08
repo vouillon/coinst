@@ -1,3 +1,5 @@
 - List packages that are ready to migrate
-- Reverse dependencies (?)
-  Issue: we do not get a complete list of dependencies...
+- Reverse dependencies
+- Improve performance: when generating hints, we should focus on the
+  relevant packages
+
