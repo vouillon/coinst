@@ -4,7 +4,7 @@
 <script src="jquery.js"></script>
 <script src="jquery-ui.js"></script>
 <script>
-if (top != self) { top.location.replace(self.location.href); }
+var base_url = "http://coinst.irill.org/report/"
 var package_names = [];
 var packages = [];
 function resolve_package (p) {
@@ -40,7 +40,7 @@ function source (request, response) {
 $("#package").autocomplete({ delay: 0, source: source});
 $("#form").submit( function(form) {
   var package = $("#package").val().trim();
-  location.href = "p/" + resolve_package(package) + ".html";
+  top.location.href = base_url + "p/" + resolve_package(package) + ".html";
   return false;
 });
 });
@@ -50,7 +50,7 @@ function set_package_list (l) {
   package_names = [].concat.apply([],l).sort();
   if (s) {
     var package = s[1];
-    location.href = "p/" + resolve_package(package) + ".html";
+    top.location.href = base_url + "p/" + resolve_package(package) + ".html";
   }
 }
 </script>
@@ -85,6 +85,7 @@ section.ready ul {
 }
 section.ready li > p { margin: 0; }
 </style>
+<base target="_top">
 <h1>Testing migration status</h1>
 <section>
 <h1>Per package information</h1>
@@ -98,16 +99,17 @@ section.ready li > p { margin: 0; }
 <section>
 <h1>Forecasted package incompatibilities</h1>
 
-We list <a href="future_issues.html">packages that might become
+We list <a href="http://coinst.irill.org/report/future_issues.html">packages
+that might become
 incompatible in the near future</a> due to package migration.
 </section>
 
 <section>
 <h1>Package incompatibilities recently introduced</h1>
 <ul>
-<li><a href="issues_week.html">since last week</a>
-<li><a href="issues_month.html">since last month</a>
-<li><a href="issues_stable.html">compared to latest stable</a>
+<li><a href="http://coinst.irill.org/report/issues_week.html">since last week</a>
+<li><a href="http://coinst.irill.org/report/issues_month.html">since last month</a>
+<li><a href="http://coinst.irill.org/report/issues_stable.html">compared to latest stable</a>
 </ul>
 </section>
 
