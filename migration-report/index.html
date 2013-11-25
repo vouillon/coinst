@@ -14,7 +14,15 @@ function resolve_package (p) {
       if (l[j] == p) return l[0];
     }
   }
-  return p;
+  return null;
+}
+function go (package) {
+  var source = resolve_package(package);
+  if (source)
+    top.location.href = base_url + "p/" + source + ".html";
+  else {
+    $("#error").text("No information regarding package " + package + ".");
+}
 }
 $(function() {
 var max_resp = 100;
@@ -38,9 +46,10 @@ function source (request, response) {
   response (l1.concat(l2).slice(0, max_resp));
 }
 $("#package").autocomplete({ delay: 0, source: source});
+$("#package").on("input", function () { $("#error").text(""); });
 $("#form").submit( function(form) {
-  var package = $("#package").val().trim();
-  top.location.href = base_url + "p/" + resolve_package(package) + ".html";
+  go($("#package").val().trim());
+  
   return false;
 });
 });
@@ -49,8 +58,8 @@ function set_package_list (l) {
   packages = l;
   package_names = [].concat.apply([],l).sort();
   if (s) {
-    var package = s[1];
-    top.location.href = base_url + "p/" + resolve_package(package) + ".html";
+    $("#package").val(s[1]);
+    go (s[1]);
   }
 }
 </script>
@@ -84,6 +93,7 @@ section.ready ul {
   border-color: black;
 }
 section.ready li > p { margin: 0; }
+#error { color: red; }
 </style>
 <base target="_top">
 <h1>Testing migration status</h1>
@@ -93,6 +103,7 @@ section.ready li > p { margin: 0; }
 <label for="package">Package: </label>
 <input id="package" name="package">
 <input type="submit" value="Go">
+<span id="error"></span>
 </form>
 </section>
 
