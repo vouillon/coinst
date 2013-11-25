@@ -2347,6 +2347,21 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
          info)
   in
 
+  (* When the source of a package changes, the package may occur in
+     two different clusters. We merge these clusters. *)
+  let package_cluster = Hashtbl.create 101 in
+  List.iter
+    (fun (info, elt) ->
+       List.iter
+         (fun p ->
+            try
+              merge (Hashtbl.find package_cluster p) elt
+            with Not_found ->
+              Hashtbl.add package_cluster p elt)
+         info.h_pkgs)
+    !to_consider;
+  let to_consider = List.filter (fun (info, _) -> info.h_live) !to_consider in
+
   Task.iter l
     (fun (arch, st) ->
        let unchanged =
@@ -2362,7 +2377,7 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
               clusters :=
                 (List.map (fun (nm, _) -> nm) l, (Union_find.get elt).h_id)
                 :: !clusters)
-         !to_consider;
+         to_consider;
        cluster_packages st (unchanged, !clusters, !check_coinstallability))
     (fun lst ->
        List.iter
@@ -2372,7 +2387,7 @@ let generate_small_hints solver id_offsets l buckets subset_opt =
          lst);
 
   let compare_elt = Util.compare_pair compare compare in
-  !to_consider
+  to_consider
   >> List.map fst
   >> List.filter (fun info -> info.h_live)
   >> List.map
