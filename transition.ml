@@ -2906,7 +2906,7 @@ let generate_explanations
   Util.enable_messages true;
   Array.iteri
     (fun id nm ->
-       if not (BitVect.test red id) then begin
+       if not (BitVect.test red id && BitVect.test green id) then begin
          incr n;
          let p = float !n /. float !count in
          let t1 = Unix.gettimeofday () in
