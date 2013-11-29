@@ -15,7 +15,7 @@ SVG=viewer/scene.cmx viewer/dot_parser.cmx viewer/dot_lexer.cmx \
     viewer/dot_file.cmx
 OBJS = ptset.cmx util.cmx file.cmx debug.cmx common.cmx cache.cmx layout.cmx \
        solver.cmx api.cmx deb_lib.cmx rpm_lib.cmx \
-       repository.cmx quotient.cmx conflicts.cmx graph.cmx coinst_common.cmx
+       repository.cmx quotient.cmx conflicts.cmx graph.cmx json.cmx coinst_common.cmx
 COMPFLAGS=-package unix,str,bigarray,cudf -g -I viewer
 OPTLINKFLAGS=$(COMPFLAGS) -linkpkg
 

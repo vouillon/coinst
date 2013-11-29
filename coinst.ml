@@ -29,6 +29,9 @@ let roots = ref []
 let stats = ref false
 let graph = ref "graph.dot"
 
+type output_type = Graph | Json
+let output_type = ref Graph
+
 (****)
 
 let insert tbl x v =
@@ -48,8 +51,14 @@ module F (M : Api.S) = struct
   open Repository
   module Quotient = Quotient.F (Repository)
   module Graph = Graph.F (Repository)
+  module Json  = Json.F (Repository)
 
 (****)
+
+let get_output_f () = 
+  match !output_type with
+  | Graph -> Graph.output
+  | Json  -> Json.output
 
 let simplify_formula confl f =
   Formula.filter
@@ -529,7 +538,8 @@ Format.eprintf "== %a ==@." (Package.print pool) p;
   Conflict.iter
     confl
     (fun p q -> if PSet.mem p s && PSet.mem q s then Conflict.add cfl p q);
-  Graph.output f ~mark_all:true
+  let output_f = get_output_f () in
+  output_f f ~mark_all:true
     ~package_weight:(fun p -> if Conflict.has confl p then 1000. else 1.)
     ~edge_color:(fun _ _ _ -> Some "blue") quotient deps cfl
 
@@ -917,7 +927,8 @@ prerr_endline "COMP";
   if !stats then
     print_stats "final" "Final repository" quotient deps confl;
 
-  Graph.output !graph ~mark_all:(!mark_all) ~mark_reversed:(!mark_reversed)
+  let output_f = get_output_f () in
+  output_f !graph ~mark_all:(!mark_all) ~mark_reversed:(!mark_reversed)
     ~grayscale:(!grayscale) ~package_weight ~edge_color
     quotient deps confl;
 
@@ -971,6 +982,9 @@ Arg.parse
    "-stats",
    Arg.Unit (fun () -> stats := true),
    " Output stats regarding the input and output repositories";
+   "-json",
+   Arg.Unit (fun () -> output_type := Json),
+   "  Output a JSON file instead of a graph";
 (*
    "-debug",
    Arg.Unit (fun () -> debug := true),
