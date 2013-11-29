@@ -160,7 +160,6 @@ let rewrite_file f dir =
 
 
 let _ =
-(*
 cmd "mkdir -p %s" dir;
 cmd "rm -f %s/p/*.html" dir;
 List.iter (fun f -> cmd "cp %s %s/" f dir) files;
@@ -171,7 +170,6 @@ recent_issues last_month "issues_month.html";
 compare_to_stable "issues_stable.html";
 cmd "../comigrate -c %s --explain %s --popcon %s %s"
   conf dir popcon break_args;
-*)
 rewrite_file "index.html" dir
 
 let _ =
