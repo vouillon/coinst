@@ -1,4 +1,7 @@
-#!/usr/bin/ocaml unix.cma
+#!/usr/bin/ocaml
+#load "unix.cma"
+#load "str.cma"
+
 (*
 ocaml ./make_report.ml ~/coinst-report/britney.conf ~/coinst-report/report
 
@@ -10,7 +13,7 @@ let conf = Sys.argv.(1)
 let dir = Sys.argv.(2)
 
 let files =
-  ["index.html"; "arrows.png"; "jquery.js"; "jquery-ui.js";
+  ["arrows.png"; "jquery.js"; "jquery-ui.js";
    "jquery-ui.css"; "script.js"; "style.css"]
 
 let break =
@@ -26,7 +29,8 @@ let break =
    "libboost-test1.49-dev"; "libboost-thread1.49-dev";
    "libboost-timer1.49-dev"; "libboost-wave1.49-dev"; "libboost1.49-all-dev";
    "libboost-mpi-python1.49.0";  "libboost-mpi-python1.49-dev";
-   "libboost1.49-all-dev"; "libboost1.49-doc"]
+   "libboost1.49-all-dev"; "libboost1.49-doc";
+   "kde-sc-dev-latest"; "libopenmpi1.3"]
 
 let trace = true
 
@@ -100,7 +104,63 @@ let compare_to_stable output =
   cmd "../coinst-upgrades %s %s/Packages_i386 -o %s/%s --popcon %s %s"
     old testing dir output popcon break_args
 
+(****)
+
+let days = [|"Mon"; "Tue"; "Wed"; "Thu"; "Fri"; "Sat"; "Sun"|]
+let months = [|"Jan"; "Feb"; "Mar"; "Apr"; "May"; "Jun";
+               "Jul"; "Aug"; "Sep"; "Oct"; "Nov"; "Dec"|]
+
+let date () =
+  let t = Unix.gmtime (Unix.gettimeofday ()) in
+  Format.sprintf "%s, %d %s %d %02d:%02d:%02d UTC"
+    days.(t.Unix.tm_wday - 1) t.Unix.tm_mday months.(t.Unix.tm_mon)
+    (t.Unix.tm_year + 1900)  t.Unix.tm_hour t.Unix.tm_min t.Unix.tm_sec
+
+let rewrite input output map =
+  let input = open_in input in
+  let output = open_out output in
+  try
+    while true do
+      let l = input_line input in
+      let l = List.fold_left (fun l (re, s) -> Str.global_replace re s l) l map in
+      Printf.fprintf output "%s\n" l
+    done
+  with End_of_file ->
+    close_in input;
+    close_out output
+
+let read_list file =
+  let ch = open_in file in
+  let b = Buffer.create 128 in
+  begin try
+    while input_line ch <> "<ul>" do () done;
+    Buffer.add_string b "<ul>\n";
+    while
+      let l = input_line ch in
+      Buffer.add_string b l;
+      Buffer.add_string b "\n";
+      l <> "</ul>"
+    do () done
+  with End_of_file -> () end;
+  close_in ch;
+  Buffer.contents b
+
+let rewrite_file f dir =
+  let ready = read_list (Filename.concat dir "ready.html") in
+  let ready =
+    if ready = "" then
+      "<blockquote>(no package ready to migrate)</blockquote>"
+    else
+      ready
+  in
+  let map =
+    [Str.regexp "<READY>", ready;
+     Str.regexp_string "<DATE>", date ()] in
+  rewrite f (Filename.concat dir f) map
+
+
 let _ =
+(*
 cmd "mkdir -p %s" dir;
 cmd "rm -f %s/p/*.html" dir;
 List.iter (fun f -> cmd "cp %s %s/" f dir) files;
@@ -109,7 +169,10 @@ cmd "../comigrate -c %s --update" conf;
 recent_issues last_week "issues_week.html";
 recent_issues last_month "issues_month.html";
 compare_to_stable "issues_stable.html";
-cmd "../comigrate -c %s --explain %s --popcon %s %s" conf dir popcon break_args
+cmd "../comigrate -c %s --explain %s --popcon %s %s"
+  conf dir popcon break_args;
+*)
+rewrite_file "index.html" dir
 
 let _ =
 do_exit 0

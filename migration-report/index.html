@@ -79,19 +79,6 @@ footer {
   font-size: small;
   margin-top: 2em;
 }
-section.ready {
-  overflow:auto;
-}
-section.ready ul {
-  height:12em;
-  overflow-y: auto;
-  list-style: none outside none;
-  float:left;
-  padding:0;
-  border-style: solid;
-  border-width:thin;
-  border-color: black;
-}
 section.ready li > p { margin: 0; }
 #error { color: red; }
 </style>
@@ -105,6 +92,14 @@ section.ready li > p { margin: 0; }
 <input type="submit" value="Go">
 <span id="error"></span>
 </form>
+</section>
+
+<section class="ready">
+<h1>Packages ready to migrate</h1>
+Nothing prevents the packages below (if any) from migrating immediately.
+These are either packages that Britney was unable to migrate on its own,
+or packages whose status has changed since the last Britney run.
+<READY>
 </section>
 
 <section>
@@ -125,5 +120,8 @@ incompatible in the near future</a> due to package migration.
 </section>
 
 <footer>
-<p>This information is generated using <a href='http://coinst.irill.org/comigrate/'>comigrate</a> and <a href='http://coinst.irill.org/upgrades/'>coinst-upgrades</a>.
+<p>Report generated using
+<a href='http://coinst.irill.org/comigrate/'>comigrate</a> and
+<a href='http://coinst.irill.org/upgrades/'>coinst-upgrades</a>
+on <DATE>.
 </footer>
