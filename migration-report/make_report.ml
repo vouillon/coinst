@@ -30,6 +30,18 @@ let break =
    "libboost-timer1.49-dev"; "libboost-wave1.49-dev"; "libboost1.49-all-dev";
    "libboost-mpi-python1.49.0";  "libboost-mpi-python1.49-dev";
    "libboost1.49-all-dev"; "libboost1.49-doc";
+   "libboost1.53-dev"; "libboost-chrono1.53-dev";
+   "libboost-date-time1.53-dev"; "libboost-serialization1.53-dev";
+   "libboost-exception1.53-dev"; "libboost-filesystem1.53-dev";
+   "libboost-system1.53-dev"; "libboost-graph-parallel1.53-dev";
+   "libboost-test1.53-dev"; "libboost-graph1.53-dev";
+   "libboost-iostreams1.53-dev"; "libboost-regex1.53-dev";
+   "libboost-locale1.53-dev"; "libboost-math1.53-dev";
+   "libboost-mpi-python1.53-dev"; "libboost-mpi1.53-dev";
+   "libboost-program-options1.53-dev"; "libboost-python1.53-dev";
+   "libboost-random1.53-dev"; "libboost-signals1.53-dev";
+   "libboost-thread1.53-dev"; "libboost-timer1.53-dev";
+   "libboost-wave1.53-dev"; "libboost1.53-all-dev"; "libboost1.53-dbg";
    "kde-sc-dev-latest"; "libopenmpi1.3"]
 
 let trace = true
@@ -153,11 +165,18 @@ let rewrite_file f dir =
     else
       ready
   in
+  let obsolete = read_list (Filename.concat dir "obsolete.html") in
+  let obsolete =
+    if obsolete = "" then
+      "<blockquote>(no such package)</blockquote>"
+    else
+      obsolete
+  in
   let map =
     [Str.regexp "<READY>", ready;
+     Str.regexp "<OBSOLETE>", obsolete;
      Str.regexp_string "<DATE>", date ()] in
   rewrite f (Filename.concat dir f) map
-
 
 let _ =
 cmd "mkdir -p %s" dir;

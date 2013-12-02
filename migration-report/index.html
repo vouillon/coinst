@@ -79,7 +79,19 @@ footer {
   font-size: small;
   margin-top: 2em;
 }
-section.ready li > p { margin: 0; }
+section.list li > p { margin: 0; }
+section.list { overflow:auto; }
+section.list ul {
+  max-height:12em;
+  overflow-y: auto;
+  list-style: none outside none;
+  float:left;
+  padding: 0 1em 0 1em;
+  margin: 0 0 0 2em;
+  border-style: solid;
+  border-width:thin;
+  border-color: black;
+}
 #error { color: red; }
 </style>
 <base target="_top">
@@ -94,12 +106,20 @@ section.ready li > p { margin: 0; }
 </form>
 </section>
 
-<section class="ready">
+<section class="list">
 <h1>Packages ready to migrate</h1>
+<p>
 Nothing prevents the packages below (if any) from migrating immediately.
 These are either packages that Britney was unable to migrate on its own,
 or packages whose status has changed since the last Britney run.
 <READY>
+</section>
+
+<section class="list">
+<h1>Packages blocked by obsolete binaries</h1>
+<p>
+These packages could migrate if some obsolete binaries were removed.
+<OBSOLETE>
 </section>
 
 <section>

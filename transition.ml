@@ -1840,6 +1840,7 @@ let initial_constraints
   let age_constraints = ref [] in
   let bug_constraints = ref [] in
   let outdated_constraints = ref [] in
+  let obsolete_constraints = ref [] in
   let produce_excuses = !excuse_file <> "" || !explain_dir <> "" in
   let implies id1 id2 reason =
     ignore (HornSolver.add_rule solver [|id2; id1|] reason) in
@@ -1851,6 +1852,7 @@ let initial_constraints
   in
   let deferred_constraints () =
     [(`Bugs, !bug_constraints); (`Outdated, !outdated_constraints);
+     (`Obsolete, !obsolete_constraints);
      (`Age, !age_constraints); (`Blocked, !block_constraints)]
   in
   let all_or_none ids reason =
@@ -2013,8 +2015,10 @@ let initial_constraints
                       assume_deferred age_constraints (offset id) reason
                   | More_bugs _ ->
                       assume_deferred bug_constraints (offset id) reason
-                  | Not_yet_built _ ->
+                  | Not_yet_built (_, _, _, true) ->
                       assume_deferred outdated_constraints (offset id) reason
+                  | Not_yet_built (_, _, _, false) ->
+                      assume_deferred obsolete_constraints (offset id) reason
                   | Blocked _ | Binary_not_added | Binary_not_removed
                   | No_binary | Conflict _ | Source_not_propagated | Atomic ->
                       assert false
@@ -2899,9 +2903,13 @@ let generate_explanations
 
   let red = BitVect.copy (HornSolver.assignment solver) in
 
+  let obsolete = ref None in
   let orange = ref None in
   assert_deferred_constraints solver
     ~before:(fun _ k ->
+               if k = `Obsolete then
+                 obsolete :=
+                   Some (BitVect.copy (HornSolver.assignment solver));
                if k = `Age then
                  orange := Some (BitVect.copy (HornSolver.assignment solver));
                true)
@@ -2911,6 +2919,7 @@ let generate_explanations
                 find_all_coinst_constraints solver id_offsets l
               end)
     deferred_constraints;
+  let obsolete = match !obsolete with Some a -> a | None -> assert false in
   let orange = match !orange with Some a -> a | None -> assert false in
   let green = HornSolver.assignment solver in
 
@@ -3443,6 +3452,29 @@ let generate_explanations
              (fun nm ->
                 L.li (L.anchor ("p/" ^ nm ^ ".html") (L.code (L.s nm))))
              (List.sort compare !ready))));
+  close_out ch;
+
+  let lst = ref [] in
+  Array.iteri
+    (fun id nm ->
+       if
+         BitVect.test orange id &&
+         not (BitVect.test obsolete id)
+       then
+         lst := M.name_of_id nm :: !lst)
+    source_of_id;
+  let ch = open_out (Filename.concat !explain_dir "obsolete.html") in
+  L.print (new L.html_printer ch "")
+    (L.section ~clss:"obsolete"
+       (L.heading
+          (L.s ("Packages blocked by obsolete binaries (as of " ^
+                Util.date () ^ ")"))
+          &
+        L.ul
+          (L.list
+             (fun nm ->
+                L.li (L.anchor ("p/" ^ nm ^ ".html") (L.code (L.s nm))))
+             (List.sort compare !lst))));
   close_out ch
 
 (**** Main part of the program ****)
