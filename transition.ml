@@ -2591,11 +2591,22 @@ let heidi_arch st unchanged =
       M.PkgTbl.add source_has_binaries nm ()
     end
   in
+  let source_version_match p =
+    (* When architectures are marked as "fucked", their binary version
+       may be lower than the corresponding source version. This does not
+       make sense for arch:all packages which must have the same version
+       on all architectures. *)
+    p.M.architecture <> "all" ||
+    let (src, v) = p.M.source in
+    match source_version st.testing_srcs src with
+      None    -> false
+    | Some v' -> M.compare_version v v' = 0
+  in
   M.iter_packages t
     (fun p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
-       if is_unchanged st unchanged nm then begin
+       if is_unchanged st unchanged nm && source_version_match p then begin
          register_source p;
          heidi_line lines (M.name_of_id nm) p.M.version p.M.architecture sect
        end);
@@ -2603,7 +2614,9 @@ let heidi_arch st unchanged =
     (fun p ->
        let nm = p.M.package in
        let sect = if p.M.section = "" then "faux" else p.M.section in
-       if not (is_unchanged st unchanged nm) then begin
+       if
+         not (is_unchanged st unchanged nm) && source_version_match p
+       then begin
          register_source p;
          heidi_line lines (M.name_of_id nm) p.M.version p.M.architecture sect
        end);
