@@ -51,7 +51,7 @@ module F (M : Api.S) = struct
   open Repository
   module Quotient = Quotient.F (Repository)
   module Graph = Graph.F (Repository)
-  module Json  = Json.F (Repository)
+  module Json  = Coinst_json.F (Repository)
 
 (****)
 

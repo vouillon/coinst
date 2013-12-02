@@ -10,3 +10,6 @@ comigrate
 viewer/coinst_converter
 viewer/coinst_viewer
 viewer/jsviewer.js
+viewer/dot_lexer.ml
+viewer/dot_parser.ml
+viewer/dot_parser.mli

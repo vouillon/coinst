@@ -12,10 +12,13 @@ coinst_common.cmo : repository.cmi quotient.cmi debug.cmi api.cmi \
 coinst_common.cmx : repository.cmx quotient.cmx debug.cmx api.cmx \
     coinst_common.cmi
 coinst_common.cmi : repository.cmi quotient.cmi api.cmi
+coinst_json.cmo : repository.cmi quotient.cmi conflicts.cmo coinst_json.cmi
+coinst_json.cmx : repository.cmx quotient.cmx conflicts.cmx coinst_json.cmi
+coinst_json.cmi : repository.cmi quotient.cmi
 coinst.cmo : util.cmi rpm_lib.cmi repository.cmi quotient.cmi graph.cmi \
-    file.cmi deb_lib.cmi cudf_lib.cmi api.cmi
+    file.cmi deb_lib.cmi cudf_lib.cmi coinst_json.cmi api.cmi
 coinst.cmx : util.cmx rpm_lib.cmx repository.cmx quotient.cmx graph.cmx \
-    file.cmx deb_lib.cmx cudf_lib.cmx api.cmx
+    file.cmx deb_lib.cmx cudf_lib.cmx coinst_json.cmx api.cmx
 common.cmo : util.cmi common.cmi
 common.cmx : util.cmx common.cmi
 common.cmi :
@@ -48,9 +51,6 @@ ptset.cmi :
 quotient.cmo : util.cmi repository.cmi quotient.cmi
 quotient.cmx : util.cmx repository.cmx quotient.cmi
 quotient.cmi : repository.cmi
-repodata_lib.cmo : util.cmi solver.cmi file.cmi common.cmi repodata_lib.cmi
-repodata_lib.cmx : util.cmx solver.cmx file.cmx common.cmx repodata_lib.cmi
-repodata_lib.cmi : solver.cmi
 repository.cmo : util.cmi api.cmi repository.cmi
 repository.cmx : util.cmx api.cmx repository.cmi
 repository.cmi : util.cmi api.cmi
@@ -64,13 +64,13 @@ task.cmo : util.cmi debug.cmi bytearray.cmi task.cmi
 task.cmx : util.cmx debug.cmx bytearray.cmx task.cmi
 task.cmi :
 transition.cmo : util.cmi upgrade_common.cmi upgrade.cmi update_data.cmi \
-    task.cmi viewer/scene_svg.cmi viewer/scene.cmi repository.cmi layout.cmi \
-    horn.cmi file.cmi viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi \
-    deb_lib.cmi cache.cmi
+    task.cmi viewer/scene_svg.cmi viewer/scene.cmi layout.cmi horn.cmi \
+    file.cmi viewer/dot_render.cmi viewer/dot_graph.cmi debug.cmi deb_lib.cmi \
+    cache.cmi
 transition.cmx : util.cmx upgrade_common.cmx upgrade.cmx update_data.cmx \
-    task.cmx viewer/scene_svg.cmx viewer/scene.cmx repository.cmx layout.cmx \
-    horn.cmx file.cmx viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx \
-    deb_lib.cmx cache.cmx
+    task.cmx viewer/scene_svg.cmx viewer/scene.cmx layout.cmx horn.cmx \
+    file.cmx viewer/dot_render.cmx viewer/dot_graph.cmx debug.cmx deb_lib.cmx \
+    cache.cmx
 update_data.cmo : task.cmi update_data.cmi
 update_data.cmx : task.cmx update_data.cmi
 update_data.cmi :
@@ -91,8 +91,6 @@ upgrade.cmi : upgrade_common.cmi layout.cmi deb_lib.cmi
 util.cmo : ptset.cmi util.cmi
 util.cmx : ptset.cmx util.cmi
 util.cmi :
-version.cmo :
-version.cmx :
 viewer/converter.cmo : viewer/scene_json.cmi viewer/scene_extents.cmi \
     viewer/scene.cmi viewer/dot_render.cmi viewer/dot_graph.cmi
 viewer/converter.cmx : viewer/scene_json.cmx viewer/scene_extents.cmx \
