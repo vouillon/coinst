@@ -240,6 +240,335 @@ Format.eprintf "ADD root: %a ==> %a@." (Package.print pool) p (Formula.print poo
 
 (****)
 
+let debug_problems =
+  Debug.make "coinst_prob"
+    "Debug enumeration of possible co-installability issues" []
+
+(*let _ = Debug.set "coinst_prob"*)
+let debug = false
+
+module IntSet = Util.IntSet
+module ListTbl = Util.ListTbl
+module PSetSet = Set.Make (PSet)
+module PSetMap = Map.Make (PSet)
+
+type st =
+  { dist : M.pool; deps : Formula.t PTbl.t; confl : Conflict.t;
+    pieces : (int, Package.t * Disj.t) Hashtbl.t;
+    pieces_in_confl : (Package.t, int) ListTbl.t;
+    set : PSet.t; forced_deps : (int, Package.t option) Hashtbl.t;
+    forced_packages : PSet.t;
+    installed : IntSet.t; not_installed : IntSet.t;
+    check : PSet.t -> bool }
+
+let print_prob st =
+  let space = String.make (2 * IntSet.cardinal st.installed) ' ' in
+  Format.eprintf "-------------------@.";
+  IntSet.iter
+    (fun i ->
+       let (p, d) = Hashtbl.find st.pieces i in
+       Format.eprintf "%s| %a => %a@." space
+         (Package.print_name st.dist) p
+         (Disj.print st.dist) d)
+    st.installed
+
+let rec add_piece st i cont =
+  assert (not (IntSet.mem i st.installed || IntSet.mem i st.not_installed));
+  let (p, d) = Hashtbl.find st.pieces i in
+(*
+  if debug(*_problems ()*) then
+*)
+(*
+    Format.printf "Considering %a => %a@."
+      (Package.print_name st.dist) p (Disj.print st.dist) d;
+*)
+  if
+    (* We do not add a dependency if it is implied by, or implies, a
+       dependency currently under consideration. *)
+    not (IntSet.exists
+           (fun i' ->
+              let (_, d') = Hashtbl.find st.pieces i' in
+              Disj.implies d d' || Disj.implies d' d)
+           st.installed)
+      &&
+    (* When adding a package in st.set, we check that d is not implied
+       by any of the dependencies of a package already in st.set *)
+    (PSet.mem p st.set ||
+     not (PSet.exists
+            (fun p -> Formula.implies1 (PTbl.get st.deps p) d)
+            st.set))
+      &&
+    (* If we are adding a package, we check whether the set is still
+       co-installable *)
+    (PSet.mem p st.set || st.check (PSet.add p st.set))
+  then begin
+    if debug(*_problems ()*) then
+      Format.printf "Adding %a => %a@."
+        (Package.print_name st.dist) p (Disj.print st.dist) d;
+    let st =
+      {st with
+       set = PSet.add p st.set;
+(*
+       forced =
+          (match Disj.to_lit d with
+             Some q -> PSet.union (Conflict.of_package st.confl q) st.forced
+           | None   -> st.forced);
+*)
+       installed = IntSet.add i st.installed}
+    in
+    if debug(*_problems ()*) then print_prob st;
+if false then print_prob st;
+    (* Make sure that there is at least one piece in conflict for all
+       dependencies, then consider all possible additions *)
+    Disj.fold
+      (fun p cont st ->
+         if
+           PSet.exists (fun q -> PSet.mem q st.forced_packages)
+             (Conflict.of_package st.confl p)
+         then
+           cont st
+         else
+           let st =
+             PSet.fold
+               (fun q st ->
+                  if Disj.implies1 q d then
+                    st
+                  else
+                    List.fold_right
+                      (fun j st ->
+                         match
+                           try
+                             Hashtbl.find st.forced_deps j
+                           with Not_found ->
+                             None
+                         with
+                           Some q' when q' = q ->
+                             do_add_piece st q j cont
+                         | _ ->
+                             st)
+                      (ListTbl.find st.pieces_in_confl q) st)
+               (Conflict.of_package st.confl p) st
+           in
+           PSet.fold
+             (fun q cont ->
+                List.fold_right
+                  (fun j cont st ->
+                     if Hashtbl.mem st.forced_deps j then
+                       cont st
+                     else
+                       maybe_add_piece st j cont)
+                  (ListTbl.find st.pieces_in_confl q) cont)
+                (Conflict.of_package st.confl p) cont st)
+(*
+         if
+           PSet.exists
+             (fun q ->
+                List.exists (fun i -> IntSet.mem i st.installed)
+                  (ListTbl.find st.pieces_in_confl q))
+             (Conflict.of_package st.confl p)
+         then
+           cont st)
+*)
+      d
+(*
+      (fun st ->
+         if debug(*_problems ()*) then
+           Format.printf "Considering all possible additions in %d: %a...@."
+             i (Disj.print st.dist) d;
+         Disj.fold
+           (fun p cont ->
+if PSet.mem p st.forced_packages then cont else
+(*
+              if PSet.exists (fun q -> Conflict.check st.confl p q) st.set then
+                cont
+              else
+*)
+              PSet.fold
+                (fun q cont ->
+                   List.fold_right (fun j cont st -> maybe_add_piece st j cont)
+                     (ListTbl.find st.pieces_in_confl q) cont)
+                (Conflict.of_package st.confl p) cont)
+           d cont st)
+*)
+      cont
+      st
+  end else
+    if debug(*_problems ()*) then
+      Format.printf "Could not add %a => %a@."
+        (Package.print_name st.dist) p (Disj.print st.dist) d;
+
+and do_add_piece st q i cont =
+  if IntSet.mem i st.installed then begin
+    st
+  end else if not (IntSet.mem i st.not_installed) then begin
+    add_piece {st with forced_packages = PSet.add q st.forced_packages} i cont;
+st(*    {st with not_installed = IntSet.add i st.not_installed}*)
+  end else
+    st
+
+and maybe_add_piece st i cont =
+  if
+    not (IntSet.mem i st.installed || IntSet.mem i st.not_installed)
+  then begin
+    add_piece st i cont;
+    cont {st with not_installed = IntSet.add i st.not_installed}
+  end else
+    cont st
+
+let forced_deps confl pieces pieces_in_confl =
+  let forced = Hashtbl.create 101 in
+  while
+    let changed = ref false in
+    Hashtbl.iter
+      (fun i (p, d) ->
+         if not (Hashtbl.mem forced i) then begin
+           let forced_package q =
+             PSet.for_all
+               (fun q' ->
+                  List.for_all
+                    (fun i' ->
+                       Hashtbl.mem forced i' ||
+                       let (p', d') = Hashtbl.find pieces i' in
+                       Disj.implies1 q d')
+                    (ListTbl.find pieces_in_confl q'))
+               (Conflict.of_package confl q)
+           in
+           let floating_packages =
+             Disj.filter (fun q -> not (forced_package q)) d in
+           if Disj.implies floating_packages Disj._false then begin
+             Hashtbl.add forced i None; changed := true
+           end else
+             match Disj.to_lit floating_packages with
+               Some p -> Hashtbl.add forced i (Some p); changed := true
+             | None   -> ()
+         end)
+      pieces;
+    !changed
+  do () done;
+  forced
+(*
+  Hashtbl.iter
+    (fun i (p, d) ->
+       if not (Hashtbl.mem forced i) then begin
+       Format.eprintf "> %a => %a@."
+         (Package.print_name dist) p
+         (Disj.print dist) d;
+Disj.iter d (fun q ->
+  PSet.iter
+    (fun q' ->
+try
+       let i' = 
+       List.find
+         (fun i' ->
+           not (Hashtbl.mem forced i' ||
+                  let (p', d') = Hashtbl.find pieces i' in
+                  Disj.implies1 q d'))
+         (ListTbl.find pieces_in_confl q')
+       in
+       let (p, d) = Hashtbl.find pieces i' in
+       Format.eprintf "(%a => %a)@."
+         (Package.print_name dist) p
+         (Disj.print dist) d
+with Not_found -> ())
+    (Conflict.of_package confl q))
+       end)
+    pieces;
+  let deps = PTbl.create (Quotient.pool quotient) Formula._true in
+  Hashtbl.iter
+    (fun i (p, d) ->
+       if not (Hashtbl.mem forced i) then
+         PTbl.set deps p (Formula.conj (PTbl.get deps p) (Formula.of_disj d)))
+    pieces;
+  Graph.output "/tmp/floating.dot" ~mark_all:false
+    ~grayscale:(!grayscale)
+    quotient deps confl
+*)
+
+let find_problems quotient deps confl check =
+  let dist = Quotient.pool quotient in
+  let pieces = Hashtbl.create 101 in
+  let last_piece = ref (-1) in
+  let pieces_in_confl = ListTbl.create 101 in
+  Quotient.iter
+    (fun p ->
+       let f = PTbl.get deps p in
+       Formula.iter f
+         (fun d ->
+           incr last_piece;
+           let i = !last_piece in
+           Hashtbl.add pieces i (p, d);
+           Disj.iter d (fun p -> ListTbl.add pieces_in_confl p i)))
+    quotient;
+  let forced = forced_deps confl pieces pieces_in_confl in
+  let st =
+    { dist = dist; deps = deps; confl = confl;
+      pieces = pieces; pieces_in_confl = pieces_in_confl;
+      set = PSet.empty; forced_packages = PSet.empty;
+      forced_deps = forced; check = check;
+      installed = IntSet.empty; not_installed = IntSet.empty }
+  in
+  let st = ref st in
+  for i = 0 to !last_piece do
+    if None = try Hashtbl.find forced i with Not_found -> None then begin
+      add_piece !st i (fun _ -> ());
+      st := {!st with not_installed = IntSet.add i (!st).not_installed}
+    end
+  done
+
+let enumerate_non_coinstallable_sets quotient deps confl st =
+  let dist = Quotient.pool quotient in
+  let results = ref PSetSet.empty in
+  let add_result s =
+    if not (PSetSet.mem s !results) then begin
+      if debug_problems () then begin
+        Format.eprintf "==>";
+        PSet.iter
+          (fun p -> Format.eprintf " %a" (Package.print_name dist) p) s;
+        Format.eprintf "@."
+      end;
+      results := PSetSet.add s !results
+    end else
+      if debug then Format.printf "Already considered@."
+  in
+  let installable_status = ref PSetMap.empty in
+  let check s =
+    let is_installable s =
+      try PSetMap.find s !installable_status with Not_found ->
+      let res =
+        M.Solver.solve_lst st (List.map Package.index (PSet.elements s)) in
+      M.Solver.reset st;
+      installable_status := PSetMap.add s res !installable_status;
+      res
+    in
+    if is_installable s then begin
+  if debug then begin
+  Format.printf "Still co-installable:";
+  List.iter (fun p -> Format.printf " %a" (Package.print_name dist) p)
+    (PSet.elements s);
+  Format.printf "@.";
+  end;
+      true
+    end else begin
+      if
+        PSet.exists (fun p -> not (is_installable (PSet.remove p s))) s
+      then begin
+  if debug_problems () then begin
+  Format.eprintf "Not minimal:";
+  List.iter (fun p -> Format.eprintf " %a" (Package.print_name dist) p)
+    (PSet.elements s);
+  Format.eprintf "@.";
+  end
+      end else begin
+        add_result s
+      end;
+      false
+    end
+  in
+  find_problems quotient deps confl check;
+  !results
+
+(****)
+
 let read_data ignored_packages ic =
   let dist = M.new_pool () in
   M.parse_packages dist ignored_packages ic;
@@ -692,6 +1021,11 @@ Format.eprintf "REM %a: %a (%a)@." (Package.print dist) p (Disj.print dist) d (F
   let fd2 = PTbl.mapi (fun p f -> filter_conflicts confl p f) fd2 in
 *)
 
+(*
+  enumerate_non_coinstallable_sets dist fd2 confl
+    (generate_rules (Quotient.trivial dist) fd2 confl);
+*)
+
 (*XXXXX
   Build equivalence classes
   Focus up to equivalence
@@ -715,6 +1049,18 @@ Format.eprintf "REM %a: %a (%a)@." (Package.print dist) p (Disj.print dist) d (F
 print_problem quotient fd2 confl;
 *)
   let st' = if !explain then Some (M.generate_rules dist) else None in
+
+(*
+  let no_deps = PTbl.create dist Formula._true in
+  let all_confl = Conflict.create dist in
+  PSetSet.iter
+    (fun s ->
+       match PSet.elements s with
+         [q; q'] -> Conflict.add all_confl q q'
+       | [q]     -> PTbl.set no_deps q Formula._false
+       | _       -> ())
+    sets;
+*)
 
   Util.title "NON-INSTALLABLE PACKAGES";
   let non_inst = ref PSet.empty in
@@ -851,6 +1197,22 @@ print_problem quotient fd2 confl;
        PMap.empty !cl
   in
 
+  Util.title "LARGER NON-INSTALLABLE SETS";
+  let sets = enumerate_non_coinstallable_sets quotient fd2 confl st in
+  PSetSet.iter
+    (fun s ->
+       if PSet.cardinal s > 2 then begin
+         let first = ref true in
+         PSet.iter
+           (fun p ->
+              if not !first then Format.printf " ";
+              Format.printf "%a" (Package.print_name dist) p;
+              first := false)
+           s;
+         Format.printf "@."
+       end)
+    sets;
+
 (******************
   let (deps, confl) = coinstallability_kernel quotient deps confl in
 ******************)
@@ -931,6 +1293,11 @@ prerr_endline "COMP";
   output_f !graph ~mark_all:(!mark_all) ~mark_reversed:(!mark_reversed)
     ~grayscale:(!grayscale) ~package_weight ~edge_color
     quotient deps confl;
+(*
+  Graph.output "/tmp/conflicts.dot" ~mark_all:true
+    ~grayscale:(!grayscale) ~package_weight ~edge_color
+    quotient no_deps all_confl;
+*)
 
 end
 
@@ -941,6 +1308,7 @@ let ignored_packages = ref [] in
 let kind = ref Auto in
 let files = ref [] in
 Arg.parse
+  (Arg.align
   ["-cudf",
    Arg.Unit (fun () -> kind := Cudf),
    "  Parse CUDF files";
@@ -975,7 +1343,7 @@ Arg.parse
    "  Output a grayscale graph";
    "-root",
    Arg.String (fun p -> roots := p :: !roots),
-   "  Draw only the relevant portion of the graph around this package";
+   "PACKAGE  Draw only the relevant portion of the graph around this package";
    "-explain",
    Arg.Unit (fun () -> explain := true),
    " Explain the results";
@@ -990,7 +1358,7 @@ Arg.parse
    Arg.Unit (fun () -> debug := true),
    "  Output debugging informations";
 *)
-  ]
+  ])
   (fun p -> files := p :: !files)
   ("Usage: " ^ Sys.argv.(0) ^ " OPTIONS INPUT-FILES\n\
     Analyze package coinstallability. Package information is read from\n\
