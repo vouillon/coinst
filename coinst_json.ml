@@ -175,8 +175,10 @@ let output
 
   let string_of_package (package : R.Package.t) : string =
     (* TODO: Print only the name or the name with version? Maybe add a command line option for this. *)
-    (* Format.fprintf Format.str_formatter "\"%a\"" (R.Package.print_name (Quotient.pool quotient)) package; *)
+    Format.fprintf Format.str_formatter "\"%a\"" (R.Package.print_name (Quotient.pool quotient)) package;
+(*
     Format.fprintf Format.str_formatter "\"%a\"" (R.Package.print (Quotient.pool quotient)) package;
+*)
     Format.flush_str_formatter () in
 
 
