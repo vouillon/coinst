@@ -28,6 +28,7 @@ let explain = ref false
 let roots = ref []
 let stats = ref false
 let graph = ref "graph.dot"
+let conflict_file = ref None
 
 type output_type = Graph | Json
 let output_type = ref Graph
@@ -240,6 +241,35 @@ Format.eprintf "ADD root: %a ==> %a@." (Package.print pool) p (Formula.print poo
 
 (****)
 
+(*
+  If a set of packages are not co-installable, then there is a minimal
+  set of dependencies and conflicts that make them incompatible. We
+  enumerate (an overapproximation) of all these minimal sets.
+
+  We define inductively *forced* dependencies and packages:
+  - a dependency d is forced when all packages p in d but at most one
+    are forced;
+  - a package p is forced when all dependencies d' such that there
+    exists a package p' in d' such that p conflicts wih p', either
+    d' is forced, or p in d'.
+
+  In a minimal set, if we have dependencies d, d' and packages p, p'
+  such that p in d, p' in d', p conflicts with p' and d' is forced,
+  then there are no other dependencies such that p'' in d'' and p''
+  conflicts with p.
+
+  In a minimal set, if we have dependencies d, d' and packages p, p'
+  such that p in d, p' in d', p conflicts with p' and p is forced,
+  then
+  1) d' is forced
+  2) p not in d'
+  3) there is no other dependency in a similar situation with respect
+  to p
+  4) p' is not forced (so all other packages in d' are forced)
+
+  XXX  
+*)
+
 let debug_problems =
   Debug.make "coinst_prob"
     "Debug enumeration of possible co-installability issues" []
@@ -331,9 +361,6 @@ if false then print_prob st;
            let st =
              PSet.fold
                (fun q st ->
-                  if Disj.implies1 q d then
-                    st
-                  else
                     List.fold_right
                       (fun j st ->
                          match
@@ -343,6 +370,8 @@ if false then print_prob st;
                              None
                          with
                            Some q' when q' = q ->
+                             let (_, d') = Hashtbl.find st.pieces j in
+                             if Disj.implies1 p d' then st else
                              do_add_piece st q j cont
                          | _ ->
                              st)
@@ -359,37 +388,7 @@ if false then print_prob st;
                        maybe_add_piece st j cont)
                   (ListTbl.find st.pieces_in_confl q) cont)
                 (Conflict.of_package st.confl p) cont st)
-(*
-         if
-           PSet.exists
-             (fun q ->
-                List.exists (fun i -> IntSet.mem i st.installed)
-                  (ListTbl.find st.pieces_in_confl q))
-             (Conflict.of_package st.confl p)
-         then
-           cont st)
-*)
       d
-(*
-      (fun st ->
-         if debug(*_problems ()*) then
-           Format.printf "Considering all possible additions in %d: %a...@."
-             i (Disj.print st.dist) d;
-         Disj.fold
-           (fun p cont ->
-if PSet.mem p st.forced_packages then cont else
-(*
-              if PSet.exists (fun q -> Conflict.check st.confl p q) st.set then
-                cont
-              else
-*)
-              PSet.fold
-                (fun q cont ->
-                   List.fold_right (fun j cont st -> maybe_add_piece st j cont)
-                     (ListTbl.find st.pieces_in_confl q) cont)
-                (Conflict.of_package st.confl p) cont)
-           d cont st)
-*)
       cont
       st
   end else
@@ -1298,6 +1297,12 @@ prerr_endline "COMP";
     ~grayscale:(!grayscale) ~package_weight ~edge_color
     quotient no_deps all_confl;
 *)
+  begin match !conflict_file with
+    None ->
+      ()
+  | Some f ->
+      Json.output_non_coinstallable_sets f quotient (PSetSet.elements sets)
+  end
 
 end
 
@@ -1353,6 +1358,10 @@ Arg.parse
    "-json",
    Arg.Unit (fun () -> output_type := Json),
    "  Output a JSON file instead of a graph";
+   "-conflicts",
+   Arg.String (fun f -> conflict_file := Some f),
+   "FILE  Output all minimal non co-installable set of packages to FILE";
+   
 (*
    "-debug",
    Arg.Unit (fun () -> debug := true),

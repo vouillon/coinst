@@ -28,4 +28,7 @@ module F (R : Repository.S) : sig
     ?grayscale:bool ->
     string -> ?mark_all:bool -> ?mark_reversed:bool -> ?roots:Package.t list ->
     Quotient.F(R).t -> dependencies -> Conflict.t -> unit
+
+  val output_non_coinstallable_sets :
+    string -> Quotient.F(R).t -> PSet.t list -> unit
 end

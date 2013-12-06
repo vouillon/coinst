@@ -245,10 +245,46 @@ let output
 
   (* Print the whole list of equivalence class descriptions and package implementations. *)
   Format.fprintf f 
-    "[\n%s,\n%s\n]" 
+    "[\n%s,\n%s\n]@." 
     (String.concat ",\n" (List.map (json_of_package ~printing:Pretty) eq_classes_packages))
     (String.concat ",\n" (List.map (json_of_package ~printing:Dense)  packages_in_eq_classes));
 
+  close_out ch
+
+
+let output_list f g l =
+  Format.fprintf f "@[<1>[";
+  begin match l with
+    []     -> ()
+  | x :: r -> g f x; List.iter (fun x -> Format.fprintf f ",@,%a" g x) r
+  end;
+  Format.fprintf f "]@]"
+
+let output_packages quotient f s =
+  output_list f
+    (fun f p ->
+       Format.fprintf f "\"%a\""
+         (R.Package.print_name (Quotient.pool quotient)) p)
+    s
+
+let output_classes quotient f l =
+  output_list f
+    (fun f p ->
+       Format.fprintf f "@[<1>[\"%a\",@,%a]@]"
+         (R.Package.print_name (Quotient.pool quotient)) p
+         (output_packages quotient) (PSet.elements (Quotient.clss quotient p)))
+    l
+
+let output_sets quotient f l = output_list f (output_packages quotient) l
+
+let output_non_coinstallable_sets file quotient sets =
+  let packages = List.fold_left PSet.union PSet.empty sets in
+  let ch = open_out file in
+  let f = Format.formatter_of_out_channel ch in
+  Format.fprintf f
+    "@[<1>{@[<2>\"classes\":@,%a;@]@,@[<2>\"incompatibilities\":@,%a@]}@]@."
+    (output_classes quotient) (PSet.elements packages)
+    (output_sets quotient) (List.map PSet.elements sets);
   close_out ch
 
 end
