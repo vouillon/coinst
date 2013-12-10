@@ -346,6 +346,11 @@ let rec add_piece st i cont =
 *)
        installed = IntSet.add i st.installed}
     in
+(*
+Format.eprintf "-";
+IntSet.iter (fun i -> Format.eprintf " %d" i) st.installed;
+Format.eprintf "@.";
+*)
     if debug(*_problems ()*) then print_prob st;
 if false then print_prob st;
     (* Make sure that there is at least one piece in conflict for all
@@ -508,8 +513,8 @@ let find_problems quotient deps confl check =
   in
   let st = ref st in
   for i = 0 to !last_piece do
+    add_piece !st i (fun _ -> ());
     if None = try Hashtbl.find forced i with Not_found -> None then begin
-      add_piece !st i (fun _ -> ());
       st := {!st with not_installed = IntSet.add i (!st).not_installed}
     end
   done
@@ -1116,8 +1121,8 @@ print_problem quotient fd2 confl;
 (*
 
   let coinstallable_pairs = ref PSetSet.empty in
-  let non_coinstallable_pairs = ref PSetSet.empty in
 *)
+  let non_coinstallable_pairs = ref PSetSet.empty in
   Hashtbl.iter
     (fun p l ->
        let l' = get dep_tbl p in
@@ -1150,11 +1155,11 @@ print_problem quotient fd2 confl;
                      in
                      insert conflicts p (q, r);
                      insert conflicts q (p, r);
-((*
+(*
+ *)
                      non_coinstallable_pairs :=
-                       PSetSet.add (PSet.add i (PSet.singleton j))
+                       PSetSet.add (PSet.add p (PSet.singleton q))
                          !non_coinstallable_pairs
- *))
                    end;
                    M.Solver.reset st;
                    incr c'
@@ -1211,6 +1216,7 @@ print_problem quotient fd2 confl;
          Format.printf "@."
        end)
     sets;
+  assert (PSetSet.subset !non_coinstallable_pairs sets);
 
 (******************
   let (deps, confl) = coinstallability_kernel quotient deps confl in
