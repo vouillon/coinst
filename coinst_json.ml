@@ -282,7 +282,7 @@ let output_non_coinstallable_sets file quotient sets =
   let ch = open_out file in
   let f = Format.formatter_of_out_channel ch in
   Format.fprintf f
-    "@[<1>{@[<2>\"classes\":@,%a;@]@,@[<2>\"incompatibilities\":@,%a@]}@]@."
+    "@[<1>{@[<2>\"classes\":@,%a,@]@,@[<2>\"incompatibilities\":@,%a@]}@]@."
     (output_classes quotient) (PSet.elements packages)
     (output_sets quotient) (List.map PSet.elements sets);
   close_out ch
