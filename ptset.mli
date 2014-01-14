@@ -32,6 +32,8 @@ val is_empty : t -> bool
 
 val mem : int -> t -> bool
 
+val find : int -> t -> int
+
 val add : int -> t -> t
 
 val singleton : int -> t

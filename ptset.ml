@@ -71,6 +71,11 @@ let rec mem k = function
   | Leaf j -> k == j
   | Branch (_, m, l, r) -> mem k (if zero_bit k m then l else r)
 
+let rec find k = function
+  | Empty -> raise Not_found
+  | Leaf j -> if k == j then j else raise Not_found
+  | Branch (_, m, l, r) -> find k (if zero_bit k m then l else r)
+
 (*s The following operation [join] will be used in both insertion and
     union. Given two non-empty trees [t0] and [t1] with longest common
     prefixes [p0] and [p1] respectively, which are supposed to
@@ -373,6 +378,11 @@ module Big = struct
     | Empty -> false
     | Leaf j -> k == j
     | Branch (_, m, l, r) -> mem k (if zero_bit k m then l else r)
+
+  let rec find k = function
+    | Empty -> raise Not_found
+    | Leaf j -> if k == j then j else raise Not_found
+    | Branch (_, m, l, r) -> find k (if zero_bit k m then l else r)
 
   let mask k m  = (k lor (m-1)) land (lnot m)
 
