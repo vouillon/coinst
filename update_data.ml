@@ -22,8 +22,8 @@
 *)
 
 let src = "http://ftp.debian.org/debian/dists/"
-let hint_src = "http://release.debian.org/britney/hints/"
-let britney_src = "http://release.debian.org/britney/data-b2/"
+let hint_src = "https://release.debian.org/britney/hints/"
+let britney_src = "https://release.debian.org/britney/data-b2/"
 let britney_files =
   [("Dates", `Testing, "Dates");
    ("Urgency", `Testing, "Urgency");
@@ -41,9 +41,9 @@ let download dst url =
   let cmd =
     if Sys.file_exists dst then
       Format.sprintf
-        "curl -f -z %s --create-dirs -o %s %s 2>/dev/null" dst tmp url
+        "curl -L -f -z %s --create-dirs -o %s %s 2>/dev/null" dst tmp url
     else
-      Format.sprintf "curl -f --create-dirs -o %s %s 2>/dev/null" tmp url
+      Format.sprintf "curl -L -f --create-dirs -o %s %s 2>/dev/null" tmp url
   in
   Format.eprintf "Fetching %s...@." url;
 (*
@@ -169,7 +169,7 @@ let update_hints hint_dir hint_files =
 (****)
 
 let f testing_dir unstable_dir archs hint_dir hint_files =
-  if Sys.command "curl -V > /dev/null" <> 0 then begin
+  if Sys.command "curl -L -V > /dev/null" <> 0 then begin
     Format.eprintf "Could not execute 'curl' command.@.";
     exit 1
   end;
