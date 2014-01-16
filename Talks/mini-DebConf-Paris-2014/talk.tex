@@ -40,157 +40,54 @@
 \newcommand{\ZZZ}[1]{\textcolor{red}{#1}}
 \newcommand{\EEE}[1]{\textcolor{BlueViolet}{#1}}
 
+\title[Comigrate]%
+{Comigrate: \\ improving package migration \\
+ from \texttt{unstable} to \texttt{testing}}
+
+\author[Di Cosmo/Dogguy/Vouillon]{Mehdi Dogguy, J\'er\^ome Vouillon and Roberto Di Cosmo}
+
+\date[2014-01-18]{January 18, 2014}
 
 \begin{document}
 
-\part{History}
-\frame{\partpage}
-
-\begin{frame}{Global goal}
-
-Analyze conflicts between packages
-\begin{itemize}
-\item which packages can be installed
-\item what packages conflit
-\item conflict evolution
-\item package migration
-\end{itemize}
-
+\begin{frame}[label=title]{}
+ \titlepage
+ \vspace{-1.5cm}
+ \begin{center}
+%  \includegraphics[width=1cm]{p7} \hfill
+%  \includegraphics[width=2.5cm]{inria-logo-new} \hfill
+%  \includegraphics[width=2.5cm]{Logotype-IRILL} \hfill
+%  \includegraphics[width=1.5cm]{cnrsfilaire_quadri} \hfill
+ \end{center}
 \end{frame}
 
-\begin{frame}{Package installability}
-
-List all packages which cannot be installed at all in a repository.
-\texttt{debcheck}
-
-Now, package \texttt{dose-distcheck}
-
-Debian Weather (down?)
-\url{http://edos.debian.net/weather/}
-
-\url{http://qa.debian.org/debcheck.php}
-
-Clear expectation: all packages should be installable
-
-\end{frame}
-
-\begin{frame}[fragile]{Co-installability}
-Definition: a set of packages are co-installable if they can be install
-together.
-
-Package incompatibilities  are to be expected.
-%
-How do we visualize them?
-
-See \url{http://coinst.irill.org/}
-\end{frame}
-
-\begin{frame}[fragile]{Co-installability graphs}
-\begin{alltt}
-coinst -root \EEE{iceweasel} -o graph.dot Packages_i386
-\end{alltt}
-\vspace{-2.5em}
-\begin{center}
-\includegraphics[width=\linewidth]{figures/iceweasel.pdf}
-\end{center}
-\vspace{-2em}
-\begin{alltt}
-coinst -root \EEE{kde-full} -o graph.dot Packages_i386
-\end{alltt}
-\vspace{-2.5em}
-\begin{center}
-\includegraphics[width=0.65\linewidth]{figures/kde-full.pdf}
-\end{center}
-\end{frame}
-
-\begin{frame}
-\begin{center}
-\includegraphics[width=\linewidth]{figures/flattened}
-\end{center}
-\end{frame}
-
-\begin{frame}{Co-installability: algorithm}
-Key ideas:
-\begin{itemize}
-\item Transitive closures of package dependencies
-\item Remove dependencies that can always be satisfied
-\end{itemize}
-
-\begin{center}
-\begin{tabular}{@{}lrrrrrr@{}}
-\toprule
-& Before & After \\
-\midrule
-Packages & 28919 & 1038 \\
-Dependencies & 124246 & 619 \\
-Conflicts & 1146 & 985 \\
-Median cone size & 38 & 1 \\
-Avg. cone size & 66 & 1.7 \\
-Max. cone size & 1134 & 15 \\
-\midrule
-Running time
-& & 10.6 seconds
-\\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\end{frame}
-
-\begin{frame}{Distribution evolution}
-\url{http://coinst.irill.org/upgrades}
-
-find new issues
-
-present properly these issues (KDE example)
-
-\begin{center}
-\includegraphics{figures/libiodbc2}
-\end{center}
-
-\texttt{libiodbc2} is obsoletes
-
-\end{frame}
-
-\begin{frame}{Context}
-\begin{center}
-\includegraphics{figures/libiodbc2}
-\end{center}
-Depend on \texttt{libiodbc2} (about 380 package):
-kcolorchooser kdesdk-misc kdevelop-php-docs blinken kdevelop
-kmousetool ktorrent kalgebra konqueror klipper kchmviewer
-mplayerthumbs libsmokekutils3 kjots ksshaskpass cantor
-network-manager-kde kbattleship choqok kdesdk-dbg krusader-dbg
-libkdegames-dev kmidimon klettres quassel-kde4 libakonadi-ruby
-konq-plugins ktorrent-dbg kiriki plasma-widgets-workspace kvirc-dbg
-konversation-dbg libkiten-dev kdm-gdmcompat plasma-netbook
-libokular-ruby1.8 eqonomize kdenetwork-dbg libsmokeplasma3 kspread
-lokalize korganizer parley kfourinline libsmokekde-dev kfind
-kdepim-groupware ksnapshot libiodbc2-dev plasma-runners-addons
-libsmokekdeui4-3 printer-applet ark kdeutils kover rocs kdesvn-dbg
-kdevplatform-dev libkdepim4 ktron cantor-backend-sage kinfocenter
-kjumpingcube kaddressbook kmymoney akonadiconsole cantor-backend-r
-kmines kgoldrunner partitionmanager libsublime-dev korundum4
-kphotoalbum kplayer
-\ldots
-
-\end{frame}
-
-\part{Comigrate}
+\part{Package migration}
 \frame{\partpage}
 
 \begin{frame}{Package Migration}
-package migration from unstable to testing
 
-simple constraints (Boolean constraints):
+\begin{center}
+\includegraphics[width=0.7\linewidth]{figures/migration}
+\end{center}
+
+\vspace{-1em}
+\EEE{Conflicting goals}
 \begin{itemize}
-\item source packages and the corresponding binary packages have to move
-  together
-\item no migration if not old enough
-\item no migration if new release critical bugs
+\item package should reach \textit{testing} rapidly
+\item keep \textit{testing} as stable as possible
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}{Conditions for migration}
+\EEE{Simple constraints} % (Boolean constraints):
+\begin{itemize}
+\item old enough
+\item no new critical bug
+\item simultaneous migration of source and binary packages
 \item ...
 \end{itemize}
-complex constraints:
+\EEE{Complex constraints}
 \begin{itemize}
 \item packages should remain installable
 \item (packages should remain co-installable)
@@ -273,6 +170,149 @@ libhdfeos5-ruby1.8 libgdal1-dev
 \end{center}
 \end{frame}
 
+\part{History}
+\frame{\partpage}
+
+\begin{frame}{Global goal}
+
+\EEE{Analyze conflicts between packages}
+\begin{itemize}
+\item which packages can be installed
+\item what packages conflit
+\item conflict evolution
+\item package migration
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}{Package installability}
+
+List all packages which cannot be installed at all in a repository.
+\texttt{debcheck}
+
+Now, package \texttt{dose-distcheck}
+
+Debian Weather (down?)
+\url{http://edos.debian.net/weather/}
+
+\url{http://qa.debian.org/debcheck.php}
+
+Clear expectation: all packages should be installable
+
+\end{frame}
+
+\begin{frame}[fragile]{Co-installability}
+Definition: a set of packages are co-installable if they can be install
+together.
+
+Package incompatibilities  are to be expected.
+%
+How do we visualize them?
+
+See \url{http://coinst.irill.org/}
+\end{frame}
+
+\begin{frame}[fragile]{Co-installability graphs}
+\begin{alltt}
+coinst -root \EEE{iceweasel} -o graph.dot Packages_i386
+\end{alltt}
+\vspace{-2.5em}
+\begin{center}
+\includegraphics[width=\linewidth]{figures/iceweasel.pdf}
+\end{center}
+\vspace{-2em}
+\begin{alltt}
+coinst -root \EEE{kde-full} -o graph.dot Packages_i386
+\end{alltt}
+\vspace{-2.5em}
+\begin{center}
+\includegraphics[width=0.65\linewidth]{figures/kde-full.pdf}
+\end{center}
+\end{frame}
+
+\begin{frame}
+\begin{center}
+\includegraphics[width=\linewidth]{figures/flattened}
+\end{center}
+\end{frame}
+
+\begin{frame}{Co-installability: algorithm}
+\EEE{Key ideas}
+\begin{itemize}
+\item Transitive closures of package dependencies
+\item Remove dependencies that can always be satisfied
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+& Before & After \\
+\midrule
+Packages & 28919 & 1038 \\
+Dependencies & 124246 & 619 \\
+Conflicts & 1146 & 985 \\
+Median cone size & 38 & 1 \\
+Avg. cone size & 66 & 1.7 \\
+Max. cone size & 1134 & 15 \\
+\midrule
+Running time
+& & 10.6 seconds
+\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{frame}
+
+\begin{frame}{Distribution evolution}
+\url{http://coinst.irill.org/upgrades}
+
+find new issues
+
+present properly these issues (KDE example)
+
+\begin{center}
+\includegraphics{figures/libiodbc2}
+\end{center}
+
+\texttt{libiodbc2} is obsoletes
+
+\end{frame}
+
+\begin{frame}{Context}
+\begin{center}
+\includegraphics{figures/libiodbc2}
+\end{center}
+Depend on \texttt{libiodbc2} (about 380 package):
+kcolorchooser kdesdk-misc kdevelop-php-docs blinken kdevelop
+kmousetool ktorrent kalgebra konqueror klipper kchmviewer
+mplayerthumbs libsmokekutils3 kjots ksshaskpass cantor
+network-manager-kde kbattleship choqok kdesdk-dbg krusader-dbg
+libkdegames-dev kmidimon klettres quassel-kde4 libakonadi-ruby
+konq-plugins ktorrent-dbg kiriki plasma-widgets-workspace kvirc-dbg
+konversation-dbg libkiten-dev kdm-gdmcompat plasma-netbook
+libokular-ruby1.8 eqonomize kdenetwork-dbg libsmokeplasma3 kspread
+lokalize korganizer parley kfourinline libsmokekde-dev kfind
+kdepim-groupware ksnapshot libiodbc2-dev plasma-runners-addons
+libsmokekdeui4-3 printer-applet ark kdeutils kover rocs kdesvn-dbg
+kdevplatform-dev libkdepim4 ktron cantor-backend-sage kinfocenter
+kjumpingcube kaddressbook kmymoney akonadiconsole cantor-backend-r
+kmines kgoldrunner partitionmanager libsublime-dev korundum4
+kphotoalbum kplayer
+\ldots
+
+\end{frame}
+
+\part{Comigrate}
+\frame{\partpage}
+
+\begin{frame}{Applications}
+\begin{itemize}
+\item interactively investigate migration issues
+\item report of issues preventing package migration
+\end{itemize}
+\end{frame}
+
 \begin{frame}{Tool architecture}
 
 \begin{itemize}
@@ -288,14 +328,10 @@ libhdfeos5-ruby1.8 libgdal1-dev
 \end{frame}
 
 \begin{frame}{Performance}
-\includegraphics[height=\linewidth,angle=-90]{figures/performance.pdf}
-\end{frame}
 
-\begin{frame}{Applications}
-\begin{itemize}
-\item interactively investigate migration issues
-\item report of issues preventing package migration
-\end{itemize}
+XXX Context
+
+\includegraphics[height=\linewidth,angle=-90]{figures/performance.pdf}
 \end{frame}
 
 \begin{frame}{Ressources}
