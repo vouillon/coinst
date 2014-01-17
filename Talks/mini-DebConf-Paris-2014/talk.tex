@@ -30,10 +30,12 @@
 %%\usepackage{mathpartir}
 %\usepackage{algorithmic}
 %\usepackage{wasysym}
+\usepackage[absolute,overlay,showboxes]{textpos}
+\TPMargin{0.2em}
 
 %\input{macros}
 
-%\graphicspath{{pics/}{pics/logos/}} % Root directory of the pictures
+\graphicspath{{figures/}{logos/}} % Root directory of the pictures
 
 %\input{macros}
 
@@ -46,19 +48,23 @@
 
 \author[Di Cosmo/Dogguy/Vouillon]{Mehdi Dogguy, J\'er\^ome Vouillon and Roberto Di Cosmo}
 
-\date[2014-01-18]{January 18, 2014}
+\date[2014-01-18]{January 18, 2014\\ Mini-DebConf Paris}
 
 \begin{document}
 
 \begin{frame}[label=title]{}
  \titlepage
  \vspace{-1.5cm}
- \begin{center}
-%  \includegraphics[width=1cm]{p7} \hfill
+\iffalse
+\hfill
+  \includegraphics[width=1.5cm]{Logotype-IRILL} %\hfill
+\hspace{0.5cm}
+  \includegraphics[width=1cm]{cnrsfilaire_quadri} %\hfill
+%\hspace{0.5cm}
 %  \includegraphics[width=2.5cm]{inria-logo-new} \hfill
-%  \includegraphics[width=2.5cm]{Logotype-IRILL} \hfill
-%  \includegraphics[width=1.5cm]{cnrsfilaire_quadri} \hfill
- \end{center}
+\hspace{0.5cm}
+  \includegraphics[width=0.6cm]{p7}% \hfill
+\fi
 \end{frame}
 
 \begin{frame}{Introduction}
@@ -83,7 +89,7 @@ Tool designed to help package integration in Debian \textit{testing}.
 \begin{frame}{Package Migration}
 
 \begin{center}
-\includegraphics[width=0.7\linewidth]{figures/migration}
+\includegraphics[width=0.7\linewidth]{migration}
 \end{center}
 
 \vspace{-1em}
@@ -95,7 +101,7 @@ Tool designed to help package integration in Debian \textit{testing}.
 
 \end{frame}
 
-\begin{frame}{Conditions for migration}
+\begin{frame}{Conditions for Migration}
 \EEE{Simple constraints} % (Boolean constraints):
 \begin{itemize}
 \item old enough
@@ -113,7 +119,7 @@ Tool designed to help package integration in Debian \textit{testing}.
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Britney}
+\begin{frame}{Current Migration Tool: Britney}
 
 \EEE{Compute which packages can migrate}
 \begin{enumerate}
@@ -131,7 +137,8 @@ Tool designed to help package integration in Debian \textit{testing}.
 \EEE{Hint mechanism}
 \begin{itemize}
 \item override default behavior (block packages / force migration)
-\item indicate cluster of packages that can migrate together
+\item indicate cluster of packages that can migrate together \\
+\texttt{easy lxpanel/0.5.12-3 pcmanfm/1.1.2-1 libfm/1.1.2.2-1}
 \end{itemize}
 \end{frame}
 
@@ -176,7 +183,7 @@ skipped: apr-util (801 <- 513)
 
 \end{frame}
 
-\begin{frame}[fragile]{Transient incompatibilities}
+\begin{frame}[fragile]{Transient Incompatibilities}
 
 \begin{alltt}
 [2013-10-16] icedove 17.0.9-2 MIGRATED to testing
@@ -205,7 +212,7 @@ Breaks: grub-common (<< 1.99-27+deb7u2)
 
 \end{frame}
 
-\begin{frame}{Debian testing: conflict \texttt{libhfd5} -- \texttt{libhdf5-openmpi-7}}
+\begin{frame}{Debian Testing: Conflict \texttt{libhfd5} -- \texttt{libhdf5-openmpi-7}}
 
 \EEE{Depend on libhdf5-openmpi-7:} libmed1, libpetsc3.2, code-saturne
 libsiloh5-0, libslepc3.2, libxdmf2, syrthes, fenics, cdo[non i386]
@@ -235,21 +242,21 @@ problem.
 \begin{frame}
 \texttt{tesseract-ocr} incompatible with \texttt{tesseract-ocr-en}
 \begin{center}
-\includegraphics[width=0.8\linewidth]{figures/tesseract-ocr}
+\includegraphics[width=0.8\linewidth]{tesseract-ocr}
 \end{center}
 \end{frame}
 
 \begin{frame}
 \texttt{openclipart-libreoffice} incompatible with \texttt{libreoffice}
 \begin{center}
-\includegraphics[width=0.8\linewidth]{figures/openclipart-libreoffice}
+\includegraphics[width=0.8\linewidth]{openclipart-libreoffice}
 \end{center}
 \end{frame}
 
 \part{History of comigrate}
 \frame{\partpage}
 
-\begin{frame}{Global goal}
+\begin{frame}{Research Topic}
 
 \EEE{Analyze conflicts between packages}
 \begin{itemize}
@@ -261,41 +268,71 @@ problem.
 
 \end{frame}
 
-\begin{frame}{Package installability}
+\begin{frame}{Package Installability}
 
-List all packages which cannot be installed at all in a repository.
-\texttt{debcheck}
+\EEE{Tool \texttt{dose-distcheck}} (packaged in Debian, many
+improvements by Pietro Abate and others)
+\begin{itemize}
+\item List all packages that cannot be installed at all in a repository
+\item Provide short explanations
+\end{itemize}
 
-Now, package \texttt{dose-distcheck}
+\vspace{1em}
 
-Debian Weather (down?)
+\EEE{Applications}
+\begin{itemize}
+\item
+Debian Weather \hspace{3em}
 \url{http://edos.debian.net/weather/}
-
-\url{http://qa.debian.org/debcheck.php}
-
-Clear expectation: all packages should be installable
+\begin{center}
+\fbox{\includegraphics[width=0.7\linewidth]{weather}}
+\end{center}
+\item
+Debian autobuilder network \\
+(check whether the Build-Deps can be satisfied)
+\end{itemize}
 
 \end{frame}
 
-\begin{frame}[fragile]{Co-installability}
-\EEE{Definition:} a set of packages are co-installable if they can be install
-together.
+\begin{frame}[fragile]{Package Co-Installability}
+
+\EEE{Next step:} interaction between packages
+
+\hspace{1cm}\begin{minipage}{\dimexpr\textwidth-2.5cm}
+\vspace{0.3em}
+Example: is there any package which cannot be installed together with
+\texttt{iceweasel}? with \texttt{kde-full}?
+\end{minipage}
 
 \vspace{1.5em}
-Package incompatibilities are to be expected.
-%
-How do we visualize them?
 
-See \url{http://coinst.irill.org/}
+\EEE{Definition:} a set of packages are \emph{co-installable} if they
+can be installed together.
+
+\vspace{1.5em}
+
+\EEE{Compare:}
+\begin{itemize}
+\item packages \emph{should be} installable
+\item package incompatibilities \emph{are expected}
+\end{itemize}
+
+\vspace{1.5em}
+
+\EEE{Tool \texttt{coinst}} (packaged in Debian) :
+
+\hspace{1cm} Draw graph to visualize incompatibilities
+
+%See \url{http://coinst.irill.org/}
 \end{frame}
 
-\begin{frame}[fragile]{Co-installability graphs}
+\begin{frame}[fragile]{Co-Installability Graphs}
 \begin{alltt}
 coinst -root \EEE{iceweasel} -o graph.dot Packages_i386
 \end{alltt}
 \vspace{-2.5em}
 \begin{center}
-\includegraphics[width=\linewidth]{figures/iceweasel.pdf}
+\includegraphics[width=\linewidth]{iceweasel.pdf}
 \end{center}
 \vspace{-2em}
 \begin{alltt}
@@ -303,17 +340,25 @@ coinst -root \EEE{kde-full} -o graph.dot Packages_i386
 \end{alltt}
 \vspace{-2.5em}
 \begin{center}
-\includegraphics[width=0.65\linewidth]{figures/kde-full.pdf}
+\includegraphics[width=0.65\linewidth]{kde-full.pdf}
 \end{center}
 \end{frame}
 
 \begin{frame}
 \begin{center}
-\includegraphics[width=\linewidth]{figures/flattened}
+\includegraphics[width=\linewidth]{flattened}
 \end{center}
+\only<2->{
+\begin{textblock*}{51mm}(5mm,5mm)
+\textblockcolour{white}
+\textblockrulecolour{black}
+Interactive graph viewers on \\
+\url{http://coinst.irill.org/}
+\end{textblock*}
+}
 \end{frame}
 
-\begin{frame}{Co-installability: algorithm}
+\begin{frame}{Co-Installability: Algorithm}
 \EEE{Key ideas}
 \begin{itemize}
 \item Transitive closures of package dependencies
@@ -338,10 +383,11 @@ Running time
 \bottomrule
 \end{tabular}
 \end{center}
+Cone: a package and all the packages it depend on
 
 \end{frame}
 
-\begin{frame}{Finding new co-installability issues}
+\begin{frame}{Finding New Co-Installability Issues}
 \url{http://coinst.irill.org/upgrades}
 
 find new issues
@@ -358,34 +404,36 @@ XXX Need to give an intuition of what we compute
 
 Important present properly these issues (KDE example)
 
+The \emph{new} version of tdsodbc conflicts with \emph{any} version of
+libiodbc2
+
 \begin{center}
-\includegraphics{figures/libiodbc2}
+\includegraphics{libiodbc2}
 \end{center}
 
-\texttt{libiodbc2} is obsoletes
+Package \texttt{libiodbc2} has been unmaintained for years
+
+\emph{Should not be a big issue if it gets removed, right?}
 
 \end{frame}
 
-\begin{frame}{Context}
+\begin{frame}{Context is Crucial}
 \begin{center}
-\includegraphics{figures/libiodbc2}
+\includegraphics{libiodbc2}
 \end{center}
-Depend on \texttt{libiodbc2} (about 380 package):
-kcolorchooser kdesdk-misc kdevelop-php-docs blinken kdevelop
-kmousetool ktorrent kalgebra konqueror klipper kchmviewer
-mplayerthumbs libsmokekutils3 kjots ksshaskpass cantor
-network-manager-kde kbattleship choqok kdesdk-dbg krusader-dbg
-libkdegames-dev kmidimon klettres quassel-kde4 libakonadi-ruby
-konq-plugins ktorrent-dbg kiriki plasma-widgets-workspace kvirc-dbg
-konversation-dbg libkiten-dev kdm-gdmcompat plasma-netbook
-libokular-ruby1.8 eqonomize kdenetwork-dbg libsmokeplasma3 kspread
-lokalize korganizer parley kfourinline libsmokekde-dev kfind
-kdepim-groupware ksnapshot libiodbc2-dev plasma-runners-addons
-libsmokekdeui4-3 printer-applet ark kdeutils kover rocs kdesvn-dbg
-kdevplatform-dev libkdepim4 ktron cantor-backend-sage kinfocenter
-kjumpingcube kaddressbook kmymoney akonadiconsole cantor-backend-r
-kmines kgoldrunner partitionmanager libsublime-dev korundum4
-kphotoalbum kplayer
+\EEE{Depend on \texttt{libiodbc2} (about 380 package):}
+kcolorchooser, kdesdk-misc, kdevelop-php-docs, blinken, kdevelop,
+kmousetool, ktorrent, kalgebra, \ZZZ{konqueror}, klipper, kchmviewer,
+mplayerthumbs, libsmokekutils3, kjots, ksshaskpass, cantor,
+\ZZZ{network-manager-kde}, kbattleship, choqok, kdesdk-dbg, krusader-dbg,
+libkdegames-dev, kmidimon, klettres, quassel-kde4, libakonadi-ruby,
+konq-plugins, ktorrent-dbg, kiriki, plasma-widgets-workspace, kvirc-dbg,
+konversation-dbg, libkiten-dev, kdm-gdmcompat, plasma-netbook,
+libokular-ruby1.8, eqonomize, kdenetwork-dbg, libsmokeplasma3, kspread,
+lokalize, \ZZZ{korganizer}, parley, kfourinline, libsmokekde-dev, kfind,
+kdepim-groupware, ksnapshot, libiodbc2-dev, plasma-runners-addons,
+libsmokekdeui4-3, \ZZZ{printer-applet}, ark, kdeutils, kover, rocs, kdesvn-dbg,
+kdevplatform-dev, libkdepim4, ktron, cantor-backend-sage, kinfocenter,
 \ldots
 
 \end{frame}
@@ -393,18 +441,18 @@ kphotoalbum kplayer
 \part{Comigrate}
 \frame{\partpage}
 
-\begin{frame}{Applications}
+\begin{frame}{Comigrate: Applications}
 
 \begin{itemize}
-\item \EEE{Interactively investigate migration issues}
+\item \EEE{Supplement Britney}
 
-Run it repeatedly, studying different scenarios
+Generate hints that can be fed to Britney
 
 \vspace{0.5em}
 
-\item \EEE{Supplement Britney}
+\item \EEE{Interactively investigate migration issues}
 
-Generate hints that can be feed to Britney
+Run it repeatedly, studying different scenarios
 
 \vspace{0.5em}
 
@@ -415,11 +463,11 @@ Generate hints that can be feed to Britney
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Tool architecture}
+\begin{frame}{Tool Core: Computing Package Migration}
 
 \vspace{-1em}
 \begin{center}
-\includegraphics[width=0.5\linewidth]{figures/architecture}
+\includegraphics[width=0.5\linewidth]{architecture}
 \end{center}
 
 \vspace{-1em}
@@ -438,12 +486,17 @@ Generate hints that can be feed to Britney
 
 \begin{frame}{Performance}
 
-\includegraphics[height=\linewidth,angle=-90]{figures/performance.pdf}
+\includegraphics[height=\linewidth,angle=-90]{performance.pdf}
 
-\vspace{2em}
+\vspace{0.8em}
 
-\scriptsize
+%\scriptsize
 Data collected twice a day from 2013-06-24 to 2013-09-09
+
+\vspace{0.5em}
+
+\EEE{Missing datapoints:} Britney can take more than 24 hours (Perl
+transition)....
 \end{frame}
 
 
