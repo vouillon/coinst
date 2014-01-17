@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="384pt"
+   height="22pt"
+   viewBox="-4 -18 384 22"
+   id="svg5969"
+   version="1.1"
+   inkscape:version="0.48.4 r9939"
+   sodipodi:docname="python-uno.svg">
+  <metadata
+     id="metadata5999">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <defs
+     id="defs5997" />
+  <sodipodi:namedview
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1"
+     objecttolerance="10"
+     gridtolerance="10"
+     guidetolerance="10"
+     inkscape:pageopacity="0"
+     inkscape:pageshadow="2"
+     inkscape:window-width="1375"
+     inkscape:window-height="920"
+     id="namedview5995"
+     showgrid="false"
+     inkscape:zoom="2.43"
+     inkscape:cx="-35.788236"
+     inkscape:cy="-11.09472"
+     inkscape:window-x="352"
+     inkscape:window-y="154"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg5969" />
+  <ellipse
+     cx="31"
+     cy="-7"
+     rx="31"
+     ry="6.99984"
+     fill="#ebc885"
+     stroke="#000000"
+     id="ellipse5971" />
+  <text
+     x="31"
+     y="-4.6954732"
+     font-size="8"
+     style="font-size:8px;text-anchor:middle;fill:#000000;stroke:none;font-family:serif"
+     id="text5973">unoconv</text>
+  <ellipse
+     cx="99"
+     cy="-7"
+     rx="0"
+     ry="0.500004"
+     fill="none"
+     stroke="#000000"
+     id="ellipse5975" />
+  <text
+     x="99"
+     y="-7"
+     font-family="serif"
+     font-size="8"
+     style="dominant-baseline:central"
+     text-anchor="middle"
+     fill="#000000"
+     stroke="none"
+     id="text5977" />
+  <ellipse
+     cx="179"
+     cy="-7"
+     rx="42.9984"
+     ry="6.99984"
+     fill="none"
+     stroke="#000000"
+     id="ellipse5979" />
+  <text
+     x="178.34157"
+     y="-4.6954732"
+     font-size="8"
+     style="font-size:8px;text-anchor:middle;fill:#000000;stroke:none;font-family:serif"
+     id="text5981">python3-uno</text>
+  <ellipse
+     cx="336"
+     cy="-7"
+     rx="38.9988"
+     ry="6.99984"
+     fill="#ebc885"
+     stroke="#000000"
+     id="ellipse5983" />
+  <text
+     x="336.98764"
+     y="-4.6954732"
+     font-size="8"
+     style="font-size:8px;text-anchor:middle;fill:#000000;stroke:none;font-family:serif"
+     id="text5985">python-uno</text>
+  <path
+     d="M62.214,-7C77.855,-7 94.289,-7 98.153,-7"
+     fill="none"
+     stroke="#0000ff"
+     stroke-dasharray="5,2"
+     id="path5987" />
+  <polygon
+     points="125.45,-7 125.45,-10.5 135.45,-6.9999 125.45,-3.5"
+     fill="#0000ff"
+     stroke="#0000ff"
+     id="polygon5989" />
+  <path
+     d="M99.511,-7C101.93,-7 112.64,-7 125.45,-7"
+     fill="none"
+     stroke="#0000ff"
+     id="path5991" />
+  <path
+     d="M222.32,-7C245.46,-7 273.75,-7 296.32,-7"
+     fill="none"
+     stroke="#ff0000"
+     id="path5993" />
+</svg>

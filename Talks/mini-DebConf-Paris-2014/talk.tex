@@ -387,31 +387,64 @@ Cone: a package and all the packages it depend on
 
 \end{frame}
 
-\begin{frame}{Finding New Co-Installability Issues}
-\url{http://coinst.irill.org/upgrades}
+\begin{frame}{New Co-Installability Issues}
 
-find new issues
+\EEE{Compare two versions of a repository}
+\begin{itemize}
+\item New issues are more likely to be bugs
+\item Can report precisely what changes caused an issue
+\end{itemize}
 
-\begin{description}
-\item[For the Debian maintainers:]
-are there any dependency-related bugs introduced recently? since the
-last stable release?
-\item[For the end-user:] will I have any issue upgrading my system?
-\end{description}
+\vspace{1em}
 
-XXX Need to give an intuition of what we compute
-(graph with quadratic number of conflicts?)
-
-Important present properly these issues (KDE example)
-
-The \emph{new} version of tdsodbc conflicts with \emph{any} version of
-libiodbc2
-
+\EEE{Example}
+\vspace{-2em}
 \begin{center}
-\includegraphics{libiodbc2}
+\includegraphics[width=0.4\linewidth]{upgrades}
+
+\vspace{1em}
+\begin{minipage}{\dimexpr\textwidth-2.5cm}
+\emph{Many} new issues between packages \texttt{p} and \texttt{q} due to a
+\emph{single} new conflict between packages \texttt{a} and \texttt{b}.
+\end{minipage}
+\end{center}
+\end{frame}
+
+\begin{frame}{Finding New Co-Installability Issues}
+
+\EEE{Tool \texttt{coinst-upgrades}}
+\hspace{1cm}
+\url{http://coinst.irill.org/upgrades}
+\begin{itemize}
+\item graphs illustrating each new issue
+\item context: other packages involved, package popularity (popcon)
+\end{itemize}
+
+\vspace{2em}
+
+%\begin{description}
+%\item[For the Debian maintainers:]
+%are there any dependency-related bugs introduced recently? since the
+%last stable release?
+%\item[For the end-users:] will I have any issue upgrading my system?
+%\end{description}
+
+
+The \emph{new} version of \texttt{unoconv} depends on \emph{any}
+version of \texttt{python3-uno}
+\begin{center}
+\includegraphics[scale=0.8]{python-uno}
 \end{center}
 
-Package \texttt{libiodbc2} has been unmaintained for years
+The \emph{new} version of \texttt{tdsodbc} conflicts with \emph{any}
+version of \texttt{libiodbc2}
+\begin{center}
+\includegraphics[scale=0.8]{libiodbc2}
+\end{center}
+
+\pause
+
+Package \texttt{libiodbc2} had been unmaintained for years
 
 \emph{Should not be a big issue if it gets removed, right?}
 
