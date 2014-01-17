@@ -31,7 +31,9 @@ let britney_files =
    ("unstable_BugsV", `Unstable, "BugsV")]
 
 let sects = ["main"; "contrib"; "non-free"]
-let ext = "bz2"
+
+let ext = "gz"
+let decompress_tool = "zcat"
 
 (****)
 
@@ -99,7 +101,7 @@ let uncompress cache_dir target_dir suite arch_tmp arch_dst =
   if should_update then begin
     make_directories dst;
     let tmp = dst ^ ".tmp" in
-    let cmd = "bzcat " ^ String.concat " " srcs ^ " > " ^ tmp in
+    let cmd = decompress_tool ^ " " ^ String.concat " " srcs ^ " > " ^ tmp in
     Format.eprintf "> %s@." cmd;
     ignore (Sys.command cmd);
     ignore (Sys.rename tmp dst)
