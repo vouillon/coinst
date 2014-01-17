@@ -1,3 +1,13 @@
+===== 1.9.1 (2014-01-17) =====
+
+* Comigrate and coinst-upgrades can now be used to compute a detailed
+  report of the package migration status (coinst.irill.org/report)
+* Coinst now outputs all minimal non co-installable set of packages
+* Added a JSON output to Coinst
+* Adapted 'comigrate --update' to repository changes
+* Compiles with OCaml 4.01
+* Many other small bugs fixed
+
 ===== 1.9 (2013-10-21) =====
 
 * Addition of two new tools: coinst-upgrades and comigrate
