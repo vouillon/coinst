@@ -107,6 +107,7 @@ Tool designed to help package integration in Debian \textit{testing}.
 \item old enough
 \item no new critical bug
 \item simultaneous migration of source and binary packages
+\item not broken on some architectures
 \item ...
 \end{itemize}
 
@@ -156,6 +157,7 @@ Heuristic-based
 \item OCaml transition:
 200 source packages involved (hint with about 1300 elements)
 \item KDE transition: 150 source packages
+\item Haskell transition: more than 500 source packages
 \end{itemize}
 %An issue in any of these packages will prevent the migration of all of them!
 Limited help provided by Britney to find issues.
@@ -532,6 +534,41 @@ Data collected twice a day from 2013-06-24 to 2013-09-09
 transition)....
 \end{frame}
 
+\begin{frame}{Usage}
+
+  \begin{itemize}
+  \item Install \texttt{comigrate} (at least 1.9.1)\\
+    \texttt{\$ apt-get install -t unstable coinst}
+
+  \vfill
+
+  \item Build an initial local cache\\
+\texttt{\$ comigrate -c britney.conf --update}\\
+{\scriptsize
+\texttt{Fetching~http://ftp.debian.org/debian/dists/unstable/main/source/Sources.gz...}\\
+\texttt{Fetching~http://ftp.debian.org/debian/dists/testing/main/source/Sources.gz...}\\
+\texttt{...}
+}
+
+  \vfill
+
+  \item Find migration issues for your packages\\
+\texttt{\$ comigrate -c britney2.conf --migrate alice}\\
+{\scriptsize
+\texttt{Successful:}\\
+\texttt{\# source package libanyevent-dbi-perl/2.2-1: fix bugs \#711418}\\
+\texttt{easy alice/0.19-1 libanyevent-dbi-perl/2.2-1}
+}
+
+  \iffalse
+  \vfill
+
+  \item More complex example:\\
+  \texttt{\$ comigrate -c britney2.conf --migrate haskell-x509}
+  \fi
+
+  \end{itemize}
+\end{frame}
 
 \begin{frame}{Ressources}
 
