@@ -237,7 +237,7 @@ object (self)
     end;
     begin match id with
       None    -> ()
-    | Some id -> output_string ch (" id='" ^ id ^ "'>")
+    | Some id -> output_string ch (" id='" ^ id ^ "'")
     end;
     output_string ch ">";
     in_p <- true
