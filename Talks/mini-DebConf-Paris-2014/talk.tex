@@ -46,7 +46,7 @@
 {Comigrate: \\ improving package migration \\
  from \texttt{unstable} to \texttt{testing}}
 
-\author[Di Cosmo/Dogguy/Vouillon]{Mehdi Dogguy, J\'er\^ome Vouillon and Roberto Di Cosmo}
+\author[Di Cosmo/Dogguy/Vouillon]{Mehdi Dogguy, \emph{J\'er\^ome Vouillon} and Roberto Di Cosmo}
 
 \date[2014-01-18]{January 18, 2014\\ Mini-DebConf Paris}
 
@@ -83,7 +83,7 @@ Tool designed to help package integration in Debian \textit{testing}.
 \end{itemize}
 \end{frame}
 
-\part{Package migration}
+\part{Package integration}
 \frame{\partpage}
 
 \begin{frame}{Package Migration}
@@ -214,14 +214,14 @@ Breaks: grub-common (<< 1.99-27+deb7u2)
 
 \end{frame}
 
-\begin{frame}{Debian Testing: Conflict \texttt{libhfd5} -- \texttt{libhdf5-openmpi-7}}
+\begin{frame}{Debian Stable: Conflict \texttt{libhfd5} -- \texttt{libhdf5-openmpi-7}}
 
-\EEE{Depend on libhdf5-openmpi-7:} libmed1, libpetsc3.2, code-saturne
+\EEE{Depend on libhdf5-openmpi-7:} libmed1, libpetsc3.2, code-saturne,
 libsiloh5-0, libslepc3.2, libxdmf2, syrthes, fenics, cdo[non i386]
 
 \vspace{0.5em}
 
-\EEE{Depend on libhdf5-7:} libmapnik-dev, libhe5-hdfeos-dev
+\EEE{Depend on libhdf5-7:} libmapnik-dev, libhe5-hdfeos-dev,
 grass-dev, liblas-dev, libgdal-dev, libqgis-dev
 
 \vspace{2em}
@@ -323,7 +323,7 @@ can be installed together.
 
 \EEE{Tool \texttt{coinst}} (packaged in Debian) :
 
-\hspace{1cm} Draw graph to visualize incompatibilities
+\hspace{1cm} Draw graphs to visualize incompatibilities
 
 %See \url{http://coinst.irill.org/}
 \end{frame}
@@ -419,7 +419,7 @@ Cone: a package and all the packages it depend on
 \url{http://coinst.irill.org/upgrades}
 \begin{itemize}
 \item graphs illustrating each new issue
-\item context: other packages involved, package popularity (popcon)
+\item context: other packages involved, package popularities (popcon)
 \end{itemize}
 
 \vspace{2em}
@@ -456,7 +456,7 @@ Package \texttt{libiodbc2} had been unmaintained for years
 \begin{center}
 \includegraphics{libiodbc2}
 \end{center}
-\EEE{Depend on \texttt{libiodbc2} (about 380 package):}
+\EEE{Depend on \texttt{libiodbc2} (about 380 packages):}
 kcolorchooser, kdesdk-misc, kdevelop-php-docs, blinken, kdevelop,
 kmousetool, ktorrent, kalgebra, \ZZZ{konqueror}, klipper, kchmviewer,
 mplayerthumbs, libsmokekutils3, kjots, ksshaskpass, cantor,
@@ -498,7 +498,7 @@ Run it repeatedly, studying different scenarios
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Tool Core: Computing Package Migration}
+\begin{frame}{Tool Core: Computing Package Migrations}
 
 \vspace{-1em}
 \begin{center}
