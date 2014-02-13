@@ -1653,12 +1653,14 @@ let arch_constraints
        (* Faux packages *)
        if not (M.has_source t nm) then begin
          (* The source should be fake in unstable as well. *)
+(*XXXX FIX
          assert
            (not (M.has_source u nm) || M.PkgTbl.mem is_fake nm);
+*)
          M.add_source t
            { M.s_name = nm; s_version = v; s_section = "";
              s_binary = []; s_extra_source = false };
-         if not (M.PkgTbl.mem is_fake nm) then begin
+         if not (M.PkgTbl.mem is_fake nm || M.has_source u nm) then begin
            fake_srcs := (nm, v) :: !fake_srcs;
            M.PkgTbl.add is_fake nm ();
            M.PkgDenseTbl.add st.id_of_source nm !last_id;
@@ -1723,7 +1725,7 @@ let arch_constraints
   List.iter
     (fun (nm, _) ->
        M.remove_source t nm;
-       M.remove_source u nm;
+       if M.has_source u nm then M.remove_source u nm;
        M.PkgDenseTbl.remove st.id_of_source nm)
     !fake_srcs;
   (List.rev !l, st.uid, !sources_with_binaries, !fake_srcs, bin_id_count,
@@ -3709,8 +3711,8 @@ then begin
   heidi_file := get_option "HEIDI_OUTPUT" !heidi_file;
   if !heidi_file = "" && not (debug_hints () || debug_outcome ()) then
     Format.eprintf "Warning: no output option has been provided.@.";
-  if !heidi_file <> "" then Util.make_directories !heidi_file
 end;
+if !heidi_file <> "" then Util.make_directories !heidi_file;
 if !update_data then begin
   Update_data.f
     (testing ()) (unstable ()) !archs
