@@ -30,7 +30,7 @@ let break =
    "libboost-timer1.49-dev"; "libboost-wave1.49-dev"; "libboost1.49-all-dev";
    "libboost-mpi-python1.49.0";  "libboost-mpi-python1.49-dev";
    "libboost1.49-all-dev"; "libboost1.49-doc";
-   "libboost1.53-dev"; "libboost-chrono1.53-dev";
+   "libboost1.53-dev"; "libboost-chrono1.53-dev"; "libboost-atomic1.53-dev";
    "libboost-date-time1.53-dev"; "libboost-serialization1.53-dev";
    "libboost-exception1.53-dev"; "libboost-filesystem1.53-dev";
    "libboost-system1.53-dev"; "libboost-graph-parallel1.53-dev";
@@ -104,14 +104,14 @@ let recent_issues date output =
   let old = temp date in
   cmd "curl -f -o %s \
     http://snapshot.debian.org/archive/debian/%s/\
-    dists/testing/main/binary-i386/Packages.bz2" old date;
+    dists/testing/main/binary-i386/Packages.gz" old date;
   cmd "../coinst-upgrades %s %s/Packages_i386 -o %s/%s --popcon %s %s"
     old testing dir output popcon break_args
 
 let compare_to_stable output =
   let old = temp "stable" in
   cmd "curl -f -o %s \
-    ftp://ftp.fr.debian.org/debian/dists/stable/main/binary-i386/Packages.bz2"
+    ftp://ftp.fr.debian.org/debian/dists/stable/main/binary-i386/Packages.gz"
     old;
   cmd "../coinst-upgrades %s %s/Packages_i386 -o %s/%s --popcon %s %s"
     old testing dir output popcon break_args
