@@ -1529,9 +1529,16 @@ let arch_constraints
        with Not_found ->
          ());
   List.iter (fun p -> M.remove_package u' p) !removed_pkgs;
+  (* We have forked before the sources are removed on the master;
+     so we have to remove them as well here. *)
   ignore (remove_sources false remove_hints t u);
 
   let fake_srcs = ref [] in
+               (* Source packages missing in testing (with name) *)
+  let added_srcs = ref [] in
+               (* Source packages temporarily added in testing or sid *)
+  let extra_srcs = ref [] in
+               (* Source packages missing in both testing and sid *)
   let is_fake = M.PkgTbl.create 17 in
   let sources_with_binaries = ref [] in
   let source_has_binaries = M.PkgTbl.create 8192 in
@@ -1571,16 +1578,19 @@ let arch_constraints
     (fun p ->
        let id = bin_id p in
        let (nm, v) = p.M.source in
-       (* Faux packages *)
+       (* Package without source *)
        if not (M.has_source u nm) then begin
          M.add_source u
            { M.s_name = nm; s_version = v; s_section = "";
              s_binary = []; s_extra_source = false };
+         added_srcs := (u, nm) :: !added_srcs;
          if not (M.has_source t nm) then begin
-           fake_srcs := (nm, v) :: !fake_srcs;
+           extra_srcs := M.name_of_id nm :: !extra_srcs;
            M.PkgTbl.add is_fake nm ();
-           M.PkgDenseTbl.add st.id_of_source nm !last_id;
-           incr last_id
+           if not (M.PkgDenseTbl.mem st.id_of_source nm) then begin
+             M.PkgDenseTbl.add st.id_of_source nm !last_id;
+             incr last_id
+           end
          end;
          assume (source_id p) Unchanged
        end;
@@ -1652,21 +1662,18 @@ let arch_constraints
        let (nm, v) = p.M.source in
        (* Faux packages *)
        if not (M.has_source t nm) then begin
-         (* The source should be fake in unstable as well. *)
-(*XXXX FIX
-         assert
-           (not (M.has_source u nm) || M.PkgTbl.mem is_fake nm);
-*)
          M.add_source t
            { M.s_name = nm; s_version = v; s_section = "";
              s_binary = []; s_extra_source = false };
-         if not (M.PkgTbl.mem is_fake nm || M.has_source u nm) then begin
-           fake_srcs := (nm, v) :: !fake_srcs;
-           M.PkgTbl.add is_fake nm ();
+         added_srcs := (t, nm) :: !added_srcs;
+         fake_srcs := (M.name_of_id nm, v) :: !fake_srcs;
+         M.PkgTbl.replace is_fake nm ();
+         if not (M.PkgDenseTbl.mem st.id_of_source nm) then begin
+           extra_srcs := M.name_of_id nm :: !extra_srcs;
            M.PkgDenseTbl.add st.id_of_source nm !last_id;
            incr last_id;
-           assume (source_id p) Unchanged
          end;
+         assume (source_id p) Unchanged
        end;
        let v' = (M.find_source_by_name t nm).M.s_version in
        let source_changed =
@@ -1721,15 +1728,15 @@ let arch_constraints
      atomically on any given architecture. *)
   ListTbl.iter
     (fun _ pkgs -> all_or_none pkgs Atomic) bin_nmus;
-  (* Clear faked packages (needed when using a single processor). *)
+  (* Clear temporarily added packages (needed when using a
+     single processor). *)
+  List.iter (fun (d, nm) -> M.remove_source d nm) !added_srcs;
+  (* Also leaves id_of_source unchanged. *)
   List.iter
-    (fun (nm, _) ->
-       M.remove_source t nm;
-       if M.has_source u nm then M.remove_source u nm;
-       M.PkgDenseTbl.remove st.id_of_source nm)
-    !fake_srcs;
-  (List.rev !l, st.uid, !sources_with_binaries, !fake_srcs, bin_id_count,
-   Array.map M.name_of_id st.bin_of_id)
+    (fun nm -> M.PkgDenseTbl.remove st.id_of_source (M.id_of_name nm))
+    !extra_srcs;
+  (List.rev !l, st.uid, !sources_with_binaries, List.rev !extra_srcs,
+   !fake_srcs, bin_id_count, Array.map M.name_of_id st.bin_of_id)
 
 let arch_constraints = Task.funct arch_constraints
 
@@ -1945,7 +1952,7 @@ let initial_constraints
        end)
     removed_srcs;
   let source_has_binaries = M.PkgTbl.create 8192 in
-  let is_fake = M.PkgTbl.create 17 in
+  let is_extra = M.PkgTbl.create 17 in
   let first_bin_id = Array.length source_of_id in
   let id_offset = ref 0 in
   let id_offsets = StringTbl.create 17 in
@@ -1958,7 +1965,7 @@ let initial_constraints
     List.map
       (fun (arch, r) ->
          let (constraints, uid, sources_with_binaries,
-              fake_srcs, bin_id_count, bin_of_id) =
+              extra_srcs, fake_srcs, bin_id_count, bin_of_id) =
            Task.wait r in
 (*XXXXX Use ids? *)
          List.iter
@@ -1982,29 +1989,35 @@ let initial_constraints
            (arch, first_bin_id + !id_offset, bin_id_count, bin_of_id) ::
            !name_of_id;
          let cur_id = ref last_bin_id in
-         let fake_lst = ref [] in
+         let extra_lst = ref [] in
          List.iter
-           (fun (nm, v) ->
-              if not (M.PkgTbl.mem is_fake nm) then begin
-                fake_lst := nm :: !fake_lst;
-                M.PkgTbl.add is_fake nm !last_id;
+           (fun nm ->
+              let nm = M.add_name nm in
+              if not (M.PkgTbl.mem is_extra nm) then begin
+                extra_lst := nm :: !extra_lst;
+                M.PkgTbl.add is_extra nm !last_id;
                 M.PkgDenseTbl.add id_of_source nm !last_id;
                 incr last_id;
-                M.add_source t
-                  { M.s_name = nm; s_version = v; s_section = "";
-                    s_binary = []; s_extra_source = false };
               end;
-              IntTbl.add id_of_fake !cur_id (M.PkgTbl.find is_fake nm);
+              IntTbl.add id_of_fake !cur_id (M.PkgTbl.find is_extra nm);
               incr cur_id)
-           fake_srcs;
-         if !fake_lst <> [] then begin
+           extra_srcs;
+         if !extra_lst <> [] then begin
            let start = last_bin_id + !id_offset in
            let tbl =
-             Array.map M.name_of_id (Array.of_list (List.rev !fake_lst)) in
+             Array.map M.name_of_id (Array.of_list (List.rev !extra_lst)) in
            assert (Array.length tbl = !last_id - start);
            name_of_id :=
              ("source", start, !last_id - start, tbl) :: !name_of_id
          end;
+         List.iter
+           (fun (nm, v) ->
+              let nm = M.id_of_name nm in
+              if not (M.has_source t nm) then
+                M.add_source t
+                  { M.s_name = nm; s_version = v; s_section = "faux";
+                    s_binary = []; s_extra_source = false })
+           fake_srcs;
          HornSolver.extend solver !last_id;
          List.iter
            (fun c ->
@@ -2047,7 +2060,7 @@ let initial_constraints
   if debug_time () then
     Format.eprintf "Initial constraints: %f@." (Timer.stop init_t);
 
-  (uids, solver, deferred_constraints (), is_fake, id_offsets, get_name_arch)
+  (uids, solver, deferred_constraints (), id_offsets, get_name_arch)
 
 (**** Dealing with arch:all packages ****)
 
@@ -2627,7 +2640,7 @@ let heidi_arch st unchanged =
 
 let heidi_arch = Task.funct heidi_arch
 
-let print_heidi solver id_of_source id_offsets fake_src l t u =
+let print_heidi solver id_of_source id_offsets l t u =
   let ch = if !heidi_file = "-" then stdout else open_out !heidi_file in
   let heidi_t = Timer.start () in
   let source_has_binaries = M.PkgTbl.create 8192 in
@@ -2647,10 +2660,7 @@ let print_heidi solver id_of_source id_offsets fake_src l t u =
   let is_unchanged src =
     BitVect.test unchanged (M.PkgDenseTbl.find id_of_source src) in
   let source_sect nm s =
-    if M.PkgTbl.mem fake_src nm then "faux"
-    else if s.M.s_section = "" then "unknown"
-    else s.M.s_section
-  in
+    if s.M.s_section = "" then "unknown" else s.M.s_section in
   let lines = ref [] in
   M.iter_sources
     (fun s ->
@@ -3532,7 +3542,7 @@ let f () =
       ()
   end;
 
-  let (uids, solver, deferred_constraints, is_fake, id_offsets, get_name_arch) =
+  let (uids, solver, deferred_constraints, id_offsets, get_name_arch) =
     initial_constraints info in
 
   if !equivocal then
@@ -3564,7 +3574,7 @@ let f () =
         generate_hints solver id_of_source id_offsets t u l [] None None;
 
       if !heidi_file <> "" then
-        print_heidi solver id_of_source id_offsets is_fake l t u;
+        print_heidi solver id_of_source id_offsets l t u;
 
       if !excuse_file <> "" then
         output_reasons l dates urgencies hints
