@@ -749,18 +749,24 @@ let compute_ages dates urgencies hints nm uv tv =
           raise Not_found;
         d
       with Not_found ->
+        let l =
+          List.filter
+            (fun (v', d) ->
+               (match tv with
+                  Some v -> M.compare_version v v' < 0
+                | None   -> true)
+                    &&
+               M.compare_version v' uv <= 0)
+            (M.PkgTbl.find_all urgencies nm)
+        in
+        let u =
+          match l with
+            []            -> default_urgency
+          | (_, u) :: rem -> List.fold_left (fun u (_, u') -> min u u') u rem
+        in
         match tv with
-          None ->
-            default_urgency
-        | Some v ->
-            let l =
-              List.filter
-                (fun (v', d) ->
-                   M.compare_version v v' < 0 &&
-                   M.compare_version v' uv <= 0)
-                (M.PkgTbl.find_all urgencies nm)
-            in
-            List.fold_left (fun u (_, u') -> min u u') default_urgency l
+          None   -> max u default_urgency
+        | Some _ -> u
   in
   (now + !offset - d, u)
 

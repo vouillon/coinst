@@ -48,3 +48,27 @@
 
 ====
 - what can we say about updates: desemphasize edges that are unchanged
+
+=================================
+
+Britney updates
+===============
+
+-   Write "HeidiResultDelta" file containing the changes of the run
+    
+    Based on Colin Watson's code to do the same from the "britney2-ubuntu"
+    repository[1] revision 306, 308 and 309.
+    
+    Notable differences include:
+     * output include version of source package being removed
+     * output prefix removals with a "-" (otherwise it would be identical to
+       a upgrade/new source with the change above).
+    
+    [1] http://bazaar.launchpad.net/~ubuntu-release/britney/britney2-ubuntu/revision/306
+
+-   Support :any architecture qualifiers for multiarch
+    
+    Multiarch adds a Depends: foo:any syntax, permitted only if the
+    target of the dependency is "Multi-Arch: allowed".  This has
+    been supported by dpkg and apt for some time and is now safe to
+    use in unstable.

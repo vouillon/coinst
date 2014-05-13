@@ -1,9 +1,6 @@
 Comigrate
 =========
 
-* "arch: all" packages are not properly handled: we should allow them
-  to become broken on all architectures but i386.
-
 * on "break" architectures, we need to remove binary packages without
   corresponding source packages from the Heidi output
   (or do we have the right semantics for these architectures?)
@@ -17,6 +14,3 @@ Comigrate
   Fatal error: exception Assert_failure("transition.ml", 2517, 2)
   Called from file "transition.ml", line 2538, characters 4-70
   Called from file "transition.ml", line 2706, characters 2-6
-
-* Les problèmes empéchant la migration de bibliothéques sujet à
-  smooth-upgrade n'apparaissent pas dans les excuses...
