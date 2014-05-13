@@ -55,7 +55,7 @@ let ignored_set_domain l =
     (fun s (l, ext) ->
        List.fold_left
          (fun s s' ->
-            StringSet.fold (fun nm s -> M.PkgSet.add (M.id_of_name nm) s) s' s)
+            StringSet.fold (fun nm s -> M.PkgSet.add (M.add_name nm) s) s' s)
          s l)
     M.PkgSet.empty !l
 
