@@ -104,7 +104,7 @@ let urgency_delay u =
   | "emergency" -> 0
   | _           -> assert false
 
-let default_urgency = urgency_delay "low"
+let default_urgency = urgency_delay "medium"
 
 let update_data = ref false
 let hint_file = ref ""
