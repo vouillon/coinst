@@ -2784,8 +2784,14 @@ let analyze_migration
                  let vers =
                    (M.find_source_by_name u (M.id_of_name nm)).M.s_version
                  in
-                 Format.bprintf b "# source package %s/%a: fix bugs %a"
-                   nm M.print_version vers print_bugs (StringSet.elements s)
+                 Format.bprintf b "# source package %s/%a: fix "
+                   nm M.print_version vers;
+                 if StringSet.cardinal s = 1 then
+                   Format.bprintf b "bug %a"
+                     print_bugs (StringSet.elements s)
+                 else
+                   Format.bprintf b "bugs %a"
+                     print_bugs (StringSet.elements s)
                end else begin
                  let s =
                    try
