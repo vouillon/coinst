@@ -29,6 +29,7 @@ let roots = ref []
 let stats = ref false
 let graph = ref "graph.dot"
 let conflict_file = ref None
+let conflict_pairs_only = ref false
 
 type output_type = Graph | Json
 let output_type = ref Graph
@@ -1201,22 +1202,32 @@ print_problem quotient fd2 confl;
        PMap.empty !cl
   in
 
-  Util.title "LARGER NON-INSTALLABLE SETS";
-  let sets = enumerate_non_coinstallable_sets quotient fd2 confl st in
-  PSetSet.iter
-    (fun s ->
-       if PSet.cardinal s > 2 then begin
-         let first = ref true in
-         PSet.iter
-           (fun p ->
-              if not !first then Format.printf " ";
-              Format.printf "%a" (Package.print_name dist) p;
-              first := false)
-           s;
-         Format.printf "@."
-       end)
-    sets;
-  assert (PSetSet.subset !non_coinstallable_pairs sets);
+  let sets = 
+    if !conflict_pairs_only then
+      !non_coinstallable_pairs
+    else
+      enumerate_non_coinstallable_sets quotient fd2 confl st
+  in
+
+  if not !conflict_pairs_only then
+    begin
+      Util.title "LARGER NON-INSTALLABLE SETS";
+      PSetSet.iter
+        (fun s ->
+          if PSet.cardinal s > 2 then begin
+            let first = ref true in
+            PSet.iter
+              (fun p ->
+                if not !first then Format.printf " ";
+                Format.printf "%a" (Package.print_name dist) p;
+                first := false)
+              s;
+            Format.printf "@."
+          end)
+        sets;
+      assert (PSetSet.subset !non_coinstallable_pairs sets)
+    end;
+
 
 (******************
   let (deps, confl) = coinstallability_kernel quotient deps confl in
@@ -1367,6 +1378,9 @@ Arg.parse
    "-conflicts",
    Arg.String (fun f -> conflict_file := Some f),
    "FILE  Output all minimal non co-installable set of packages to FILE";
+   "-conflict-pairs-only",
+   Arg.Unit (fun () -> conflict_pairs_only := true),
+   "  Do not try to enumerate all minimal conflict sets: compute only conflict pairs.";
    
 (*
    "-debug",
