@@ -355,8 +355,8 @@ let analyze st conflict =
     end;
     reasons := !r.reasons @ !reasons;
 
-    for i = 0 to Array.length !r.lits - 1 do
-      let p = !r.lits.(i) in
+    for i = 0 to Array.length !r.all_lits - 1 do
+      let p = !r.all_lits.(i) in
       let x = var_of_lit p in
       if  st.st_seen_var.(x) <> st.st_seen then begin
         assert (val_of_lit st p = False);
