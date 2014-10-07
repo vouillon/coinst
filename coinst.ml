@@ -1201,6 +1201,7 @@ print_problem quotient fd2 confl;
        (fun m (c, (p, _)) -> PMap.add p (max 1. (float c /. 4.)) m)
        PMap.empty !cl
   in
+  Format.printf "@.";
 
   let sets = 
     if !conflict_pairs_only then
