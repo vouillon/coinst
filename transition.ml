@@ -3686,6 +3686,9 @@ let spec =
    "--popcon",
    Arg.String (fun s -> popcon_file := s),
    "FILE Use popcon data from FILE";
+   "--source",
+   Arg.String (fun s -> Update_data.src := s),
+   "URL Uses URL as a source for package information";
    "--control-files",
    Arg.Unit (fun () -> ()),
    " Currently ignored";

@@ -231,15 +231,22 @@ migration of a given package.
 .TP
 .B \-\^\-svg
 Include conflict graphs (in SVG format) in excuse output. This option
-only make sense together with the
+only makes sense together with the
 .B \-\^\-excuses
 option.
 
 .TP
 .BI \-\^\-popcon " file"
-Use popcon data from this file. This option only make sense together
+Use popcon data from this file. This option only makes sense together
 with the
 .B \-\^\-explain
+option.
+
+.TP
+.BI \-\^\-source " url"
+Download package information from the given url. This option only
+makes sense together with the
+.B \-\^\-update
 option.
 
 .SS Miscellaneous Options

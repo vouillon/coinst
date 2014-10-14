@@ -21,7 +21,8 @@
 - incremental update using Packages.diff?
 *)
 
-let src = "http://ftp.debian.org/debian/dists/"
+(*let src = "http://ftp.debian.org/debian/dists/"*)
+let src = ref "http://http.debian.net/debian/dists/"
 let hint_src = "https://release.debian.org/britney/hints/"
 let britney_src = "https://release.debian.org/britney/data-b2/"
 let britney_files =
@@ -108,18 +109,19 @@ let uncompress cache_dir target_dir suite arch_tmp arch_dst =
   end
 
 let update_suite suite archs target_dir =
+  if !src = "" || !src.[String.length !src - 1] <> '/' then src := !src ^ "/";
   let cache_dir = Filename.concat target_dir ".coinst_cache" in
   List.iter
     (fun (arch_tmp, arch_dst) ->
        List.iter
          (fun sect ->
             let file1 = Format.sprintf "%s/%s" sect arch_tmp in
-            let url = Format.sprintf "%s%s/%s" src suite file1 in
+            let url = Format.sprintf "%s%s/%s" !src suite file1 in
             let dst = Filename.concat cache_dir file1 in
             download dst url;
             let file2 =
               Format.sprintf "%s/debian-installer/%s" sect arch_tmp in
-            let url = Format.sprintf "%s%s/%s" src suite file2 in
+            let url = Format.sprintf "%s%s/%s" !src suite file2 in
             let dst = Filename.concat cache_dir file2 in
             download dst url)
          sects;

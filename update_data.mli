@@ -17,4 +17,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *)
 
+val src : string ref
+
 val f : string -> string -> string list -> string -> string list -> unit
