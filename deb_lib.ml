@@ -717,8 +717,8 @@ let insert_package pool p =
     List.iter
       (fun l ->
          match l with
-           [(n, None)] -> Extarray.add_to_list pool.provided_packages n p
-         | _           -> assert false)
+           [n,_] -> Extarray.add_to_list pool.provided_packages n p
+         | _   -> assert false)
       p.provides
   end
 
@@ -729,9 +729,9 @@ let remove_package pool p =
   List.iter
     (fun l ->
        match l with
-         [(n, None)] -> Extarray.remove_from_list pool.provided_packages n
-                          (fun q -> q.num = p.num)
-       | _           -> assert false)
+         [n,_] -> Extarray.remove_from_list pool.provided_packages n
+                  (fun q -> q.num = p.num)
+       | _   -> assert false)
     p.provides
 
 let replace_package pool q p =
@@ -743,8 +743,8 @@ let replace_package pool q p =
   List.iter
     (fun l ->
        match l with
-         [(n, None)] -> Extarray.add_to_list pool.provided_packages n p
-       | _           -> assert false)
+         [n,_] -> Extarray.add_to_list pool.provided_packages n p
+       | _   -> assert false)
     p.provides
 
 let parse_packages pool ignored_packages ch =
@@ -783,7 +783,7 @@ let parse_packages pool ignored_packages ch =
     | "Suggests"     -> q.suggests <- parse_rel f true true st; true
     | "Enhances"     -> q.enhances <- parse_rel f true false st; true
     | "Pre-Depends"  -> q.pre_depends <- parse_rel f true true st; true
-    | "Provides"     -> q.provides <- parse_rel f false false st; true
+    | "Provides"     -> q.provides <- parse_rel f true false st; true
     | "Conflicts"    -> q.conflicts <- parse_rel f true false st; true
     | "Breaks"       -> q.breaks <- parse_rel f true false st; true
     | "Replaces"     -> q.replaces <- parse_rel f true false st; true
