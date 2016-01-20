@@ -125,6 +125,9 @@ let add k t =
   in
   ins t
 
+let of_list =
+  List.fold_left (fun t e -> add e t) Empty
+
 (*s The code to remove an element is basically similar to the code of
     insertion. But since we have to maintain the invariant that both
     subtrees of a [Branch] node are non-empty, we use here the 
@@ -441,7 +444,10 @@ module Big = struct
 	    join (k, Leaf k, p, t)
     in
     ins t
-      
+
+  let of_list =
+    List.fold_left (fun t e -> add e t) Empty
+
   let remove k t =
     let rec rmv = function
       | Empty -> Empty
@@ -605,6 +611,9 @@ module BigPos = struct
   let singleton x = if x < 0 then invalid_arg "BigPos.singleton"; singleton x
 
   let add x s = if x < 0 then invalid_arg "BigPos.add"; add x s
+
+  let of_list =
+    List.fold_left (fun t e -> add e t) Empty
 
   (* Patricia trees are now binary search trees! *)
 

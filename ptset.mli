@@ -36,6 +36,8 @@ val find : int -> t -> int
 
 val add : int -> t -> t
 
+val of_list : elt list -> t
+
 val singleton : int -> t
 
 val remove : int -> t -> t
