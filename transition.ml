@@ -2531,10 +2531,10 @@ let generate_hints ?formatter
       end
     with Not_found ->
       (* We are removing a source package. *)
-      assert (arch = "source");
-      let vers =
-        (M.find_source_by_name t (M.id_of_name src)).M.s_version in
-      Format.fprintf f " -%s/%a" src M.print_version vers
+      if arch = "source" then
+        let vers =
+          (M.find_source_by_name t (M.id_of_name src)).M.s_version in
+        Format.fprintf f " -%s/%a" src M.print_version vers
   in
   let print_hint f l =
     let should_show =
