@@ -2551,12 +2551,12 @@ let generate_hints ?formatter
         Format.fprintf f "easy";
         List.iter (fun (src, arch) -> print_pkg f src arch) gen;
         Format.fprintf f "@.";
-        if su <> [] then begin
+        if debug_hints () && su <> [] then begin
           Format.fprintf f "#   ";
           List.iter (fun (src, arch) -> print_pkg f src arch) su;
           Format.fprintf f "@."
         end
-      end else begin
+      end else if debug_hints () then begin
         Format.fprintf f "#easy";
         List.iter (fun (src, arch) -> print_pkg f src arch) su;
         Format.fprintf f "@."
