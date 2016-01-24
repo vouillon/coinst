@@ -61,7 +61,7 @@ clean::
 #####
 
 clean::
-	find . -regex ".*\\.\(cm[oix]\|o\)" | xargs rm -f
+	find . -regex ".*\\.\(cm[toix].?\|o\|annot\)" | xargs rm -f
 
 .SUFFIXES: .cmo .cmi .cmx .ml .mli .mly .mll .idl .o .c
 

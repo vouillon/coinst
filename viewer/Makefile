@@ -53,7 +53,7 @@ clean::
 #####
 
 clean::
-	find . -regex ".*\\.\(cm[oix]\|o\)" | xargs rm -f
+	find . -regex ".*\\.\(cm[toix].?\|o\|annot\)" | xargs rm -f
 
 %.cmx: %.ml
 	$(OCAMLOPT) $(OPTCOMPFLAGS) $(COMPFLAGS) -c $<

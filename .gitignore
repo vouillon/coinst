@@ -1,6 +1,9 @@
 *.o
-*.cm[iox]
+*.cm[tiox]*
 *.byte
+*.annot
+
+graph.dot
 
 *~
 
