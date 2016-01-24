@@ -110,8 +110,8 @@ let recent_issues date output =
 
 let compare_to_stable output =
   let old = temp "stable" in
-  cmd "curl -f -o %s \
-    ftp://ftp.fr.debian.org/debian/dists/stable/main/binary-i386/Packages.gz"
+  cmd "curl L -f -o %s \
+    http://http.debian.net/debian/dists/stable/main/binary-i386/Packages.gz"
     old;
   cmd "../coinst-upgrades %s %s/Packages_i386 -o %s/%s --popcon %s %s"
     old testing dir output popcon break_args
@@ -183,7 +183,7 @@ cmd "mkdir -p %s" dir;
 cmd "rm -f %s/p/*.html" dir;
 List.iter (fun f -> cmd "cp %s %s/" f dir) files;
 cmd "curl -f -o %s http://popcon.debian.org/by_inst.gz" popcon;
-cmd "../comigrate -c %s --source http://ftp.debian.org/debian/dists/ --update" conf;
+cmd "../comigrate -c %s --source http://http.debian.net/debian/dists/ --update" conf;
 recent_issues last_week "issues_week.html";
 recent_issues last_month "issues_month.html";
 compare_to_stable "issues_stable.html";

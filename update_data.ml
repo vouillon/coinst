@@ -21,7 +21,6 @@
 - incremental update using Packages.diff?
 *)
 
-(*let src = "http://ftp.debian.org/debian/dists/"*)
 let src = ref "http://http.debian.net/debian/dists/"
 let hint_src = "https://release.debian.org/britney/hints/"
 let britney_src = "https://release.debian.org/britney/data-b2/"
