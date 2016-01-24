@@ -106,47 +106,48 @@ let dd desc p = p#dd (); desc p
 let print p doc = p#start_doc (); doc p; p#end_doc ()
 
 let html_escape s =
-  let l = String.length s in
+  let s = Bytes.of_string s in
+  let l = Bytes.length s in
   let n = ref 0 in
   for i = 0 to l - 1 do
-    match String.unsafe_get s i with
+    match Bytes.unsafe_get s i with
       '<' | '>' -> n := !n + 3
     | '&'       -> n := !n + 4
     | '\''      -> n := !n + 5
     | _         -> ()
   done;
-  if !n = 0 then s else
-  let s' = String.create (l + !n) in
+  if !n = 0 then Bytes.to_string s else
+  let s' = Bytes.create (l + !n) in
   n := 0;
   for i = 0 to l - 1 do
-    match String.unsafe_get s i with
+    match Bytes.unsafe_get s i with
       '<' ->
-        String.unsafe_set s' !n '&'; incr n;
-        String.unsafe_set s' !n 'l'; incr n;
-        String.unsafe_set s' !n 't'; incr n;
-        String.unsafe_set s' !n ';'; incr n
+        Bytes.unsafe_set s' !n '&'; incr n;
+        Bytes.unsafe_set s' !n 'l'; incr n;
+        Bytes.unsafe_set s' !n 't'; incr n;
+        Bytes.unsafe_set s' !n ';'; incr n
     | '>' ->
-        String.unsafe_set s' !n '&'; incr n;
-        String.unsafe_set s' !n 'g'; incr n;
-        String.unsafe_set s' !n 't'; incr n;
-        String.unsafe_set s' !n ';'; incr n
+        Bytes.unsafe_set s' !n '&'; incr n;
+        Bytes.unsafe_set s' !n 'g'; incr n;
+        Bytes.unsafe_set s' !n 't'; incr n;
+        Bytes.unsafe_set s' !n ';'; incr n
     | '&' ->
-        String.unsafe_set s' !n '&'; incr n;
-        String.unsafe_set s' !n 'a'; incr n;
-        String.unsafe_set s' !n 'm'; incr n;
-        String.unsafe_set s' !n 'p'; incr n;
-        String.unsafe_set s' !n ';'; incr n
+        Bytes.unsafe_set s' !n '&'; incr n;
+        Bytes.unsafe_set s' !n 'a'; incr n;
+        Bytes.unsafe_set s' !n 'm'; incr n;
+        Bytes.unsafe_set s' !n 'p'; incr n;
+        Bytes.unsafe_set s' !n ';'; incr n
     | '\'' ->
-        String.unsafe_set s' !n '&'; incr n;
-        String.unsafe_set s' !n 'a'; incr n;
-        String.unsafe_set s' !n 'p'; incr n;
-        String.unsafe_set s' !n 'o'; incr n;
-        String.unsafe_set s' !n 's'; incr n;
-        String.unsafe_set s' !n ';'; incr n
+        Bytes.unsafe_set s' !n '&'; incr n;
+        Bytes.unsafe_set s' !n 'a'; incr n;
+        Bytes.unsafe_set s' !n 'p'; incr n;
+        Bytes.unsafe_set s' !n 'o'; incr n;
+        Bytes.unsafe_set s' !n 's'; incr n;
+        Bytes.unsafe_set s' !n ';'; incr n
     | c ->
-        String.unsafe_set s' !n c; incr n
+        Bytes.unsafe_set s' !n c; incr n
   done;
-  s'
+  Bytes.to_string s'
 
 class html_printer ch ?stylesheet ?(style="") ?(scripts=[]) title : printer =
 object (self)

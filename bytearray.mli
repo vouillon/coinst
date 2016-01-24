@@ -8,15 +8,15 @@ val create : int -> t
 
 val length : t -> int
 
-val to_string : t -> string
+val to_string : t -> bytes
 
 val of_string : string -> t
 
-val sub : t -> int -> int -> string
+val sub : t -> int -> int -> bytes
 
-val blit_from_string : string -> int -> t -> int -> int -> unit
+val blit_from_bytes : bytes -> int -> t -> int -> int -> unit
 
-val blit_to_string : t -> int -> string -> int -> int -> unit
+val blit_to_bytes : t -> int -> bytes -> int -> int -> unit
 
 val prefix : t -> t -> int -> bool
 

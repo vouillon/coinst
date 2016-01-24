@@ -61,14 +61,14 @@ let function_count = ref 0
 let functions = Hashtbl.create 17
 
 let send pipe i l =
-  let s = Printf.sprintf "%d %d\n" i l in
-  ignore (Unix.write pipe s 0 (String.length s))
+  let s = Bytes.of_string (Printf.sprintf "%d %d\n" i l) in
+  ignore (Unix.write pipe s 0 (Bytes.length s))
 
 let receive pipe =
-  let s = String.create 50 in
-  let len = Unix.read pipe s 0 (String.length s) in
+  let s = Bytes.create 50 in
+  let len = Unix.read pipe s 0 (Bytes.length s) in
   if len = 0 then exit 1;
-  Scanf.sscanf s "%d %d" (fun i l -> (i, l))
+  Scanf.sscanf (Bytes.to_string s) "%d %d" (fun i l -> (i, l))
 
 let read mem l =
   let t = Utimer.start () in

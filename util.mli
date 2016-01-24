@@ -61,7 +61,7 @@ module StringTbl : Hashtbl.S with type key = string
 module IntTbl : Hashtbl.S with type key = int
 
 val array_extend : 'a array -> int -> 'a -> 'a array
-val string_extend : string -> int -> char -> string
+val bytes_extend : bytes -> int -> char -> bytes
 
 val print_list :
   (Format.formatter -> 'a -> unit) -> string ->

@@ -69,9 +69,9 @@ let cached ?(force=false) files cache magic ?(is_valid=fun _ -> true) f =
           ||
         (try
            let l = String.length magic in
-           let s = String.create l in
+           let s = Bytes.create l in
            really_input ch s 0 l;
-           s <> magic
+           (Bytes.to_string s) <> magic
          with End_of_file ->
            true)
   in
@@ -80,12 +80,12 @@ let cached ?(force=false) files cache magic ?(is_valid=fun _ -> true) f =
   else begin
     match ch with
       Some ch ->
-        let uid = String.create 16 in
+        let uid = Bytes.create 16 in
         really_input ch uid 0 16;
         let res = Marshal.from_channel ch in
         close_in ch;
         if is_valid res then
-          (res, uid)
+          (res, Bytes.to_string uid)
         else
           recompute cache magic f None
     | None ->

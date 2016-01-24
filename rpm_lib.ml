@@ -57,14 +57,14 @@ let intern_typ i =
          UNKOWNTYPE i
 
 let substring ch l =
- let s = String.create l in
+ let s = Bytes.create l in
  really_input ch s 0 l;
  s
 
 let int ch =
   let s = substring ch 4 in
-  Char.code s.[0] lsl 24 + Char.code s.[1] lsl 16 +
-  Char.code s.[2] lsl 8 + Char.code s.[3]
+  Char.code (Bytes.get s 0) lsl 24 + Char.code (Bytes.get s 1) lsl 16 +
+  Char.code (Bytes.get s 2) lsl 8 + Char.code (Bytes.get s 3)
 
 let sstring store pos =
   let len = ref 0 in
@@ -713,7 +713,8 @@ let dump_fields = ref false
 
 let parse_header pool ignored_packages ch =
   let h = substring ch 8 in
-  if not (h.[0] = '\142' && h.[1] = '\173' && h.[2] = '\232') then
+  let get = Bytes.get in
+  if not (get h 0 = '\142' && get h 1 = '\173' && get h 2 = '\232') then
     Util.fail "Bad header";
   let entry_count = int ch in
   let sz = int ch in
@@ -729,6 +730,7 @@ let parse_header pool ignored_packages ch =
   done;
   Array.sort (fun (tag1, _, _, _) (tag2, _, _, _) -> compare tag1 tag2) entry;
   let store = substring ch sz in
+  let store = Bytes.to_string store in
   try
     let i = move_to entry 0 _NAME in
     let name = estring store entry i _NAME in

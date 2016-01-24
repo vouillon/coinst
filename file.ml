@@ -19,7 +19,7 @@
 
 let rec read_write ic oc =
   let bufsize = 4096 in
-  let buf = String.create bufsize in
+  let buf = Bytes.create bufsize in
   let rec read () =
     let n = input ic buf 0 bufsize in
     if n > 0 then begin
@@ -85,13 +85,13 @@ let pipe ic cmd =
 
 let has_magic ch s =
   let l = String.length s in
-  let buf = String.create l in
+  let buf = Bytes.create l in
   let i = ref 0 in
   while
     !i < l && (let n = input ch buf !i (l - !i) in i := !i + n; n > 0)
   do () done;
   if !i > 0 then seek_in ch (pos_in ch - !i);
-  !i = l && buf = s
+  !i = l && (Bytes.to_string buf) = s
 
 let filter ch =
   if has_magic ch "\031\139" then pipe ch "exec gzip -cd" else

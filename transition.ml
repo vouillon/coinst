@@ -1069,7 +1069,7 @@ let is_unchanged st unch nm =
 (**** Prepare repositories before looking for (co-)installability issues ****)
 
 let compute_reverse_dependencies st d id_tbl =
-  let rdeps = Array.create (Array.length st.bin_of_id) [] in
+  let rdeps = Array.make (Array.length st.bin_of_id) [] in
   let add_rdep src_id dep =
     List.iter
       (fun cstr ->

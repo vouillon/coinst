@@ -28,8 +28,8 @@ module Extarray = struct
 
   let create def =
     { def = def;
-      a = Array.create 16000 def;
-      b = Array.create 16000 false }
+      a = Array.make 16000 def;
+      b = Array.make 16000 false }
 
   let get a i =
     a.a.(i)
@@ -55,10 +55,10 @@ module Extarray = struct
 
   let resize a i =
     let l = Array.length a.a in
-    let a' = Array.create (2 * l) a.def in
+    let a' = Array.make (2 * l) a.def in
     Array.blit a.a 0 a' 0 l;
     a.a <- a';
-    let b' = Array.create (2 * l) false in
+    let b' = Array.make (2 * l) false in
     Array.blit a.b 0 b' 0 l;
     a.b <- b'
     
@@ -132,44 +132,44 @@ end
 
 let len = 4096
 type st =
-  { buf : string;
+  { buf : bytes;
     mutable pos : int;
     mutable last : int;
     mutable start : int;
     mutable eof : bool;
-    input : string -> int -> int -> int }
+    input : bytes -> int -> int -> int }
 
 let start_token st = st.start <- st.pos
 
 let get_token st ofs =
-  let t = String.sub st.buf st.start (st.pos - st.start - ofs) in
+  let t = Bytes.sub st.buf st.start (st.pos - st.start - ofs) in
   st.start <- -1;
-  t
+  Bytes.to_string t
 
 let get_token_suffixed st ofs suffix =
   let len = st.pos - st.start - ofs in
   let len' = String.length suffix in
-  let t = String.create (len + len') in
-  String.blit st.buf st.start t 0 len;
-  String.blit suffix 0 t len len';
+  let t = Bytes.create (len + len') in
+  Bytes.blit st.buf st.start t 0 len;
+  Bytes.blit (Bytes.of_string suffix) 0 t len len';
   st.start <- -1;
   t
 
 let ignore_token st = st.start <- -1
 
 let from_channel ch =
-  let buf = String.create len in
+  let buf = Bytes.create len in
   { buf = buf; pos = 0; last = 0; eof = false; start = -1;
     input = fun buf pos len -> input ch buf pos len }
 
-let from_string s =
-  { buf = s; pos = 0; last = String.length s; eof = false; start = -1;
+let from_bytes s =
+  { buf = s; pos = 0; last = Bytes.length s; eof = false; start = -1;
     input = fun _ _ _ -> 0 }
 
 let refill st =
   if st.start <> -1 then begin
     st.pos <- st.pos - st.start;
-    String.blit st.buf st.start st.buf 0 st.pos;
+    Bytes.blit st.buf st.start st.buf 0 st.pos;
     st.start <- 0
   end else
     st.pos <- 0;
@@ -181,7 +181,7 @@ let rec next st =
   let pos = st.pos in
   if pos < st.last then begin
     st.pos <- st.pos + 1;
-    st.buf.[pos]
+    Bytes.get st.buf pos
   end else if st.eof then '\n' else begin
     refill st;
     next st
@@ -197,7 +197,7 @@ let unread st =
 let rec accept st c =
   let pos = st.pos in
   if pos < st.last then begin
-    if st.buf.[pos] = c then begin
+    if Bytes.get st.buf pos = c then begin
       st.pos <- st.pos + 1;
       true
     end else
@@ -212,7 +212,7 @@ let rec accept st c =
 let rec find st c =
   let pos = st.pos in
   if pos < st.last then begin
-    let c' = st.buf.[pos] in
+    let c' = Bytes.get st.buf pos in
     st.pos <- st.pos + 1;
     c' = c
       ||
@@ -228,7 +228,7 @@ let rec find st c =
 let rec find_rec st c buf last =
   let pos = st.pos in
   if pos < last then begin
-    let c' = String.unsafe_get buf pos in
+    let c' = Bytes.unsafe_get buf pos in
     st.pos <- pos + 1;
     c' = c
       ||
@@ -249,13 +249,13 @@ let at_eof st =
 
 let print_location st =
   let i = ref (max (st.pos - 2) 0) in
-  while !i > 0 && (st.buf.[!i] <> '\n' || st.buf.[!i + 1] <> '\n') do
+  while !i > 0 && (Bytes.get st.buf !i <> '\n' || Bytes.get st.buf (!i + 1) <> '\n') do
     decr i
   done;
-  if st.buf.[!i] = '\n' && st.buf.[!i + 1] = '\n' then i := !i + 2;
+  if Bytes.get st.buf !i = '\n' && Bytes.get st.buf (!i + 1) = '\n' then i := !i + 2;
   Format.eprintf "%s<HERE>%s@."
-    (String.sub st.buf !i (st.pos - !i))
-    (String.sub st.buf st.pos (st.last - st.pos))
+    (String.sub (Bytes.to_string st.buf) !i (st.pos - !i))
+    (String.sub (Bytes.to_string st.buf) st.pos (st.last - st.pos))
 
 let fail st s =
   print_location st;
@@ -460,30 +460,30 @@ module Version = struct
 
   let print ch v =
     let len = String.length v - 2 in
-    let s = String.sub v 0 len in
+    let s = Bytes.sub (Bytes.of_string v) 0 len in
     for i = 0 to len - 1 do
-      if s.[i] = ' ' then s.[i] <- '-'
+      if Bytes.get s i = ' ' then Bytes.set s i '-'
     done;
-    Format.fprintf ch "%s" s
+    Format.fprintf ch "%s" (Bytes.to_string s)
 
   let to_string v =
     let len = String.length v - 2 in
-    let s = String.sub v 0 len in
+    let s = Bytes.sub (Bytes.of_string v) 0 len in
     for i = 0 to len - 1 do
-      if s.[i] = ' ' then s.[i] <- '-'
+      if Bytes.get s i = ' ' then Bytes.set s i '-'
     done;
-    s
+    Bytes.to_string s
 
   let dummy = ""
 
   let get st =
     let v = get_token_suffixed st 0 "  " in
     try
-      let i = String.rindex v '-' in
-      v.[i] <- ' ';
-      v
+      let i = Bytes.rindex v '-' in
+      Bytes.set v i ' ';
+      Bytes.to_string v
     with Not_found ->
-      v
+      Bytes.to_string v
 end
 
 let print_version = Version.print
@@ -1075,7 +1075,7 @@ let generate_rules_restricted pool s =
 (****)
 
 let parse_package_dependency pool s =
-  let st = from_string s in
+  let st = from_bytes (Bytes.of_string s) in
   let d = parse_package_dep "" true st in
   if not (at_eof st) then
     fail st (Format.sprintf "bad character '%c'" (next st));
@@ -1086,7 +1086,7 @@ let parse_package_name pool s =
     (Extarray.get_list pool.packages_by_name (Dict.add !dict s))
 
 let parse_version s =
-  let st = from_string s in
+  let st = from_bytes (Bytes.of_string s) in
   skip_whitespaces st;
   let v = parse_version st in
   skip_whitespaces st;
