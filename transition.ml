@@ -2547,7 +2547,7 @@ let generate_hints ?formatter
     if should_show then begin
       let (su, gen) =
         List.partition (fun (src, arch) -> is_smooth_update src) l in
-      if gen <> [] then begin
+      if List.length gen > 1 then begin
         Format.fprintf f "easy";
         List.iter (fun (src, arch) -> print_pkg f src arch) gen;
         Format.fprintf f "@.";
