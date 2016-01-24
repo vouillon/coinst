@@ -1,3 +1,21 @@
+===== 1.9.2 (2016-01-24) =====
+
+* Add build targets for bytecode binaries
+* Do not generate easy hints with one single package in comigrate
+* Do not try to hint removal of binary packages in comigrate since
+  britney doesn't know how to handle those. Only source removals
+  are supported for now
+* Avoid crashing when reading a verisoned Provides field. Support
+  to fully handle versioned provides will come in a later version
+* Build using -annot and -bin-annot by default
+* Update list of architectures in comigrate: i386, amd64, arm64,
+  armel, armhf, mips, mipsel, powerpc, ppc64el and s390x
+* Build with -safe-string
+* Stop using Format.bprintf
+* Compiles with OCaml 4.02.3
+* Use http://http.debian.net/debian as a default mirror
+* Coinst: Print package version when printing final report
+
 ===== 1.9.1 (2014-01-17) =====
 
 * Comigrate and coinst-upgrades can now be used to compute a detailed

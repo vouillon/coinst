@@ -1,4 +1,4 @@
-VERSION=1.01
+VERSION=1.9.2
 COINST=coinst
 UPGRADE=coinst-upgrades
 TRANS=comigrate
