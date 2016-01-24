@@ -319,14 +319,14 @@ exception Skip
 let check_entry tag typ tag' typ' =
   if tag <> tag' then begin
     let b = Buffer.create 80 in
-    Format.bprintf b "Expected tag %a but actual tag is %a@?"
+    Util.bprintf b "Expected tag %a but actual tag is %a@?"
       pr_tag tag pr_tag tag';
     Util.print_warning (Buffer.contents b);
     raise Skip
   end;
   if typ <> typ' then begin
     let b = Buffer.create 80 in
-    Format.bprintf b "Entry %a has expected type %a but actual typ is %a@?"
+    Util.bprintf b "Entry %a has expected type %a but actual typ is %a@?"
       pr_tag tag pr_typ typ pr_typ typ';
     Util.fail (Buffer.contents b)
   end
@@ -336,7 +336,7 @@ let estring store entry i tag =
   check_entry tag STRING tag' typ;
   if count <> 1 then begin
     let b = Buffer.create 80 in
-    Format.bprintf b "Entry %a has type STRING with count %d > 1@?"
+    Util.bprintf b "Entry %a has type STRING with count %d > 1@?"
       pr_tag tag count;
     Util.fail (Buffer.contents b)
   end;
@@ -352,7 +352,7 @@ let eint32 store entry i tag =
   check_entry tag INT32 tag' typ;
   if count <> 1 then begin
     let b = Buffer.create 80 in
-    Format.bprintf b "Expecting a single INT32 for entry %a but got %d@?"
+    Util.bprintf b "Expecting a single INT32 for entry %a but got %d@?"
       pr_tag tag count;
     Util.fail (Buffer.contents b)
   end;
@@ -536,7 +536,7 @@ let parse_version s =
       match release with Some r -> check_version r | _ -> false
     then begin
       let b = Buffer.create 80 in
-      Format.bprintf b
+      Util.bprintf b
         "version '%a' not ending with an alphanumeric character@?"
         pr_version (epoch, version, release, distepoch);
       Util.print_warning (Buffer.contents b)
