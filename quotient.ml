@@ -133,9 +133,9 @@ let perform pool ?packages deps =
 let print_class quotient ch p =
   let n = PSet.cardinal (PMap.find p quotient.repr_map) in
   if n = 1 then
-    Format.fprintf ch "%a" (Package.print_name quotient.pool) p
+    Format.fprintf ch "%a" (Package.print quotient.pool) p
   else
-    Format.fprintf ch "%a (x %d)" (Package.print_name quotient.pool) p n
+    Format.fprintf ch "%a (x %d)" (Package.print quotient.pool) p n
 
 let print quotient deps =
   (* Output equivalence classes *)
