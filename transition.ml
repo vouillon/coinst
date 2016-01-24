@@ -60,9 +60,8 @@ LATER
 (**** Configuration settings ****)
 
 let archs =
-  ref ["i386"; "sparc"; "powerpc"; "armel"; "ia64"; "mips";
-       "mipsel"; "s390"; "amd64"; "kfreebsd-i386"; "kfreebsd-amd64";
-       (*"armhf"; "s390x"*)]
+  ref ["i386"; "amd64"; "arm64"; "armel"; "armhf"; "mips"; "mipsel";
+       "powerpc"; "ppc64el"; "s390x"]
 let smooth_updates = ref ["libs"; "oldlibs"]
 
 let dir = ref ""
