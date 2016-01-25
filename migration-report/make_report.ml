@@ -110,7 +110,7 @@ let recent_issues date output =
 
 let compare_to_stable output =
   let old = temp "stable" in
-  cmd "curl L -f -o %s \
+  cmd "curl -L -f -o %s \
     http://http.debian.net/debian/dists/stable/main/binary-i386/Packages.gz"
     old;
   cmd "../coinst-upgrades %s %s/Packages_i386 -o %s/%s --popcon %s %s"
