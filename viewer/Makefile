@@ -28,7 +28,7 @@ coinst_viewer: $(OBJS)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^
 
 coinst_viewer.byte: $(OBJS:.cmx=.cmo)
-       $(OCAMLC) -o $@  $(OPTLINKFLAGS) $^
+	$(OCAMLC) -o $@  $(OPTLINKFLAGS) $^
 
 coinst_converter: $(CONVERTER)
 	$(OCAMLOPT) -o $@  $(OPTLINKFLAGS) $^
