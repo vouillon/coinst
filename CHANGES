@@ -1,3 +1,9 @@
+===== 1.9.3 (2016-02-13) =====
+
+* Show single-package hints when asked to (using --hints)
+* Fix buffering bug when printing hints
+* Fix space/tab issue in Makefile
+
 ===== 1.9.2 (2016-01-24) =====
 
 * Add build targets for bytecode binaries
