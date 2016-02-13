@@ -1,6 +1,6 @@
 ===== 1.9.3 (2016-02-13) =====
 
-* Show single-package hints when asked to (using --hints)
+* Show single-package hints when asked to (using --all-hints)
 * Fix buffering bug when printing hints
 * Fix space/tab issue in Makefile
 
