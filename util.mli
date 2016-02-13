@@ -102,5 +102,3 @@ end
 val trim : string -> string
 
 val date : unit -> string
-
-val bprintf : Buffer.t -> ('a -> 'b, Format.formatter, unit) format -> 'a -> 'b

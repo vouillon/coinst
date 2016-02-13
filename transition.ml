@@ -2464,7 +2464,7 @@ let collect_changes st (unchanged, subset, src_unchanged) =
          let src =
            if smooth_update then begin
              let b = Buffer.create 20 in
-             Util.bprintf b "-%s/%s/%a"
+             Format.bprintf b "-%s/%s/%a%!"
                (M.name_of_id nm) st.arch M.print_version v;
              Buffer.contents b
            end else
@@ -2592,7 +2592,7 @@ let heidi_line lines nm vers arch sect =
   Buffer.add_string heidi_buffer sect;
   Buffer.add_char heidi_buffer '\n';
 (*
-  Util.bprintf heidi_buffer "%s %a %s %s@."
+  Format.bprintf heidi_buffer "%s %a %s %s@."
     nm M.print_version vers arch sect;
 *)
   lines := Buffer.contents heidi_buffer :: !lines;
@@ -2750,29 +2750,30 @@ let analyze_migration
       !lst;
     let lst =
       let b = Buffer.create 80 in
+      let to_b = Format.formatter_of_buffer b in
       List.map
         (fun (p, reason) ->
            Buffer.clear b;
            begin match reason with
              Not_yet_built (nm, _, _, outdated) ->
                if outdated then
-                 Util.bprintf b "# remove outdated binary package %a"
+                 Format.fprintf to_b "# remove outdated binary package %a"
                    print_package p
                else
-                 Util.bprintf b "# remove obsolete binary package %a"
+                 Format.fprintf to_b "# remove obsolete binary package %a"
                    print_package p
            | Blocked (kind, _) ->
                let (src, _) = get_name_arch p in
                let vers =
                  (M.find_source_by_name u (M.id_of_name src)).M.s_version
                in
-               Util.bprintf b "un%s %s/%a" kind src M.print_version vers
+               Format.fprintf to_b "un%s %s/%a" kind src M.print_version vers
            | Too_young (cur_ag, _) ->
                let (src, _) = get_name_arch p in
                let vers =
                  (M.find_source_by_name u (M.id_of_name src)).M.s_version
                in
-               Util.bprintf b "age-days %d %s/%a"
+               Format.fprintf to_b "age-days %d %s/%a"
                  cur_ag src M.print_version vers
            | More_bugs s ->
                let print_bugs =
@@ -2783,13 +2784,13 @@ let analyze_migration
                  let vers =
                    (M.find_source_by_name u (M.id_of_name nm)).M.s_version
                  in
-                 Util.bprintf b "# source package %s/%a: fix "
+                 Format.fprintf to_b "# source package %s/%a: fix "
                    nm M.print_version vers;
                  if StringSet.cardinal s = 1 then
-                   Util.bprintf b "bug %a"
+                   Format.fprintf to_b "bug %a"
                      print_bugs (StringSet.elements s)
                  else
-                   Util.bprintf b "bugs %a"
+                   Format.fprintf to_b "bugs %a"
                      print_bugs (StringSet.elements s)
                end else begin
                  let s =
@@ -2800,7 +2801,7 @@ let analyze_migration
                      s
                  in
                  if not (StringSet.is_empty s) then begin
-                   Util.bprintf b "# binary package %s: fix bugs %a"
+                   Format.fprintf to_b "# binary package %s: fix bugs %a"
                      nm print_bugs (StringSet.elements s)
                  end
                end
@@ -2808,6 +2809,7 @@ let analyze_migration
            | Binary_not_added | Binary_not_removed | Unchanged ->
                assert false
            end;
+           Format.pp_print_flush to_b ();
            Buffer.contents b)
         (List.rev !lst)
     in

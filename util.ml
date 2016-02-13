@@ -325,7 +325,3 @@ let date () =
   Format.sprintf "%s, %d %s %d %02d:%02d:%02d UTC"
     days.(t.Unix.tm_wday - 1) t.Unix.tm_mday months.(t.Unix.tm_mon)
     (t.Unix.tm_year + 1900)  t.Unix.tm_hour t.Unix.tm_min t.Unix.tm_sec
-
-let bprintf b f x =
-  let to_b = Format.formatter_of_buffer b in
-  Format.fprintf to_b f x
