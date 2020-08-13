@@ -113,8 +113,9 @@ let spawn f =
     let (sr, cw) = Unix.pipe () in
     let fd = Unix.openfile "/dev/zero" [Unix.O_RDWR] 0 in
     let mem =
-      Bigarray.Array1.map_file
-        fd Bigarray.char Bigarray.c_layout true mem_size
+      Unix.map_file
+        fd Bigarray.char Bigarray.c_layout true [|mem_size|]
+      |> Bigarray.array1_of_genarray
     in
     Unix.close fd;
     match Unix.fork () with

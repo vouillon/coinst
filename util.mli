@@ -43,7 +43,7 @@ module Utimer : sig
   val stop : t -> float
 end
 
-module IntSet : Set.S with type elt = int
+module IntSet : Ptset.SET_SIG with type elt = int
 module StringSet : Set.S with type elt = string
 
 module ListTbl : sig
