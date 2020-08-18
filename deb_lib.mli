@@ -68,7 +68,7 @@ module PkgDenseTbl : sig
   val remove : 'a t -> package_name -> unit
   val iteri : (package_name -> 'a -> unit) -> 'a t -> unit
 end
-module PkgSet : Set.S with type elt = package_name
+module PkgSet : Ptset.SET_SIG with type elt = package_name
 
 val find_package_by_num : pool -> int -> p
 val find_packages_by_name : pool -> package_name -> p list

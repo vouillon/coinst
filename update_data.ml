@@ -23,12 +23,12 @@
 
 let src = ref "http://http.debian.net/debian/dists/"
 let hint_src = "https://release.debian.org/britney/hints/"
-let britney_src = "https://release.debian.org/britney/data-b2/"
+let britney_src = "https://release.debian.org/britney/state/"
 let britney_files =
-  [("Dates", `Testing, "Dates");
-   ("Urgency", `Testing, "Urgency");
-   ("testing_BugsV", `Testing, "BugsV");
-   ("unstable_BugsV", `Unstable, "BugsV")]
+  [("age-policy-dates", `Testing, "Dates");
+   ("age-policy-urgencies", `Testing, "Urgency");
+   ("rc-bugs-testing", `Testing, "BugsV");
+   ("rc-bugs-unstable", `Unstable, "BugsV")]
 
 let sects = ["main"; "contrib"; "non-free"]
 

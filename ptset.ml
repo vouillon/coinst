@@ -15,6 +15,40 @@
 
 (*i $Id: ptset.ml,v 1.17 2008-07-22 06:44:06 filliatr Exp $ i*)
 
+(*s Restricted Set.S signature *)
+
+module type SET_SIG = sig
+  type elt
+  type t
+  val empty : t
+  val is_empty : t -> bool
+  val mem : elt -> t -> bool
+  val find : elt -> t -> int
+  val add : elt -> t -> t
+  val of_list : elt list -> t
+  val singleton : elt -> t
+  val remove : elt -> t -> t
+  val union : t -> t -> t
+  val subset : t -> t -> bool
+  val inter : t -> t -> t
+  val diff : t -> t -> t
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val elements : t -> elt list
+  val choose : t -> elt
+  val cardinal : t -> int
+  val iter : (elt -> unit) -> t -> unit
+  val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a
+  val for_all : (elt -> bool) -> t -> bool
+  val exists : (elt -> bool) -> t -> bool
+  val filter : (elt -> bool) -> t -> t
+  val partition : (elt -> bool) -> t -> t * t
+  val split : elt -> t -> t * bool * t
+  val min_elt : t -> int
+  val max_elt : t -> int
+  val intersect : t -> t -> bool
+end
+
 (*s Sets of integers implemented as Patricia trees, following Chris
     Okasaki and Andrew Gill's paper {\em Fast Mergeable Integer Maps}
     ({\tt\small http://www.cs.columbia.edu/\~{}cdo/papers.html\#ml98maps}).

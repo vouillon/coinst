@@ -30,7 +30,7 @@ module type S = sig
     val of_index_list : int list -> t list
   end
 
-  module PSet : Set.S with type elt = Package.t
+  module PSet : Ptset.SET_SIG with type elt = Package.t
   module PMap : Map.S with type key = Package.t
   val pset_indices : PSet.t -> Util.IntSet.t
 
